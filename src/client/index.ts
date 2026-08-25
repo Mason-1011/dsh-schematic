@@ -1,25 +1,35 @@
 /**
- * Browser half of dsh-schematic: one sidebar footer action in the dsh web
- * SPA that opens the standalone /schematic page (served by the host half)
- * in a new tab, plus the ask-in-chat hand-off. The viewer page's ask
- * button opens the SPA with ?sch-ask=…; this half turns the params into a
- * fresh ungrouped session (no workspace) with a starter question prefilled
+ * Browser half of dsh-schematic: one settings section in the dsh web SPA
+ * whose single action opens the standalone /schematic page (served by the
+ * host half) in a new tab, plus the ask-in-chat hand-off. The viewer page's
+ * ask button opens the SPA with ?sch-ask=…; this half turns the params into
+ * a fresh ungrouped session (no workspace) with a starter question prefilled
  * in the composer — draft only, sending stays with the user. The question's
- * language follows the SPA's active locale (browser/system-derived until
- * the user overrides it in settings).
+ * language follows the SPA's active locale (browser/system-derived until the
+ * user overrides it in settings).
  *
  * Bundle: scripts/build-client.mjs emits dist/client.js as a lazy-CJS
  * factory artifact — the format packages/client/tsdown.client.ts produces
  * in-repo (window.__ModuleLoader__.load({ id, factory })).
  */
 
-import { SchematicFooterAction, FOOTER_ACTION_CSS } from './FooterAction.tsx'
+import { SchematicSettingsSection, SETTINGS_SECTION_CSS } from './SettingsSection.tsx'
 
 /** Locale dictionary namespace owned by this plugin. */
-const NS = 'schematic'
+const NS = 'settings.schematic'
 
-const zh = { open: '插件拓扑' }
-const en = { open: 'Plugin topology' }
+const zh = {
+  section: '插件拓扑',
+  rowTitle: '插件拓扑',
+  rowDesc: '在新的浏览器标签页中打开实时插件拓扑查看器',
+  open: '打开',
+}
+const en = {
+  section: 'Plugin topology',
+  rowTitle: 'Plugin topology',
+  rowDesc: 'Open the live plugin-topology viewer in a new browser tab',
+  open: 'Open',
+}
 
 export const inject = ['slots', 'locale', 'sessions']
 
@@ -131,23 +141,24 @@ function askInChat(ctx: SchematicCtx, name: string, id: string): void {
   })()
 }
 
-/** Contribute the footer action, then run the ask hand-off if requested. */
+/** Contribute the settings section, then run the ask hand-off if requested. */
 export function apply(ctx: SchematicCtx): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-schematic: dictionaries')
   const t = ctx.locale.bind(NS)
-  if (document.querySelector('style[data-schematic-foot-css]') === null) {
+  if (document.querySelector('style[data-schematic-settings-css]') === null) {
     const tag = document.createElement('style')
-    tag.dataset.schematicFootCss = ''
-    tag.textContent = FOOTER_ACTION_CSS
+    tag.dataset.schematicSettingsCss = ''
+    tag.textContent = SETTINGS_SECTION_CSS
     document.head.appendChild(tag)
   }
-  ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
-    name: 'sidebar.footer.action',
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
     id: 'schematic',
-    order: 10,
-    label: () => t('open'),
+    order: 90,
+    label: () => t('section'),
     locale: NS,
-  }, SchematicFooterAction))
+    inject: () => ({}),
+  }, SchematicSettingsSection))
   const ask = consumeAskParams()
   if (ask !== null) askInChat(ctx, ask.name, ask.id)
 }
