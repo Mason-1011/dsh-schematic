@@ -1,0 +1,18 @@
+{
+  "name": "dsh-schematic",
+  "version": "0.0.1",
+  "description": "Read — and rewrite — the wiring of your DeepSeek Harness: interactive plugin topology, composition workbench, seam-aware installer. (Early development; name reserved.)",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "dsh-plugin",
+    "cordis",
+    "topology",
+    "dependency-graph",
+    "plugin-visualizer",
+    "schematic",
+    "plugin-manager",
+    "agent-harness"
+  ],
+  "license": "MIT"
+}
