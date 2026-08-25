@@ -38,6 +38,7 @@ The agent already has its own "creative mode" (self-modification tools that insp
 - v0.0.x — name reserved, positioning docs
 - v0.1 — static topology: scan a harness checkout, render the plugin dependency graph from `inject` declarations
 - v0.2 — live topology (shipped): mounts as a plugin, merges the Cordis runtime × loader streams, serves the viewer at `/schematic` with a one-click EN⇄中文 whole-page switch (descriptions batch-translated by the in-process LLM, identifiers kept in English), a dsh settings section that opens the viewer in a new tab, and an ask-in-chat hand-off that prefills a fresh ungrouped conversation
+- v0.2.5 — readable topology (shipped): three tabs — journey (one message's path through the runtime as eight stage cards with the ctx keys exchanged between stages), domains (family cards group same-prefix packages without a capability seam; every edge is an arrow with a hover card naming consumer, provider, and the injected ctx keys), table; live refresh every 5s with a change toast, new plugins pulse, `?tab=` deep links
 - v0.3 — composition edits with patch preview
 - v0.4 — seam-aware market panel
 

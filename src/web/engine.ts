@@ -77,6 +77,34 @@ const T: Record<string, { en: string; zh: string }> = {
   loadFail:        { en: 'failed to load /schematic/graph.json — is the plugin mounted?', zh: '加载 /schematic/graph.json 失败——插件挂载了吗?' },
   originLbl:       { en: 'origin:', zh: '来源:' },
   extKeys:         { en: 'external keys', zh: '外部键' },
+  tabJourney:      { en: 'journey', zh: '旅程' },
+  tabDomains:      { en: 'domains', zh: '分域' },
+  tabTable:        { en: 'table', zh: '表格' },
+  journeyHint:     { en: 'One message, left to right: UI → connection → session & loop → context → model → tools. Persistence and support ride alongside.', zh: '一条消息从左到右:界面 → 连接 → 会话与循环 → 上下文 → 模型 → 工具;记录与支撑在旁路随行。' },
+  statsJourney:    { en: '{m} mounted · arranged as one message\'s journey', zh: '已挂载 {m} · 按一条消息的旅程排列' },
+  stgUi:           { en: 'Browser UI', zh: '网页界面' },
+  stgUiD:          { en: 'Conversations, sidebar, settings — turns clicks into RPCs.', zh: '对话、侧栏、设置——把点击变成 RPC 请求。' },
+  stgGw:           { en: 'Connection & gateway', zh: '连接与网关' },
+  stgGwD:          { en: 'The wire between browser and process: fetch/RPC gateway.', zh: '浏览器与 dsh 进程之间的通道:fetch/RPC 网关。' },
+  stgSess:         { en: 'Sessions & agent loop', zh: '会话与代理循环' },
+  stgSessD:        { en: 'Session service, agents, the loop itself, approvals, presets.', zh: '会话服务、代理、主循环本体、审批与预设。' },
+  stgCtx:          { en: 'Context assembly', zh: '上下文组装' },
+  stgCtxD:         { en: 'System prompt, skills catalog, compaction, request context.', zh: '系统提示、技能目录、压缩、请求上下文。' },
+  stgModel:        { en: 'Model call', zh: '模型调用' },
+  stgModelD:       { en: 'LLM service definition and the DeepSeek providers.', zh: 'LLM 服务定义与 DeepSeek 提供者。' },
+  stgTools:        { en: 'Tool execution', zh: '工具执行' },
+  stgToolsD:       { en: 'Tool registry plus the executors: shell, fs, web, …', zh: '工具注册表与各执行器:shell、fs、web……' },
+  stgPersist:      { en: 'Logging & telemetry', zh: '记录与遥测' },
+  stgPersistD:     { en: 'Session log, projections, titles, telemetry.', zh: '会话日志、投影、标题、遥测。' },
+  stgSupport:      { en: 'Supporting services', zh: '支撑服务' },
+  stgSupportD:     { en: 'Settings, locale, identity, credentials, boot glue.', zh: '设置、语言、身份、凭据、启动粘合。' },
+  edgeUse:         { en: '{a} uses services provided by {b}', zh: '{a} 使用 {b} 提供的服务' },
+  edgeDir:         { en: 'arrow = consumer → provider; keys are ctx service names', zh: '箭头 = 使用者 → 提供者;键为 ctx 服务名' },
+  legendEdge:      { en: 'A → B: A injects ctx services B provides', zh: 'A → B:A 注入 B 提供的 ctx 服务' },
+  familyTip:       { en: 'same package family — no capability seam between them', zh: '同包前缀家族——彼此未构成能力接缝' },
+  familyMembers:   { en: 'family members', zh: '家族成员' },
+  changedToast:    { en: 'topology changed: +{a} · −{r}', zh: '拓扑变化:+{a} · −{r}' },
+  autoTitle:       { en: 'toggle auto-refresh (every 5s)', zh: '切换自动刷新(每 5 秒)' },
 }
 
 const CATS = [
@@ -89,6 +117,71 @@ const CATS = [
   { id: 'host-protocol',      label: 'Host, boot & protocol',   zh: '宿主·启动与协议',    css: '--s7' },
   { id: 'web-client',         label: 'Web client',              zh: '网页客户端',         css: '--s8' },
 ]
+
+/**
+ * The message journey: stages a chat message actually travels, in order.
+ * Membership is derived from the live graph (capability keys first, package
+ * family as fallback); the first matching stage claims a node, so the order
+ * of this list is the assignment priority. `css` colors the stage card.
+ */
+const STAGES: {
+  id: string
+  title: string
+  desc: string
+  css: string
+  match: (n: any, has: (k: string) => boolean) => boolean
+}[] = [
+  {
+    id: 'ui', title: 'stgUi', desc: 'stgUiD', css: '--s8',
+    match: (n) => n.category === 'web-client',
+  },
+  {
+    id: 'gw', title: 'stgGw', desc: 'stgGwD', css: '--s1',
+    match: (n, has) => has('connection') || has('remote') || has('apiProxy')
+      || ['apiProxy', 'remote', 'connection', 'webRuntime', 'webServer'].some((k) => n.provides.includes(k))
+      || ['sdk', 'acp', 'api'].includes(n.group),
+  },
+  {
+    id: 'persist', title: 'stgPersist', desc: 'stgPersistD', css: '--s5',
+    match: (n) => n.group === 'session' || n.provides.includes('sessionProjections'),
+  },
+  {
+    id: 'model', title: 'stgModel', desc: 'stgModelD', css: '--s2',
+    match: (n) => n.provides.includes('llm') || n.group === 'llm',
+  },
+  {
+    id: 'tools', title: 'stgTools', desc: 'stgToolsD', css: '--s3',
+    match: (n) => n.provides.includes('tools')
+      || /^tool-|:tool-/.test(n.id)
+      || ['tools', 'shell', 'subprocess', 'terminal', 'fs', 'lsp', 'e2b', 'sandbox', 'web',
+        'workflow', 'todo', 'plan', 'self-modification', 'hooks'].includes(n.group),
+  },
+  {
+    id: 'sess', title: 'stgSess', desc: 'stgSessD', css: '--s7',
+    match: (n, has) => !['compaction', 'skill', 'context', 'system', 'spill'].includes(n.group)
+      && (['sessions', 'agents', 'subagents', 'agentLoop', 'approval', 'permissionPresets'].some((k) => n.provides.includes(k) || has(k))
+        || ['agent', 'core', 'preset', 'subagent', 'guard', 'interaction'].includes(n.group)),
+  },
+  {
+    id: 'ctx', title: 'stgCtx', desc: 'stgCtxD', css: '--s4',
+    match: (n, has) => has('systemPrompt') || n.provides.includes('systemPrompt')
+      || ['system', 'skill', 'compaction', 'context', 'spill'].includes(n.group),
+  },
+  {
+    id: 'support', title: 'stgSupport', desc: 'stgSupportD', css: '--s6',
+    match: () => true,
+  },
+]
+
+/** Assign every node to its journey stage (first match wins). */
+function stageOf(n: any): string {
+  const has = (k: string): boolean => n.inject.includes(k)
+  for (const s of STAGES) if (s.match(n, has)) return s.id
+  return 'support'
+}
+
+/** Left-to-right display order of the stage cards. */
+const DISPLAY = ['ui', 'gw', 'sess', 'ctx', 'model', 'tools', 'persist', 'support']
 
 const CSS = `
 .sch { color-scheme: light;
@@ -215,9 +308,57 @@ const CSS = `
 .sch .node.wait rect { stroke-dasharray: 4 3; }
 .sch .node.ext rect { stroke-dasharray: 4 3; stroke: var(--ink-3); }
 .sch .node.ext text { fill: var(--ink-3); font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; }
-.sch .edge { fill: none; stroke: var(--c); stroke-opacity: 0.34; stroke-width: 1.5; }
+.sch .edge { fill: none; stroke: var(--c); stroke-opacity: 0.34; stroke-width: 1.5; marker-end: url(#sch-arrow); }
+.sch .edgeHit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; }
 .sch .dim { opacity: 0.16; }
 .sch .edge.on { stroke-opacity: 0.95; stroke-width: 2.2; }
+.sch .tabs { display: flex; gap: 4px; }
+.sch .tabs button { padding: 3px 10px; }
+.sch[data-tab="journey"] .filters { display: none; }
+.sch[data-tab="journey"] .crumb { display: none !important; }
+.sch[data-tab="journey"] .stage, .sch[data-tab="table"] .stage { display: none; }
+.sch[data-tab="table"] svg.graph { display: none; }
+.sch[data-tab="table"] .tableView { display: block; }
+.sch[data-tab="journey"] .journey { display: flex; }
+.sch[data-tab="journey"] .detail { display: none; }
+.sch .journey { display: none; flex: 1; min-width: 0; flex-direction: column; padding: 12px 16px 6px; }
+.sch .journey .hint { margin: 0 0 8px; color: var(--ink-3); font-size: 12px; }
+.sch .jr { display: flex; align-items: stretch; gap: 0; overflow-x: auto; padding-bottom: 8px; }
+.sch .stg {
+  min-width: 218px; max-width: 252px; flex: 0 0 auto;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface-1); padding: 9px 11px 11px;
+}
+.sch .stg header { display: flex; align-items: baseline; gap: 7px; padding: 0 0 0 9px; border: 0; background: none; position: relative; }
+.sch .stg header::before { content: ""; position: absolute; left: 0; top: 3px; bottom: 3px; width: 4px; border-radius: 2px; background: var(--c); }
+.sch .stg header .no { color: var(--ink-3); font-size: 11px; font-variant-numeric: tabular-nums; }
+.sch .stg header h3 { font-size: 13px; font-weight: 650; margin: 0; flex: 1; }
+.sch .stg header b { color: var(--ink-3); font-weight: 500; font-size: 11.5px; }
+.sch .stg .d { font-size: 11.5px; color: var(--ink-2); margin: 3px 0 8px; min-height: 32px; }
+.sch .stg .chips { display: flex; flex-wrap: wrap; gap: 5px; align-content: flex-start; max-height: 300px; overflow-y: auto; }
+.sch .stg .pill {
+  display: inline-flex; align-items: center; gap: 5px; cursor: pointer; user-select: none;
+  border: 1px solid var(--border); border-radius: 999px; padding: 1px 9px;
+  font-size: 11.5px; color: var(--ink-1); background: var(--page);
+}
+.sch .stg .pill:hover { border-color: var(--c); }
+.sch .stg .pill.sel { border-color: var(--ink-1); font-weight: 600; }
+.sch .stg .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--pc, var(--ink-3)); flex: 0 0 auto; }
+.sch .stg .pill.fail { border-color: var(--s8); }
+.sch .flow { flex: 0 0 auto; align-self: center; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 0 5px; min-width: 46px; }
+.sch .flow .keys { font: 10px/1.3 ui-monospace, Menlo, monospace; color: var(--ink-2); text-align: center; max-width: 96px; overflow-wrap: anywhere; }
+.sch .flow .arr { color: var(--ink-3); font-size: 17px; line-height: 1; }
+.sch .toast {
+  position: fixed; left: 50%; bottom: 48px; transform: translateX(-50%);
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.16); padding: 7px 14px; font-size: 12.5px;
+  display: none; z-index: 20; max-width: 70vw;
+}
+.sch .toast.on { display: block; }
+@keyframes schPulse { 50% { filter: brightness(1.55); } }
+.sch .stg .pill.pulse, .sch .node.pulse rect { animation: schPulse 1.1s ease-in-out 6; }
+.sch .node.family rect { stroke-dasharray: 5 3; }
+.sch .legend { color: var(--ink-3); font-size: 11.5px; padding: 0 2px; }
 `
 
 /** Idempotent stylesheet injection. */
@@ -252,6 +393,9 @@ export function mountSchematic(container: HTMLElement): () => void {
     lang = qLang
     try { localStorage.setItem('sch.lang', lang) } catch { /* storage unavailable: this page only */ }
   }
+  // ?tab=journey|domains|table deep link picks the landing tab
+  const qTab = new URLSearchParams(location.search).get('tab')
+  const bootTab: 'journey' | 'domains' | 'table' = qTab === 'domains' || qTab === 'table' ? qTab : 'journey'
   const t = (key: string, params?: Record<string, string | number>): string => {
     let s = T[key]?.[lang] ?? key
     if (params) for (const [k, v] of Object.entries(params)) s = s.replaceAll(`{${k}}`, String(v))
@@ -297,17 +441,22 @@ export function mountSchematic(container: HTMLElement): () => void {
   const html = `
 <header>
   <h1>dsh-schematic <span class="subtitle">${t('subtitle')}</span></h1>
+  <span class="tabs">
+    <button class="tabBtn" data-tab="journey" aria-pressed="true">${t('tabJourney')}</button>
+    <button class="tabBtn" data-tab="domains" aria-pressed="false">${t('tabDomains')}</button>
+    <button class="tabBtn" data-tab="table" aria-pressed="false">${t('tabTable')}</button>
+  </span>
   <button class="crumb">${t('overview')}</button>
   <span class="stats">${t('loading')}</span>
   <span class="trans"></span>
   <span class="spacer"></span>
   <input type="search" class="search" placeholder="${t('searchPh')}">
-  <button class="viewToggle" aria-pressed="false">${t('table')}</button>
   <button class="langToggle" title="${t('langTitle')}">中</button>
   <button class="themeToggle">◐</button>
 </header>
 <div class="filters"></div>
 <main>
+  <div class="journey"></div>
   <div class="stage"><svg class="graph" xmlns="http://www.w3.org/2000/svg"><g class="world"></g></svg></div>
   <div class="tableView"></div>
   <aside class="detail"><p class="empty">${t('emptyDetail')}</p></aside>
@@ -316,17 +465,40 @@ export function mountSchematic(container: HTMLElement): () => void {
   <span class="meta"></span>
   <span class="spacer" style="flex:1"></span>
   <button class="zoomOut">−</button><button class="zoomIn">+</button><button class="zoomFit">${t('fit')}</button>
+  <button class="autoBtn" aria-pressed="true" title="${t('autoTitle')}">⏸</button>
   <button class="refresh" title="${t('refreshTitle')}">⟳</button>
 </footer>
+<div class="toast"></div>
 <div class="tooltip"></div>`
   container.classList.add('sch')
   container.innerHTML = html
+  container.dataset.tab = bootTab
   const $ = (sel: string): HTMLElement => container.querySelector(sel) as HTMLElement
   const svg = $('svg.graph') as unknown as SVGSVGElement
   const world = $('g.world') as unknown as SVGGElement
+  // Arrowheads for DI edges (consumer → provider); fill follows the path stroke.
+  {
+    const NSX = 'http://www.w3.org/2000/svg'
+    const mk = (name: string, attrs: Record<string, string>, parent: Element): Element => {
+      const e = document.createElementNS(NSX, name)
+      for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v)
+      parent.appendChild(e)
+      return e
+    }
+    const defs = mk('defs', {}, svg)
+    const marker = mk('marker', {
+      id: 'sch-arrow', viewBox: '0 0 10 10', refX: '8.5', refY: '5',
+      markerWidth: '6.5', markerHeight: '6.5', orient: 'auto-start-reverse',
+    }, defs)
+    mk('path', { d: 'M0,0 L10,5 L0,10 z', fill: 'context-stroke' }, marker)
+  }
 
+  let pollTimer = 0
+  let toastTimer = 0
   const dispose = (): void => {
     disposed = true
+    window.clearInterval(pollTimer)
+    window.clearTimeout(toastTimer)
     ac.abort()
     container.innerHTML = ''
     container.classList.remove('sch')
@@ -345,7 +517,11 @@ export function mountSchematic(container: HTMLElement): () => void {
     other: true, ext: true,
     origins: new Set(['entry', 'runtime']),
     q: '', sel: null as string | null, scope: null as string | null,
+    tab: bootTab,
   }
+  container.querySelectorAll('.tabBtn').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tab === state.tab)))
+  /** Node ids that appeared in the latest auto-refresh; they pulse once. */
+  const freshIds = new Set<string>()
   const matchNode = (n: any): boolean => {
     if (!state.q) return true
     const hay = [n.id, n.dir, n.label ?? '', n.module ?? '', n.state ?? '', ...n.provides, ...n.inject].join(' ').toLowerCase()
@@ -389,9 +565,30 @@ export function mountSchematic(container: HTMLElement): () => void {
 
   function layoutOverview() {
     const units: any[] = []
+    // Unclustered nodes: ≥2 sharing a package family collapse into one family
+    // card (llm ×4, ui ×9 …); true singles stay pills.
+    const byFam = new Map<string, any[]>()
     for (const n of GRAPH.nodes) {
-      if (!n.cluster && visibleNode(n))
-        units.push({ id: n.id, label: nodeLabel(n), cat: n.category, rank: n.rank, kind: 'node', node: n })
+      if (!n.cluster) {
+        if (!byFam.has(n.group)) byFam.set(n.group, [])
+        byFam.get(n.group)!.push(n)
+      }
+    }
+    for (const [fam, list] of byFam) {
+      if (list.length < 2) {
+        for (const n of list) if (visibleNode(n))
+          units.push({ id: n.id, label: nodeLabel(n), cat: n.category, rank: n.rank, kind: 'node', node: n })
+        continue
+      }
+      const shown = list.filter((n: any) => originOk(n) && matchNode(n))
+      if (shown.length === 0) continue
+      const catCount = new Map<string, number>()
+      for (const n of list) catCount.set(n.category, (catCount.get(n.category) ?? 0) + 1)
+      const cat = [...catCount.entries()].sort((a, b) => b[1] - a[1])[0][0]
+      units.push({
+        id: 'fam:' + fam, label: `${fam} · ${list.length}`, cat, rank: Math.min(...list.map((n: any) => n.rank)),
+        kind: 'family', family: { id: fam, members: list },
+      })
     }
     const memberShown = (n: any): boolean => originOk(n) && matchNode(n)
     for (const c of GRAPH.clusters) {
@@ -404,14 +601,16 @@ export function mountSchematic(container: HTMLElement): () => void {
       units.push({ id: c.id, label: `${c.label} · ${c.members.length}`, cat: c.category, rank, kind: 'cluster', cluster: c })
     }
     const shownIds = new Set(units.map((u) => u.id))
+    const famOf = new Map<string, string>()
+    for (const u of units) if (u.kind === 'family') for (const m of u.family.members) famOf.set(m.id, u.id)
     const injectedByShown = new Set(
-      GRAPH.nodes.filter((n: any) => shownIds.has(n.cluster ?? n.id)).flatMap((n: any) => n.inject))
+      GRAPH.nodes.filter((n: any) => shownIds.has(n.cluster ?? famOf.get(n.id) ?? n.id)).flatMap((n: any) => n.inject))
     const extList = state.ext ? GRAPH.externalKeys.filter((k: string) => injectedByShown.has(k)) : []
     const extW = extList.length ? Math.max(...extList.map((k: string) => k.length * 6.6 + 38)) : 0
     const { pos, width } = placeUnits(units, 24 + (extList.length ? extW + COLGAP : 0))
     extList.forEach((k: string, i: number) => pos.set('ext:' + k, { x: 24, y: 40 + i * PITCH, w: k.length * 6.6 + 38 }))
     const height = Math.max(80, 40 + Math.max(0, ...[...pos.values()].map((p: any) => p.y + H)))
-    return { units, extList, pos, height, width: Math.max(width, 24 + extW) }
+    return { units, extList, pos, height, width: Math.max(width, 24 + extW), famOf }
   }
 
   function layoutScope() {
@@ -463,7 +662,7 @@ export function mountSchematic(container: HTMLElement): () => void {
 
   function overviewEdges(L: any) {
     const ids = new Set(L.units.map((u: any) => u.id))
-    const unitOf = (n: any): string => n.cluster ?? n.id
+    const unitOf = (n: any): string => n.cluster ?? L.famOf?.get(n.id) ?? n.id
     const agg = new Map()
     for (const e of GRAPH.edges) {
       const ua = unitOf(byId.get(e.from)), ub = unitOf(byId.get(e.to))
@@ -473,6 +672,79 @@ export function mountSchematic(container: HTMLElement): () => void {
       e.keys.forEach((k: string) => agg.get(key).keys.add(k))
     }
     return [...agg.values()].map((e: any) => ({ ...e, keys: [...e.keys].sort() }))
+  }
+
+  // ------- journey view -------
+
+  /** Render the message-journey tab: stage cards left to right with flow keys. */
+  function renderJourney(): void {
+    if (GRAPH === null) return
+    const stageById = new Map<string, string>(GRAPH.nodes.map((n: any) => [n.id, stageOf(n)]))
+    const membersOf = (sid: string): any[] => GRAPH.nodes
+      .filter((n: any) => stageById.get(n.id) === sid)
+      .sort((a: any, b: any) => (a.rank - b.rank) || nodeLabel(a).localeCompare(nodeLabel(b)))
+    const crossKeys = (from: string, to: string): string[] => {
+      const keys = new Set<string>()
+      for (const e of GRAPH.edges) {
+        if (stageById.get(e.from) === from && stageById.get(e.to) === to) {
+          e.keys.forEach((k: string) => keys.add(k))
+        }
+      }
+      return [...keys].sort()
+    }
+    let html = `<p class="hint">${t('journeyHint')}</p><div class="jr">`
+    DISPLAY.forEach((sid, i) => {
+      const stg = STAGES.find((s) => s.id === sid)!
+      if (i > 0) {
+        const keys = crossKeys(DISPLAY[i - 1], sid)
+        html += `<div class="flow">${keys.length ? `<span class="keys">${keys.join(' ')}</span>` : ''}<span class="arr">→</span></div>`
+      }
+      const members = membersOf(sid)
+      html += `<section class="stg" style="--c: var(${stg.css})">
+        <header><span class="no">${String(i + 1).padStart(2, '0')}</span><h3>${t(stg.title)}</h3><b>${members.length}</b></header>
+        <p class="d">${t(stg.desc)}</p>
+        <div class="chips">${members.map((n: any) => {
+          const c = catColor(n.category)
+          const cls = ['pill', n.state === 'failed' ? 'fail' : '', state.sel === n.id ? 'sel' : '',
+            freshIds.has(n.id) ? 'pulse' : ''].filter(Boolean).join(' ')
+          const mark = n.state === 'failed' ? ' ✕' : (n.state && n.state !== 'active' ? ' ⏳' : '')
+          return `<span class="${cls}" data-id="${esc(n.id)}"${c ? ` style="--pc: var(${c})"` : ''}><span class="dot"></span>${esc(nodeLabel(n))}${mark}</span>`
+        }).join('')}</div>
+      </section>`
+    })
+    $('.journey').innerHTML = html + '</div>'
+    $('.journey').querySelectorAll<HTMLElement>('.pill').forEach((chip) => {
+      const n = byId.get(chip.dataset.id ?? '')
+      if (n) bindHover(chip, n)
+    })
+    $('.stats').textContent = t('statsJourney', { m: GRAPH.nodes.length })
+  }
+
+  /** Detail panel for a package-family card (domains view). */
+  function renderDetailFamily(famId: string, members: any[]): void {
+    $('.detail').innerHTML = `
+    <h2>${esc(famId)} · ${members.length}</h2>
+    <div class="dir">${t('familyTip')}</div>
+    <div class="members">${members.map((m: any) =>
+      `<div class="m"><b>${esc(nodeLabel(m))}${m.state === 'failed' ? ' ✕' : m.state !== 'active' && m.state ? ' ⏳' : ''}</b>${descOf(m) ? `<span>${esc(descOf(m) as string)}</span>` : ''}</div>`).join('')}
+    </div>`
+  }
+
+  /** Tooltip + click for a family pill. */
+  function bindFamilyHover(g: Element, famId: string, members: any[]): void {
+    g.addEventListener('mouseenter', () => {
+      showTip(`<div class="t">${esc(famId)} · ${members.length}</div>` +
+        `<div class="d">${t('familyTip')}</div>` +
+        `<div class="k">${members.slice(0, 8).map((m) => nodeLabel(m)).join(', ')}${members.length > 8 ? ' …' : ''}</div>`)
+    })
+    g.addEventListener('mousemove', moveTip)
+    g.addEventListener('mouseleave', hideTip)
+    g.addEventListener('click', (ev) => {
+      ev.stopPropagation()
+      state.sel = 'fam:' + famId
+      renderDetailFamily(famId, members)
+      render()
+    })
   }
 
   // ------- render -------
@@ -496,9 +768,9 @@ export function mountSchematic(container: HTMLElement): () => void {
     const c = catColor(cat ?? '')
     const g = el('g', { class: 'node ' + variant, style: c ? `--c: var(${c})` : '--c: var(--ink-3)' }, gN)
     el('rect', { x: p.x, y: p.y, width: p.w, height: H, rx: '7' }, g)
-    if (variant.includes('cluster')) el('rect', { class: 'bar', x: p.x + 6, y: p.y + 6, width: '4', height: String(H - 12), rx: '2' }, g)
+    if (variant.includes('cluster') || variant.includes('family')) el('rect', { class: 'bar', x: p.x + 6, y: p.y + 6, width: '4', height: String(H - 12), rx: '2' }, g)
     else el('circle', { class: 'accent', cx: p.x + 14, cy: p.y + H / 2, r: '4.5' }, g)
-    const tx = variant.includes('cluster') ? p.x + 18 : p.x + 26
+    const tx = variant.includes('cluster') || variant.includes('family') ? p.x + 18 : p.x + 26
     el('text', { x: tx, y: p.y + H / 2 + 1 }, g).textContent = label
     ;(g as unknown as HTMLElement).dataset.id = id
     if (hit) bindHover(g, hit)
@@ -507,125 +779,156 @@ export function mountSchematic(container: HTMLElement): () => void {
 
   function render(refit = false): void {
     if (GRAPH === null) return
+    if (state.tab === 'journey') { renderJourney(); return }
     const scoped = !!state.scope
     const L = scoped ? layoutScope() : layoutOverview()
     lastL = L
-    svg.setAttribute('viewBox', `0 0 ${svg.clientWidth} ${svg.clientHeight}`)
-    world.innerHTML = ''
-    const gE = el('g', {}, world)
-    const gN = el('g', {}, world)
-    const nodeEls = new Map<string, Element>(), edgeEls: any[] = []
 
     const edgePath = (a: any, b: any): string => {
       const dx = Math.max(30, (b.x - (a.x + a.w)) * 0.45)
-      return `M ${a.x + a.w} ${a.y + H / 2} C ${a.x + a.w + dx} ${a.y + H / 2}, ${b.x - dx} ${b.y + H / 2}, ${b.x} ${b.y + H / 2}`
+      return `M ${a.x + a.w} ${a.y + H / 2} C ${a.x + a.w + dx} ${a.y + H / 2}, ${b.x - dx} ${b.y + H / 2}, ${b.x - 3} ${b.y + H / 2}`
     }
     const catOfUnit = (id: string): string | null => {
       if (id.startsWith('cluster:')) return clusterById.get(id)?.category
+      if (id.startsWith('fam:')) return L.units.find((u: any) => u.id === id)?.cat ?? null
       if (id.startsWith('ext:') || id.includes('|')) return null
       return byId.get(id)?.category
     }
+    const unitLabel = (id: string): string => clusterById.get(id)?.label
+      ?? (byId.has(id) ? nodeLabel(byId.get(id)) : (L.units.find((u: any) => u.id === id)?.label ?? id))
 
-    if (scoped) {
-      for (const e of L.edges) {
+    if (state.tab === 'domains') {
+      svg.setAttribute('viewBox', `0 0 ${svg.clientWidth} ${svg.clientHeight}`)
+      world.innerHTML = ''
+      const gE = el('g', {}, world)
+      const gN = el('g', {}, world)
+      const nodeEls = new Map<string, Element>(), edgeEls: any[] = []
+
+      const drawEdge = (e: any): void => {
         const a = L.pos.get(e.from), b = L.pos.get(e.to)
-        if (!a || !b) continue
+        if (!a || !b) return
         const c = catColor(catOfUnit(e.to) ?? '')
-        const p = el('path', { class: 'edge', style: c ? `--c: var(${c})` : '--c: var(--ink-3)', d: edgePath(a, b) }, gE)
-        p.dataset.from = e.from; p.dataset.to = e.to; edgeEls.push(p)
-      }
-      const ghostHit = (g: Element, u: any): void => {
-        g.addEventListener('mouseenter', () => {
-          tip.innerHTML = `<div class="t">${u.kind === 'cluster' ? u.label + ' ' + t('tipGrouped') : u.label}</div>` +
-            `<div class="d">${u.kind === 'cluster' ? t('tipUnits', { n: u.cluster.members.length }) : byId.get(u.id)?.dir ?? ''}</div>` +
-            `<div class="k">${[...u.keys].join(', ')}</div>`
-          tip.style.display = 'block'
-        })
-        g.addEventListener('mousemove', moveTip)
-        g.addEventListener('mouseleave', hideTip)
-        g.addEventListener('click', (ev) => {
-          ev.stopPropagation()
-          if (u.kind === 'cluster') { state.sel = u.cluster.id; renderDetailCluster(u.cluster) }
-          else { state.sel = u.id; renderDetail(byId.get(u.id)) }
-          render()
-        })
-        g.addEventListener('dblclick', (ev) => {
-          ev.stopPropagation()
-          if (u.kind === 'cluster') enterScope(u.cluster.id)
-        })
-      }
-      for (const k of L.extList) {
-        const p = L.pos.get('ext:' + k)
-        const g = el('g', { class: 'node ext' }, gN)
-        el('rect', { x: p.x, y: p.y, width: p.w, height: H, rx: '7' }, g)
-        el('text', { x: p.x + 20, y: p.y + H / 2 + 1 }, g).textContent = k
-        g.addEventListener('mouseenter', () => {
-          showTip(`<div class="t">⌁ ${k}</div><div class="d">${t('tipExt', { n: countInj(k) })}</div>`)
-        })
-        g.addEventListener('mousemove', moveTip)
-        g.addEventListener('mouseleave', hideTip)
-      }
-      const zoneHead = (txt: string, id: string): void => {
-        const p = L.pos.get(id)
-        if (p) el('text', { class: 'zone-h', x: p.x, y: '26' }, gN).textContent = txt
-      }
-      zoneHead(t('zoneExt'), 'ext:' + L.extList[0])
-      zoneHead(t('zoneIn'), 'in:' + L.inList[0]?.id)
-      zoneHead(t('zoneOut'), 'out:' + L.outList[0]?.id)
-      for (const u of [...L.inList, ...L.outList]) {
-        const p = L.pos.get(u.side + ':' + u.id)
-        const g = drawPill(gN, u.id, p, u.label, u.cat, u.kind === 'cluster' ? 'ghost cluster' : 'ghost', null)
-        ghostHit(g, u)
-        nodeEls.set(u.side + ':' + u.id, g)
-      }
-      for (const u of L.units) {
-        const g = drawPill(gN, u.id, L.pos.get(u.id), u.label, u.cat, stateVariant(u.node), u.node)
-        nodeEls.set(u.id, g)
-      }
-      $('.stats').textContent =
-        t('scopeStats', { l: L.cluster.label, a: L.members.length, b: L.cluster.members.length, n: L.edges.length })
-    } else {
-      const unitEdges = overviewEdges(L)
-      for (const e of unitEdges) {
-        const a = L.pos.get(e.from), b = L.pos.get(e.to)
-        const c = catColor(catOfUnit(e.to) ?? '')
-        const p = el('path', { class: 'edge', style: c ? `--c: var(${c})` : '--c: var(--ink-3)', d: edgePath(a, b) }, gE)
-        p.dataset.from = e.from; p.dataset.to = e.to
+        const d = edgePath(a, b)
+        const p = el('path', { class: 'edge', style: c ? `--c: var(${c})` : '--c: var(--ink-3)', d }, gE)
+        const hit = el('path', { class: 'edgeHit', d }, gE)
+        p.dataset.from = e.from
+        p.dataset.to = e.to
         p.dataset.keys = e.keys.join(', ')
+        const fl = unitLabel(e.from), tl = unitLabel(e.to)
+        hit.addEventListener('mouseenter', () => {
+          p.classList.add('on')
+          showTip(`<div class="t">${esc(fl)} → ${esc(tl)}</div>` +
+            `<div class="d">${t('edgeUse', { a: esc(fl), b: esc(tl) })}</div>` +
+            `<div class="k">ctx.${e.keys.join(', ctx.')}</div>` +
+            `<div class="d">${t('edgeDir')}</div>`)
+        })
+        hit.addEventListener('mousemove', moveTip)
+        hit.addEventListener('mouseleave', () => { p.classList.remove('on'); hideTip() })
         edgeEls.push(p)
       }
-      for (const u of L.units) {
-        const g = drawPill(gN, u.id, L.pos.get(u.id), u.label, u.cat, u.kind === 'cluster' ? 'cluster' : stateVariant(u.node), u.kind === 'node' ? u.node : null)
-        if (u.kind === 'cluster') bindClusterHover(g, u.cluster)
-        nodeEls.set(u.id, g)
+
+      if (scoped) {
+        for (const e of L.edges) drawEdge(e)
+        const ghostHit = (g: Element, u: any): void => {
+          g.addEventListener('mouseenter', () => {
+            tip.innerHTML = `<div class="t">${u.kind === 'cluster' ? u.label + ' ' + t('tipGrouped') : u.label}</div>` +
+              `<div class="d">${u.kind === 'cluster' ? t('tipUnits', { n: u.cluster.members.length }) : byId.get(u.id)?.dir ?? ''}</div>` +
+              `<div class="k">${[...u.keys].join(', ')}</div>`
+            tip.style.display = 'block'
+          })
+          g.addEventListener('mousemove', moveTip)
+          g.addEventListener('mouseleave', hideTip)
+          g.addEventListener('click', (ev) => {
+            ev.stopPropagation()
+            if (u.kind === 'cluster') { state.sel = u.cluster.id; renderDetailCluster(u.cluster) }
+            else { state.sel = u.id; renderDetail(byId.get(u.id)) }
+            render()
+          })
+          g.addEventListener('dblclick', (ev) => {
+            ev.stopPropagation()
+            if (u.kind === 'cluster') enterScope(u.cluster.id)
+          })
+        }
+        for (const k of L.extList) {
+          const p = L.pos.get('ext:' + k)
+          const g = el('g', { class: 'node ext' }, gN)
+          el('rect', { x: p.x, y: p.y, width: p.w, height: H, rx: '7' }, g)
+          el('text', { x: p.x + 20, y: p.y + H / 2 + 1 }, g).textContent = k
+          g.addEventListener('mouseenter', () => {
+            showTip(`<div class="t">⌁ ${k}</div><div class="d">${t('tipExt', { n: countInj(k) })}</div>`)
+          })
+          g.addEventListener('mousemove', moveTip)
+          g.addEventListener('mouseleave', hideTip)
+        }
+        const zoneHead = (txt: string, id: string): void => {
+          const p = L.pos.get(id)
+          if (p) el('text', { class: 'zone-h', x: p.x, y: '26' }, gN).textContent = txt
+        }
+        zoneHead(t('zoneExt'), 'ext:' + L.extList[0])
+        zoneHead(t('zoneIn'), 'in:' + L.inList[0]?.id)
+        zoneHead(t('zoneOut'), 'out:' + L.outList[0]?.id)
+        for (const u of [...L.inList, ...L.outList]) {
+          const p = L.pos.get(u.side + ':' + u.id)
+          const g = drawPill(gN, u.id, p, u.label, u.cat, u.kind === 'cluster' ? 'ghost cluster' : 'ghost', null)
+          ghostHit(g, u)
+          nodeEls.set(u.side + ':' + u.id, g)
+        }
+        for (const u of L.units) {
+          const v = stateVariant(u.node) + (freshIds.has(u.id) ? ' pulse' : '')
+          const g = drawPill(gN, u.id, L.pos.get(u.id), u.label, u.cat, v, u.node)
+          nodeEls.set(u.id, g)
+        }
+        $('.stats').textContent =
+          t('scopeStats', { l: L.cluster.label, a: L.members.length, b: L.cluster.members.length, n: L.edges.length })
+      } else {
+        const unitEdges = overviewEdges(L)
+        for (const e of unitEdges) drawEdge(e)
+        for (const u of L.units) {
+          if (u.kind === 'family') {
+            const g = drawPill(gN, u.id, L.pos.get(u.id), u.label, u.cat, 'family' + (freshIds.has(u.id) ? ' pulse' : ''), null)
+            bindFamilyHover(g, u.family.id, u.family.members)
+            nodeEls.set(u.id, g)
+            continue
+          }
+          const v = (u.kind === 'cluster' ? 'cluster' : stateVariant(u.node)) + (freshIds.has(u.id) ? ' pulse' : '')
+          const g = drawPill(gN, u.id, L.pos.get(u.id), u.label, u.cat, v, u.kind === 'node' ? u.node : null)
+          if (u.kind === 'cluster') bindClusterHover(g, u.cluster)
+          nodeEls.set(u.id, g)
+        }
+        if (L.extList.length) el('text', { class: 'zone-h', x: '24', y: '26' }, gN).textContent = t('zoneExt')
+        for (const k of L.extList) {
+          const p = L.pos.get('ext:' + k)
+          const g = el('g', { class: 'node ext' }, gN)
+          el('rect', { x: p.x, y: p.y, width: p.w, height: H, rx: '7' }, g)
+          el('text', { x: p.x + 20, y: p.y + H / 2 + 1 }, g).textContent = k
+          g.addEventListener('mouseenter', () => showTip(`<div class="t">⌁ ${k}</div><div class="d">${t('tipExt', { n: countInj(k) })}</div>`))
+          g.addEventListener('mousemove', moveTip)
+          g.addEventListener('mouseleave', hideTip)
+        }
+        const failed = GRAPH.nodes.filter((n: any) => n.state === 'failed').length
+        $('.stats').textContent =
+          t('stats', { m: GRAPH.nodes.length, s: L.units.length, e: unitEdges.length })
+          + (failed ? t('statsFailed', { f: failed }) : '')
       }
-      if (L.extList.length) el('text', { class: 'zone-h', x: '24', y: '26' }, gN).textContent = t('zoneExt')
-      for (const k of L.extList) {
-        const p = L.pos.get('ext:' + k)
-        const g = el('g', { class: 'node ext' }, gN)
-        el('rect', { x: p.x, y: p.y, width: p.w, height: H, rx: '7' }, g)
-        el('text', { x: p.x + 20, y: p.y + H / 2 + 1 }, g).textContent = k
-        g.addEventListener('mouseenter', () => showTip(`<div class="t">⌁ ${k}</div><div class="d">${t('tipExt', { n: countInj(k) })}</div>`))
-        g.addEventListener('mousemove', moveTip)
-        g.addEventListener('mouseleave', hideTip)
-      }
+
+      svg.setAttribute('height', svg.clientHeight)
+      world.dataset.height = L.height
+      world.dataset.width = L.width
+      if (state.sel && nodeEls.has(state.sel)) focusNode(state.sel, nodeEls, edgeEls)
+      else resetFocus(nodeEls, edgeEls)
+      if (refit) fit(L)
+    } else {
       const failed = GRAPH.nodes.filter((n: any) => n.state === 'failed').length
       $('.stats').textContent =
-        t('stats', { m: GRAPH.nodes.length, s: L.units.length, e: unitEdges.length })
+        t('stats', { m: GRAPH.nodes.length, s: GRAPH.nodes.filter(visibleNode).length, e: GRAPH.edges.length })
         + (failed ? t('statsFailed', { f: failed }) : '')
     }
 
-    svg.setAttribute('height', svg.clientHeight)
-    world.dataset.height = L.height
-    world.dataset.width = L.width
     renderTable(L)
-    if (state.sel && nodeEls.has(state.sel)) focusNode(state.sel, nodeEls, edgeEls)
-    else resetFocus(nodeEls, edgeEls)
     const crumb = $('.crumb')
     crumb.classList.toggle('on', scoped)
     crumb.textContent = t('overview')
     $('.subtitle').textContent = scoped ? '/ ' + L.cluster.label : t('subtitle')
-    if (refit) fit(L)
   }
 
   const countInj = (k: string): number => GRAPH.nodes.filter((n: any) => n.inject.includes(k)).length
@@ -765,6 +1068,11 @@ export function mountSchematic(container: HTMLElement): () => void {
     if (state.sel) {
       if (byId.has(state.sel)) return renderDetail(byId.get(state.sel))
       if (clusterById.has(state.sel)) return renderDetailCluster(clusterById.get(state.sel))
+      if (state.sel.startsWith('fam:')) {
+        const fam = state.sel.slice(4)
+        const members = GRAPH?.nodes.filter((n: any) => n.group === fam) ?? []
+        if (members.length > 0) return renderDetailFamily(fam, members)
+      }
     }
     if (state.scope) return renderDetailCluster(clusterById.get(state.scope))
     $('.detail').innerHTML = `<p class="empty">${t('emptyDetail')}</p>`
@@ -867,6 +1175,11 @@ export function mountSchematic(container: HTMLElement): () => void {
     ext.innerHTML = `<span class="dot ext"></span>${t('extKeys')} <b>${GRAPH.externalKeys.length}</b>`
     ext.onclick = () => { state.ext = !state.ext; renderChips(); render() }
     f.appendChild(ext)
+
+    const legend = document.createElement('span')
+    legend.className = 'legend'
+    legend.textContent = '⇢ ' + t('legendEdge')
+    f.appendChild(legend)
   }
 
   function fit(L: any): void {
@@ -877,15 +1190,14 @@ export function mountSchematic(container: HTMLElement): () => void {
     applyView()
   }
 
-  /** (Re)fetch the live snapshot and reset derived state around it. */
-  const load = async (): Promise<void> => {
-    try {
-      GRAPH = await (await fetch('/schematic/graph.json', { cache: 'no-store' })).json()
-    } catch {
-      $('.stats').textContent = t('loadFail')
-      return
-    }
-    if (disposed) return
+  // ------- data + live updates -------
+  /**
+   * Rebuild every derived map from a fetched snapshot and repaint. First
+   * application resets selection and honors the #cluster: deep link; later
+   * ones keep the current scope/selection when they still exist.
+   */
+  const applyGraph = (g: any, first: boolean): void => {
+    GRAPH = g
     byId = new Map(GRAPH.nodes.map((n: any) => [n.id, n]))
     clusterById = new Map(GRAPH.clusters.map((c: any) => [c.id, c]))
     keyOwners = new Map()
@@ -893,16 +1205,80 @@ export function mountSchematic(container: HTMLElement): () => void {
       if (!keyOwners.has(k)) keyOwners.set(k, [])
       keyOwners.get(k)!.push(n)
     }
-    state.scope = null; state.sel = null
+    if (first) { state.scope = null; state.sel = null }
+    else if (state.scope !== null && !clusterById.has(state.scope)) { state.scope = null; state.sel = null }
+    else if (state.sel !== null && !byId.has(state.sel) && !clusterById.has(state.sel) && !state.sel.startsWith('fam:')) state.sel = null
     setMeta()
     renderChips()
-    render(true)
+    render(first)
     ensureZh()
-    // deep link: open a cluster directly via #cluster:<label> (URL-encoded)
-    const m = decodeURIComponent(location.hash).match(/^#cluster:(.+)$/)
-    const target = m && GRAPH.clusters.find((c: any) => c.label === m[1])
-    if (target) enterScope(target.id)
+    refreshDetail()
+    if (first) {
+      // deep link: open a cluster directly via #cluster:<label> (URL-encoded)
+      const m = decodeURIComponent(location.hash).match(/^#cluster:(.+)$/)
+      const target = m && GRAPH.clusters.find((c: any) => c.label === m[1])
+      if (target) enterScope(target.id)
+    }
   }
+
+  /** JSON signature of everything the canvas shows; equal strings = no visual change. */
+  const signature = (g: any): string => JSON.stringify([
+    g.nodes.map((n: any) => [n.id, n.state, n.provides.join(','), n.inject.join(',')]).sort(),
+    g.edges.map((e: any) => [e.from, e.to, e.keys.join(',')]).sort(),
+    g.clusters.map((c: any) => [c.id, c.members.length]).sort(),
+    g.externalKeys,
+  ])
+
+  let lastSig = ''
+  const toastEl = $('.toast')
+  const toast = (msg: string): void => {
+    toastEl.textContent = msg
+    toastEl.classList.add('on')
+    window.clearTimeout(toastTimer)
+    toastTimer = window.setTimeout(() => toastEl.classList.remove('on'), 6000)
+  }
+
+  /** Fetch a snapshot; first load paints it, later loads diff against the shown one. */
+  const load = async (first = false): Promise<void> => {
+    let g: any
+    try {
+      g = await (await fetch('/schematic/graph.json', { cache: 'no-store' })).json()
+    } catch {
+      $('.stats').textContent = t('loadFail')
+      return
+    }
+    if (disposed) return
+    const sigNow = signature(g)
+    if (first) { applyGraph(g, true); lastSig = sigNow; return }
+    if (sigNow === lastSig) return
+    const prev = byId
+    const addedNodes = g.nodes.filter((n: any) => !prev.has(n.id))
+    const removedIds = [...prev.keys()].filter((id) => !g.nodes.some((n: any) => n.id === id))
+    freshIds.clear()
+    for (const n of addedNodes) freshIds.add(n.id)
+    lastSig = sigNow
+    applyGraph(g, false)
+    const brief = (xs: string[]): string => xs.slice(0, 3).join(', ') + (xs.length > 3 ? ` +${xs.length - 3}` : '')
+    toast(t('changedToast', {
+      a: addedNodes.length > 0 ? brief(addedNodes.map((n: any) => n.label ?? n.id)) : '—',
+      r: removedIds.length > 0 ? brief(removedIds.map((id) => prev.get(id)?.label ?? id)) : '—',
+    }))
+    window.setTimeout(() => { freshIds.clear(); render() }, 7000)
+  }
+
+  /** Auto-refresh cadence; a tick is skipped while paused, hidden, or disposed. */
+  const REFRESH_MS = 5000
+  let autoOn = true
+  pollTimer = window.setInterval(() => {
+    if (disposed || !autoOn || document.hidden) return
+    void load()
+  }, REFRESH_MS)
+  const autoBtn = $('.autoBtn')
+  autoBtn.addEventListener('click', () => {
+    autoOn = !autoOn
+    autoBtn.setAttribute('aria-pressed', String(autoOn))
+    autoBtn.textContent = autoOn ? '⏸' : '▶'
+  })
 
   // ------- events -------
   $('.search').addEventListener('input', (e) => { state.q = (e.target as HTMLInputElement).value.trim().toLowerCase(); render() })
@@ -910,12 +1286,13 @@ export function mountSchematic(container: HTMLElement): () => void {
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { state.scope ? exitScope() : (state.sel = null, render()) }
   }, sig)
-  const viewToggle = $('.viewToggle')
-  viewToggle.addEventListener('click', () => {
-    const table = viewToggle.getAttribute('aria-pressed') !== 'true'
-    viewToggle.setAttribute('aria-pressed', String(table))
-    $('.stage').style.display = table ? 'none' : ''
-    $('.tableView').style.display = table ? 'block' : 'none'
+  container.querySelectorAll<HTMLButtonElement>('.tabBtn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.tab = (btn.dataset.tab ?? 'journey') as typeof state.tab
+      container.dataset.tab = state.tab
+      container.querySelectorAll('.tabBtn').forEach((b) => b.setAttribute('aria-pressed', String(b === btn)))
+      render(state.tab === 'domains')
+    })
   })
   $('.themeToggle').addEventListener('click', () => {
     const cur = document.documentElement.dataset.theme ??
@@ -956,6 +1333,6 @@ export function mountSchematic(container: HTMLElement): () => void {
   svg.addEventListener('click', () => { state.sel = null; render() })
   window.addEventListener('resize', () => render(), sig)
 
-  void load()
+  void load(true)
   return dispose
 }
