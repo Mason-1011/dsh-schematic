@@ -56,7 +56,7 @@ interface ConversationSlice {
 interface LocaleSlice {
   register(ns: string, dicts: Record<string, Record<string, string>>): unknown
   bind(ns: string): (key: string) => string
-  snapshot(): { active: string }
+  getSnapshot(): { active: string }
 }
 
 /** Structural slice of the slot registry (register options kept loose). */
@@ -107,14 +107,21 @@ function consumeAskParams(): { name: string; id: string } | null {
 const HANDOFF_GUARD_MS = 5000
 
 /**
- * The ask-in-chat hand-off: create a fresh ungrouped session, prefill its
- * composer draft, and make it current. While that session stays blank, one
- * navigation steal inside the guard window is taken back — startup's
- * initial workspace selection races this hand-off on first-ever boot.
+ * The ask-in-chat hand-off: create a fresh ungrouped session, make it
+ * current immediately (nothing after the create may block the open), then
+ * prefill its composer draft and stand guard. While the session stays
+ * blank, any navigation steal inside the guard window is taken back — the
+ * SPA restores the persisted selection (dsh.sessions.current, shared
+ * across tabs) when its session list lands, which can race this hand-off
+ * at boot. Progress lands on console.info prefixed "[dsh-schematic]" for
+ * field diagnosis.
  */
 function askInChat(ctx: SchematicCtx, name: string, id: string): void {
   const sessions = ctx.sessions
+  const log = (...args: unknown[]): void => console.info('[dsh-schematic]', ...args)
   void (async () => {
+    log('ask hand-off: boot current =', sessions.list.getSnapshot().current ?? 'none')
+    const question = questionOf(ctx.locale.getSnapshot().active, name, id)
     let sessionId: string
     try {
       sessionId = await sessions.create({})
@@ -122,22 +129,42 @@ function askInChat(ctx: SchematicCtx, name: string, id: string): void {
       console.warn('[dsh-schematic] ask hand-off: session create failed:', err)
       return
     }
-    const actx = sessions.scope(sessionId)
-    const conversation = actx?.get('conversation')
-    if (actx !== undefined && conversation !== undefined) {
-      conversation.input.for(actx).setDraft(questionOf(ctx.locale.snapshot().active, name, id))
-    }
     sessions.open(sessionId)
-    let reasserted = false
+    log('ask hand-off: opened', sessionId)
+    let draft = 'skipped'
+    try {
+      const actx = sessions.scope(sessionId)
+      const conversation = actx?.get('conversation')
+      if (actx !== undefined && conversation !== undefined) {
+        conversation.input.for(actx).setDraft(question)
+        draft = 'prefilled'
+      }
+    } catch (err) {
+      // The draft is best-effort: a failed write must not unseat the open.
+      console.warn('[dsh-schematic] ask hand-off: draft write failed:', err)
+    }
+    log('ask hand-off: draft=' + draft)
+    let lastSeen: string | undefined
     const stop = sessions.list.subscribe(() => {
       const snap = sessions.list.getSnapshot()
-      if (reasserted || snap.current === sessionId) return
+      if (snap.current === sessionId) {
+        lastSeen = snap.current
+        return
+      }
+      if (lastSeen === snap.current) return
+      lastSeen = snap.current
       if (snap.byId[sessionId]?.blank === true) {
-        reasserted = true
+        log('ask hand-off: steal ->', snap.current ?? 'none', '(taking back)')
         sessions.open(sessionId)
+      } else {
+        log('ask hand-off: moved on ->', snap.current ?? 'none')
       }
     })
-    window.setTimeout(stop, HANDOFF_GUARD_MS)
+    window.setTimeout(() => {
+      stop()
+      const final = sessions.list.getSnapshot().current
+      log('ask hand-off: settled current =', final ?? 'none', final === sessionId ? '(ours)' : '(LOST)')
+    }, HANDOFF_GUARD_MS)
   })()
 }
 
