@@ -59,8 +59,7 @@ const T: Record<string, { en: string; zh: string }> = {
   seamKeys:        { en: 'seam keys', zh: '接缝键' },
   openGroup:       { en: 'open group ↗', zh: '进入分组 ↗' },
   ask:             { en: 'Ask in chat ↗', zh: '在对话中询问 ↗' },
-  askTitle:        { en: 'Copies a starter question and opens the chat — ask anything there', zh: '复制一条提问并打开对话窗口,可在对话中随便问' },
-  askQ:            { en: 'Explain the dsh plugin "{name}" ({id}): what it does, which services it injects/provides, and how it relates to other plugins.', zh: '请介绍 dsh 里的插件「{name}」({id}):它是做什么的、注入和提供了哪些服务、和其他插件是什么关系?' },
+  askTitle:        { en: 'Opens a fresh conversation with a starter question prefilled — ask anything there', zh: '打开一个新对话并预填一条提问,可在对话中随便问' },
   thUnit:          { en: 'unit', zh: '单元' },
   thEntry:         { en: 'entry', zh: '入口' },
   thState:         { en: 'state', zh: '状态' },
@@ -718,11 +717,12 @@ export function mountSchematic(container: HTMLElement): () => void {
     </dl>
     <button class="ask-btn" title="${t('askTitle')}">${t('ask')}</button>`
     ;(container.querySelector('.detail .ask-btn') as HTMLElement).onclick = () => {
+      // Hand-off to the SPA: its schematic client half turns the params into a
+      // fresh ungrouped session with the question prefilled (see src/client/index.ts).
       const name = n.pluginName ?? n.label ?? n.id
-      const q = t('askQ', { name, id: n.id })
-      // Best effort: the question is a convenience; the chat opens regardless.
-      void navigator.clipboard?.writeText(q).catch(() => { /* clipboard denied: user asks freely anyway */ })
-      window.open('/', '_blank', 'noopener')
+      const params = new URLSearchParams({ 'sch-ask': n.id })
+      if (name !== n.id) params.set('sch-name', name)
+      window.open(`/?${params.toString()}`, '_blank', 'noopener')
     }
   }
 
