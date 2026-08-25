@@ -101,6 +101,7 @@ for (const g of readdirSync(groupsDir, { withFileTypes: true })) {
       category: CATEGORY[group] ?? 'other',
       group,
       form,
+      desc: pj.description ?? null,
       pluginName: nm ? nm[1] : null,
       provides: [...provides].sort(),
       inject: [...inject].sort(),
@@ -211,9 +212,32 @@ for (const [root, members] of memberLists) {
   const id = `cluster:${label}`
   const catCount = new Map()
   for (const m of members) catCount.set(m.category, (catCount.get(m.category) ?? 0) + 1)
+  // seam keys: the non-universal ctx keys this group provides, most-injected
+  // first. The intro line comes from a "definer", picked in priority order:
+  // the modal directory group's namesake package (repo convention:
+  // <group>/<group> is the seam definition — fs/fs, subagent/subagent), then
+  // the modal-group provider of the most-injected key, then any member — so
+  // the intro agrees with the label even when the top key is universal
+  // (subagents, llm) or owned by a satellite package (settings in client/).
+  const seamKeys = [...new Set(members.flatMap((m) => m.provides))]
+    .filter((k) => !isUniversal(k))
+    .sort((a, b) => (injectCount.get(b) ?? 0) - (injectCount.get(a) ?? 0))
+  const keyRank = (k) => injectCount.get(k) ?? 0
+  const inGroup = members.filter((m) => m.group === mode)
+  const bestProvider = (pool, keys) => pool
+    .map((m) => ({ m, k: keys(m).sort((a, b) => keyRank(b) - keyRank(a))[0] }))
+    .filter((x) => x.k)
+    .sort((a, b) => keyRank(b.k) - keyRank(a.k))[0]
+  const nonUniversal = (m) => m.provides.filter((k) => !isUniversal(k))
+  const any = (m) => m.provides
+  const definer =
+    inGroup.find((m) => m.dir === `${mode}/${mode}`) ??
+    (bestProvider(inGroup, nonUniversal) ?? bestProvider(inGroup, any) ?? bestProvider(members, nonUniversal) ?? {}).m ?? null
   clusters.push({
     id, label,
     category: [...catCount.entries()].sort((a, b) => b[1] - a[1])[0][0],
+    desc: definer ? definer.desc : null,
+    seamKeys,
     members: members.map((m) => m.id).sort(),
   })
   for (const m of members) m.cluster = id

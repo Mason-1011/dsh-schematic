@@ -91,6 +91,12 @@
   }
   aside .keys .ext { border-style: dashed; color: var(--ink-3); }
   aside .empty { color: var(--ink-3); }
+  aside .desc { font-size: 12px; color: var(--ink-2); margin: 0 0 10px; }
+  aside .members { display: flex; flex-direction: column; gap: 7px; margin: 4px 0 10px; }
+  aside .m b { font-size: 12px; font-weight: 600; display: block; word-break: break-all; }
+  aside .m span { font-size: 11.5px; color: var(--ink-2); }
+  aside .open-btn { margin-top: 2px; font: inherit; font-size: 12px; padding: 4px 10px; border: 1px solid var(--border);
+    border-radius: 6px; background: var(--surface-1); color: var(--ink-1); cursor: pointer; }
   #tableView { display: none; flex: 1; overflow: auto; padding: 12px 16px; }
   #tableView table { border-collapse: collapse; width: 100%; font-size: 12px; }
   #tableView th, #tableView td {
@@ -141,7 +147,7 @@
 <main>
   <div id="stage"><svg id="graph" xmlns="http://www.w3.org/2000/svg"><g id="world"></g></svg></div>
   <div id="tableView"></div>
-  <aside id="detail"><p class="empty">Click a node for details; click a grouped pill to open it.</p></aside>
+  <aside id="detail"><p class="empty">Click anything for details (groups included); double-click a group to open it.</p></aside>
 </main>
 <footer>
   <span id="meta"></span>
@@ -385,7 +391,13 @@ function render(refit = false) {
       g.addEventListener('mouseleave', hideTip);
       g.addEventListener('click', (ev) => {
         ev.stopPropagation();
-        if (u.kind === 'cluster') { enterScope(u.cluster.id); }
+        if (u.kind === 'cluster') { state.sel = u.cluster.id; renderDetailCluster(u.cluster); }
+        else { state.sel = u.id; renderDetail(byId.get(u.id)); }
+        render();
+      });
+      g.addEventListener('dblclick', (ev) => {
+        ev.stopPropagation();
+        if (u.kind === 'cluster') enterScope(u.cluster.id);
       });
     };
     for (const k of L.extList) {
@@ -464,6 +476,8 @@ const countInj = (k) => GRAPH.nodes.filter(n => n.inject.includes(k)).length;
 const tip = document.getElementById('tooltip');
 const showTip = (html) => { tip.innerHTML = html; tip.style.display = 'block'; };
 const hideTip = () => { tip.style.display = 'none'; };
+const esc = (s) => s.replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+const trunc = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
 const moveTip = (ev) => {
   tip.style.left = Math.min(innerWidth - 360, ev.clientX + 14) + 'px';
   tip.style.top = (ev.clientY + 14) + 'px';
@@ -476,13 +490,15 @@ function enterScope(id) {
 }
 function exitScope() {
   state.scope = null; state.sel = null;
-  document.getElementById('detail').innerHTML = '<p class="empty">Click a node for details; click a grouped pill to open it.</p>';
+  document.getElementById('detail').innerHTML = '<p class="empty">Click anything for details (groups included); double-click a group to open it.</p>';
   render(true);
 }
 
 function bindHover(g, n) {
   g.addEventListener('mouseenter', () => {
-    const rows = [`<div class="d">${n.dir} · ${n.form}${n.pluginName ? ' · ' + n.pluginName : ''}${n.bundle ? ' · ' + n.bundle : ' · unbundled'}</div>`];
+    const rows = [];
+    if (n.desc) rows.push(`<div class="d">${esc(trunc(n.desc, 110))}</div>`);
+    rows.push(`<div class="d">${n.dir} · ${n.form}${n.pluginName ? ' · ' + n.pluginName : ''}${n.bundle ? ' · ' + n.bundle : ' · unbundled'}</div>`);
     if (n.cluster) rows.push(`<div class="d">in group: ${clusterById.get(n.cluster).label}</div>`);
     if (n.provides.length) rows.push(`<div class="k">provides: ${n.provides.join(', ')}</div>`);
     if (n.inject.length) rows.push(`<div class="k">inject: ${n.inject.join(', ')}</div>`);
@@ -505,14 +521,21 @@ function bindClusterHover(g, c) {
     const bundles = c.members.map(m => byId.get(m).bundle ?? 'none');
     const dist = (arr) => [...arr.reduce((m, v) => m.set(v, (m.get(v) ?? 0) + 1), new Map())]
       .map(([v, i]) => `${v}×${i}`).join(' ');
-    showTip(`<div class="t">${c.label}</div>` +
-      `<div class="d">${c.members.length} packages — click to open</div>` +
+    showTip(`<div class="t">${esc(c.label)}</div>` +
+      (c.desc ? `<div class="d">${esc(trunc(c.desc, 130))}</div>` : '') +
+      `<div class="d">${c.members.length} packages — click for details, double-click to open</div>` +
       `<div class="k">${c.members.slice(0, 8).map(shortName).join(', ')}${c.members.length > 8 ? ' …' : ''}</div>` +
       `<div class="k">bundles: ${dist(bundles)}</div><div class="k">forms: ${dist(forms)}</div>`);
   });
   g.addEventListener('mousemove', moveTip);
   g.addEventListener('mouseleave', hideTip);
-  g.addEventListener('click', (ev) => { ev.stopPropagation(); enterScope(c.id); });
+  g.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    state.sel = c.id;
+    renderDetailCluster(c);
+    render();
+  });
+  g.addEventListener('dblclick', (ev) => { ev.stopPropagation(); enterScope(c.id); });
 }
 
 function focusNode(id, nodeEls, edgeEls) {
@@ -541,6 +564,7 @@ function renderDetail(n) {
   document.getElementById('detail').innerHTML = `
     <h2>${n.id}</h2>
     <div class="dir">${n.dir}${n.pluginName ? ' · name: ' + n.pluginName : ''}</div>
+    ${n.desc ? `<p class="desc">${esc(n.desc)}</p>` : ''}
     <dl>
       <dt>form</dt><dd>${n.form}</dd>
       <dt>category</dt><dd>${c ? c.label : 'other'}</dd>
@@ -555,16 +579,20 @@ function renderDetail(n) {
 
 function renderDetailCluster(c) {
   const members = c.members.map(m => byId.get(m));
-  const provides = [...new Set(members.flatMap(m => m.provides))].sort();
   const cat = CATS.find(x => x.id === c.category);
   document.getElementById('detail').innerHTML = `
-    <h2>${c.label}</h2>
+    <h2>${esc(c.label)}</h2>
     <div class="dir">capability group · ${c.members.length} packages</div>
+    ${c.desc ? `<p class="desc">${esc(c.desc)}</p>` : ''}
     <dl>
       <dt>category</dt><dd>${cat ? cat.label : 'other'}</dd>
-      <dt>members</dt><dd class="keys">${members.map(m => `<code>${shortName(m.id)}</code>`).join(' ')}</dd>
-      <dt>provides</dt><dd class="keys">${provides.length ? provides.map(k => `<code>${k}</code>`).join(' ') : '<span class="empty">—</span>'}</dd>
-    </dl>`;
+      <dt>seam keys</dt><dd class="keys">${c.seamKeys?.length ? c.seamKeys.map(k => `<code>${k}</code>`).join(' ') : '<span class="empty">—</span>'}</dd>
+    </dl>
+    <div class="members">${members.map(m =>
+      `<div class="m"><b>${shortName(m.id)}</b>${m.desc ? `<span>${esc(m.desc)}</span>` : ''}</div>`).join('')}
+    </div>
+    <button class="open-btn">open group ↗</button>`;
+  document.querySelector('#detail .open-btn').onclick = () => enterScope(c.id);
 }
 
 function renderTable(L) {
@@ -573,9 +601,10 @@ function renderTable(L) {
     .map(n => `<tr><td>${n.id}</td><td>${n.dir}</td><td>${n.form}</td>
       <td>${n.cluster ? clusterById.get(n.cluster).label : '—'}</td>
       <td>${n.bundle ?? '—'}</td>
+      <td>${n.desc ? esc(n.desc) : '—'}</td>
       <td>${n.provides.join(', ')}</td><td>${n.inject.join(', ')}</td></tr>`).join('');
   document.getElementById('tableView').innerHTML =
-    `<table><thead><tr><th>package</th><th>dir</th><th>form</th><th>group</th><th>bundle</th><th>provides</th><th>inject</th></tr></thead><tbody>${rows}</tbody></table>`;
+    `<table><thead><tr><th>package</th><th>dir</th><th>form</th><th>group</th><th>bundle</th><th>description</th><th>provides</th><th>inject</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 // ------- controls -------
