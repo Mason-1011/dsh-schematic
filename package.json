@@ -14,5 +14,12 @@
     "plugin-manager",
     "agent-harness"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Mason-1011/dsh-schematic.git"
+  },
+  "files": [
+    "LICENSE"
+  ]
 }
