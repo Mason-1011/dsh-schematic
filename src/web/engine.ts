@@ -12,8 +12,13 @@
  *
  * mountSchematic(container) builds the whole viewer DOM inside the container
  * (every rule scoped under .sch) and returns a dispose() that removes every
- * window-level listener and the container contents.
+ * window-level listener and the container contents. The footer shows the
+ * build stamp injected by scripts/build-client.mjs, so a tab still running
+ * old code is visible at a glance during development.
  */
+
+/** Build timestamp injected via esbuild `define` (scripts/build-client.mjs). */
+declare const __SCH_BUILD__: string | undefined
 
 type Lang = 'en' | 'zh'
 
@@ -251,6 +256,17 @@ export function mountSchematic(container: HTMLElement): () => void {
     let s = T[key]?.[lang] ?? key
     if (params) for (const [k, v] of Object.entries(params)) s = s.replaceAll(`{${k}}`, String(v))
     return s
+  }
+  /** Footer meta line: snapshot stamp (converted to local time only when it carries timezone info) plus the running build's stamp. */
+  const setMeta = (): void => {
+    const gen = GRAPH?.meta.generated
+    const d = gen !== undefined && /[TZ]/.test(gen) ? new Date(gen) : undefined
+    const p = (n: number): string => String(n).padStart(2, '0')
+    const when = d !== undefined && !Number.isNaN(d.getTime())
+      ? `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+      : (gen ?? '')
+    const stamp = typeof __SCH_BUILD__ === 'string' ? ` · build ${__SCH_BUILD__}` : ''
+    $('.meta').textContent = `${t('metaLine', { t: when })}${stamp}`
   }
   /** en→zh description translations, persisted across visits. */
   const zhMap = new Map<string, string>()
@@ -878,7 +894,7 @@ export function mountSchematic(container: HTMLElement): () => void {
       keyOwners.get(k)!.push(n)
     }
     state.scope = null; state.sel = null
-    $('.meta').textContent = t('metaLine', { t: GRAPH.meta.generated })
+    setMeta()
     renderChips()
     render(true)
     ensureZh()
@@ -916,6 +932,7 @@ export function mountSchematic(container: HTMLElement): () => void {
     lang = lang === 'zh' ? 'en' : 'zh'
     try { localStorage.setItem('sch.lang', lang) } catch { /* storage unavailable: choice lasts for this page only */ }
     updateLangButton()
+    setMeta()
     renderChips()
     render()
     refreshDetail()

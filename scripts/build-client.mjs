@@ -15,6 +15,11 @@ import { build } from 'esbuild'
 
 const pkg = { id: 'dsh-schematic' }
 
+/** Local-time build stamp shown in the viewer footer (read at a glance, so no UTC surprise). */
+const now = new Date()
+const pad = n => String(n).padStart(2, '0')
+const buildStamp = `${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`
+
 const results = await Promise.all([
   build({
     entryPoints: ['src/web/boot.ts'],
@@ -23,6 +28,7 @@ const results = await Promise.all([
     platform: 'browser',
     target: 'es2022',
     outfile: 'dist/engine.js',
+    define: { __SCH_BUILD__: JSON.stringify(buildStamp) },
     sourcemap: true,
     logLevel: 'info',
   }),

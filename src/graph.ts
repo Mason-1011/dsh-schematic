@@ -50,6 +50,12 @@ const PHASE: Record<number, string> = {
   [FIBER_STATE.UNLOADING]: 'unloading',
 }
 
+/** Local-time "YYYY-MM-DD HH:mm:ss" snapshot stamp; the footer is read at a glance, so no UTC surprise. */
+function localStamp(d: Date): string {
+  const p = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
 /** Directory group → display category; same fixed assignment as tools/scan.mjs. */
 const CATEGORY: Record<string, string> = {
   core: 'core-spine',
@@ -298,7 +304,7 @@ export function buildGraph(ctx: Context): LiveGraph {
   }
 
   return {
-    meta: { mode: 'live', generated: new Date().toISOString().slice(0, 19).replace('T', ' '), universalKeys },
+    meta: { mode: 'live', generated: localStamp(new Date()), universalKeys },
     nodes,
     edges,
     clusters: wireClusters,
