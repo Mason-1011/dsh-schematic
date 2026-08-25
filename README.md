@@ -35,19 +35,15 @@ The agent already has its own "creative mode" (self-modification tools that insp
 
 ## Roadmap
 
-- v0.0.x — name reserved, positioning docs (you are here)
+- v0.0.x — name reserved, positioning docs
 - v0.1 — static topology: scan a harness checkout, render the plugin dependency graph from `inject` declarations
-- v0.2 — live topology: mount as a plugin, read the loader / plugin inventory at runtime
+- v0.2 — live topology (shipped): mounts as a plugin, merges the Cordis runtime × loader streams, serves the viewer at `/schematic`, adds LLM-backed EN→CN translation and plugin explanations, and embeds the same engine as a settings section in the dsh web app
 - v0.3 — composition edits with patch preview
 - v0.4 — seam-aware market panel
 
 ## Install
 
-Not yet functional. Once v0.1 ships:
-
-```sh
-dsh plugin add dsh-schematic
-```
+Not yet on npm as a plugin. To run from a checkout against a harness dev instance, see `dev.cordis.yml` (mount by name; symlink the checkout into the profile's `node_modules` so the browser half is found).
 
 ## License
 

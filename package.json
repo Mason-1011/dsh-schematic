@@ -15,11 +15,31 @@
     "agent-harness"
   ],
   "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./dist/client.js",
+    "./package.json": "./package.json"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Mason-1011/dsh-schematic.git"
   },
   "files": [
     "LICENSE"
-  ]
+  ],
+  "dsh": {
+    "client": {
+      "platform": "web"
+    }
+  },
+  "devDependencies": {
+    "esbuild": "^0.27.0"
+  },
+  "scripts": {
+    "build": "node scripts/build-client.mjs"
+  }
 }
