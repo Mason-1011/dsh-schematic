@@ -4,9 +4,9 @@
  * Host half of the dual-face plugin: mounts into a running dsh process,
  * serves the viewer page and its live data under the /schematic prefix of
  * the harness web server. Data is recomputed per request from the Cordis
- * runtime (registry × reflect × loader) — see graph.ts. LLM-backed
- * translation/explanation endpoints (see llm.ts) degrade to 503 when the
- * host exposes no `llm` service.
+ * runtime (registry × reflect × loader) — see graph.ts. The whole-page
+ * language switch is backed by /api/translate-batch (see llm.ts), which
+ * degrades to 503 when the host exposes no `llm` service.
  *
  * Dev mount (source launch, no build):
  *   pnpm dsh web --patch ~/Projects/dsh-schematic/dev.cordis.yml
@@ -18,8 +18,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import { buildGraph } from './graph.ts'
-import { explain, translate, HttpError } from './llm.ts'
-import type { ExplainFacts } from './llm.ts'
+import { translateBatch, HttpError } from './llm.ts'
 
 export const name = 'dsh-schematic'
 export const inject = ['loader', 'webServer']
@@ -70,56 +69,22 @@ function readJsonBody(req: IncomingMessage): Promise<unknown> {
   })
 }
 
-/** Live neighborhood facts for one node, from a fresh snapshot. */
-function factsOf(
-  graph: ReturnType<typeof buildGraph>,
-  id: string,
-): ExplainFacts | null {
-  const node = graph.nodes.find((n) => n.id === id)
-  if (node === undefined) return null
-  const byId = new Map(graph.nodes.map((n) => [n.id, n.label]))
-  const clusterLabel = node.cluster === undefined
-    ? null
-    : (graph.clusters.find((c) => c.id === node.cluster)?.label ?? null)
-  const provided = new Set(graph.nodes.flatMap((n) => n.provides))
-  return {
-    id: node.id,
-    label: node.label,
-    module: node.module,
-    state: node.state,
-    desc: node.desc,
-    cluster: clusterLabel,
-    provides: node.provides,
-    inject: node.inject,
-    dependsOn: graph.edges
-      .filter((e) => e.from === id)
-      .map((e) => ({ unit: byId.get(e.to) ?? e.to, keys: e.keys })),
-    dependedBy: graph.edges
-      .filter((e) => e.to === id)
-      .map((e) => ({ unit: byId.get(e.from) ?? e.from, keys: e.keys })),
-    externalInject: node.inject.filter((k) => !provided.has(k)),
-  }
-}
+/** Body limits for one translate-batch request. */
+const MAX_BATCH_ITEMS = 200
+const MAX_BATCH_ITEM_CHARS = 2_000
 
 async function handleApi(ctx: Context, req: IncomingMessage, sub: string, res: ServerResponse): Promise<void> {
-  const body = sub === '/api/translate' || sub === '/api/explain' ? await readJsonBody(req) : null
-  if (sub === '/api/translate') {
-    const text = (body as { text?: unknown } | null)?.text
-    if (typeof text !== 'string' || text.length === 0 || text.length > 4000) {
-      throw new HttpError(400, 'text 必须是 1–4000 字符的字符串')
-    }
-    return sendJson(res, 200, { zh: await translate(ctx, text) })
+  if (sub !== '/api/translate-batch') {
+    send(res, 404, 'text/plain', 'not found')
+    return
   }
-  if (sub === '/api/explain') {
-    const id = (body as { id?: unknown } | null)?.id
-    if (typeof id !== 'string' || id.length === 0 || id.length > 300) {
-      throw new HttpError(400, 'id 必须是非空字符串')
-    }
-    const facts = factsOf(buildGraph(ctx), id)
-    if (facts === null) throw new HttpError(404, `拓扑中不存在插件 "${id}"`)
-    return sendJson(res, 200, { zh: await explain(ctx, facts) })
+  const body = await readJsonBody(req)
+  const texts = (body as { texts?: unknown } | null)?.texts
+  if (!Array.isArray(texts) || texts.length === 0 || texts.length > MAX_BATCH_ITEMS
+    || texts.some((s) => typeof s !== 'string' || s.length === 0 || s.length > MAX_BATCH_ITEM_CHARS)) {
+    throw new HttpError(400, `texts 必须是 1–${MAX_BATCH_ITEMS} 条、每条 1–${MAX_BATCH_ITEM_CHARS} 字符的字符串数组`)
   }
-  send(res, 404, 'text/plain', 'not found')
+  return sendJson(res, 200, { zh: await translateBatch(ctx, texts) })
 }
 
 export function apply(ctx: Context): void {

@@ -37,7 +37,7 @@ The agent already has its own "creative mode" (self-modification tools that insp
 
 - v0.0.x — name reserved, positioning docs
 - v0.1 — static topology: scan a harness checkout, render the plugin dependency graph from `inject` declarations
-- v0.2 — live topology (shipped): mounts as a plugin, merges the Cordis runtime × loader streams, serves the viewer at `/schematic`, adds LLM-backed EN→CN translation and plugin explanations, and embeds the same engine as a settings section in the dsh web app
+- v0.2 — live topology (shipped): mounts as a plugin, merges the Cordis runtime × loader streams, serves the viewer at `/schematic` with a one-click EN⇄中文 whole-page switch (descriptions batch-translated by the in-process LLM, identifiers kept in English), a dsh sidebar action that opens the viewer in a new tab, and an ask-in-chat hand-off replacing in-page explanations
 - v0.3 — composition edits with patch preview
 - v0.4 — seam-aware market panel
 

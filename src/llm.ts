@@ -1,6 +1,6 @@
 /**
- * LLM-backed auxiliary features for the schematic viewer: description
- * translation (EN→ZH) and per-plugin topology explanation.
+ * LLM-backed feature for the schematic viewer: batched EN→ZH translation of
+ * the topology's English descriptions (the whole-page language switch).
  *
  * Calls the running process's own `llm` service (optional — the viewer works
  * without it) through the same discipline as dsh's session-title providers:
@@ -158,21 +158,6 @@ async function generateText(
   return text
 }
 
-/** Facts handed to the explainer: one node's live snapshot plus its neighborhood. */
-export interface ExplainFacts {
-  id: string
-  label: string
-  module: string | null
-  state: string | null
-  desc: string | null
-  cluster: string | null
-  provides: string[]
-  inject: string[]
-  dependsOn: { unit: string; keys: string[] }[]
-  dependedBy: { unit: string; keys: string[] }[]
-  externalInject: string[]
-}
-
 const TRANSLATE_SYSTEM = [
   'Translate the following English text into Simplified Chinese.',
   'The text documents a plugin in a software agent harness: read "seam", "provider", "inject" as software-architecture terms, never their everyday senses.',
@@ -180,11 +165,12 @@ const TRANSLATE_SYSTEM = [
   'Output only the translation as one plain-text paragraph, with no quotes, no Markdown, and no explanations.',
 ].join('\n')
 
-const EXPLAIN_SYSTEM = [
-  'You are explaining one plugin mounted inside the DeepSeek Harness (dsh) agent runtime to a Chinese-speaking developer.',
-  'Use ONLY the JSON facts given (a live snapshot of the plugin mount: provided/injected ctx keys, mount state, and neighboring units).',
-  'Write concise Simplified Chinese, 100-200 characters, one paragraph: 这个插件是什么、提供哪些服务、依赖哪些服务、在当前拓扑中扮演什么角色.',
-  'Do not invent details not present in the facts. Package names and ctx keys stay in English. Plain text only, no Markdown or lists.',
+const BATCH_SYSTEM = [
+  'Translate each numbered line of English text into Simplified Chinese.',
+  'The texts document plugins in a software agent harness: read "seam", "provider", "inject" as software-architecture terms, never their everyday senses.',
+  'Keep package names, plugin names, and ctx key names (like `tools`, `llm`) unchanged in English.',
+  'Output exactly one line per input line, same order, each formatted as "n. 译文" with the input line number n.',
+  'Never merge, split, reorder, or drop lines; add no quotes, no Markdown, and no commentary.',
 ].join('\n')
 
 /**
@@ -198,13 +184,71 @@ export function translate(ctx: Context, text: string): Promise<string> {
     generateText(ctx, text, TRANSLATE_SYSTEM, 400, 30_000))
 }
 
+/** Lines per single model call in a batch; small enough to keep numbering reliable. */
+const BATCH_CHUNK = 16
+
 /**
- * Explain one mounted unit from its live facts.
- * @param ctx - the running process context.
- * @param facts - node snapshot plus neighborhood from the live graph.
- * @returns Chinese explanation paragraph.
+ * Translate one chunk in a single numbered-lines call.
+ * @returns per-item translations, or throws on any numbering/shape mismatch.
  */
-export function explain(ctx: Context, facts: ExplainFacts): Promise<string> {
-  return memo(hashOf('explain', JSON.stringify(facts)), () =>
-    generateText(ctx, JSON.stringify(facts, null, 2), EXPLAIN_SYSTEM, 800, 60_000))
+async function translateChunk(ctx: Context, texts: string[]): Promise<string[]> {
+  const req = texts.map((s, i) => `${i + 1}. ${s}`).join('\n')
+  const out = await generateText(ctx, req, BATCH_SYSTEM, 4_000, 90_000)
+  const lines = out.split('\n').map((l) => l.trim()).filter((l) => l !== '')
+  if (lines.length !== texts.length) {
+    throw new HttpError(502, `批量翻译行数不匹配(期望 ${texts.length},得到 ${lines.length})`)
+  }
+  return lines.map((line, i) => {
+    const m = line.match(/^\d+[.、:]\s*(.+)$/s)
+    if (!m) throw new HttpError(502, `批量翻译第 ${i + 1} 行缺少编号前缀`)
+    return m[1].trim()
+  })
+}
+
+/** Two concurrent lanes keep a 100-item batch near half a minute end to end. */
+const BATCH_CONCURRENCY = 2
+
+/**
+ * Translate a batch of English descriptions: cached items answered locally,
+ * the rest through chunked numbered-lines calls with a per-item fallback when
+ * a chunk's shape does not validate.
+ * @param ctx - the running process context.
+ * @param texts - English source texts (order preserved).
+ * @returns Chinese translations, same length and order as `texts`.
+ */
+export async function translateBatch(ctx: Context, texts: string[]): Promise<string[]> {
+  const out = new Array<string | undefined>(texts.length).fill(undefined)
+  const wanted = new Map<string, number[]>()
+  texts.forEach((s, i) => {
+    const hit = cache.get(hashOf('translate', s))
+    if (hit !== undefined) { out[i] = hit; return }
+    const lanes = wanted.get(s) ?? []
+    lanes.push(i)
+    wanted.set(s, lanes)
+  })
+  const unique = [...wanted.keys()]
+  const chunks: string[][] = []
+  for (let i = 0; i < unique.length; i += BATCH_CHUNK) chunks.push(unique.slice(i, i + BATCH_CHUNK))
+  let cursor = 0
+  const worker = async (): Promise<void> => {
+    while (cursor < chunks.length) {
+      const chunk = chunks[cursor++] as string[]
+      let results: string[]
+      try {
+        results = await translateChunk(ctx, chunk)
+      } catch {
+        // numbered-lines output broke shape: retry the chunk item by item
+        results = await Promise.all(chunk.map((s) => translate(ctx, s).catch((err) => {
+          throw err instanceof HttpError ? err : new HttpError(502, '单条翻译失败')
+        })))
+      }
+      chunk.forEach((s, j) => {
+        const lanes = wanted.get(s)
+        if (lanes === undefined) return
+        for (const i of lanes) out[i] = results[j]
+      })
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(BATCH_CONCURRENCY, chunks.length) }, worker))
+  return out as string[]
 }

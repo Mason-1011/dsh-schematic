@@ -1,21 +1,90 @@
 /**
- * Framework-free topology-viewer engine — the one render/interaction core
- * shared by both faces of the plugin:
+ * Framework-free topology-viewer engine for the standalone /schematic page
+ * (boot.ts mounts it into #app). One file owns layout, rendering, filters,
+ * and the page language switch:
  *
- *   - the standalone page (src/web/boot.ts mounts it into #app)
- *   - the dsh web SPA (src/client/SchematicSection.tsx hosts it in React)
+ *   - UI chrome strings come from the local bilingual dictionary (T below)
+ *     and switch instantly with the header 中/EN toggle.
+ *   - English data prose (plugin / group descriptions) is translated through
+ *     the host half's /api/translate-batch and cached in localStorage.
+ *     Identifiers — plugin names, module paths, inject keys, states — never
+ *     translate.
  *
  * mountSchematic(container) builds the whole viewer DOM inside the container
- * (nothing leaks into global selectors; every rule is scoped under .sch), so
- * two instances can coexist in one document. Returns a dispose() that removes
- * every window-level listener and the container contents.
+ * (every rule scoped under .sch) and returns a dispose() that removes every
+ * window-level listener and the container contents.
  */
 
-/** Mount options: standalone tweaks for the dedicated page. */
-export interface SchematicOptions {
-  /** Dedicated-page behaviors: theme toggle and #cluster: deep links. */
-  standalone?: boolean
+type Lang = 'en' | 'zh'
+
+/** Bilingual chrome dictionary; t(key, params) interpolates {name} tokens. */
+const T: Record<string, { en: string; zh: string }> = {
+  subtitle:        { en: '/ live topology', zh: '/ 实时拓扑' },
+  overview:        { en: '‹ overview', zh: '‹ 总览' },
+  loading:         { en: 'loading…', zh: '加载中…' },
+  searchPh:        { en: 'filter by name, key, state…', zh: '按名称、键、状态筛选…' },
+  table:           { en: 'table', zh: '表格' },
+  langTitle:       { en: '切换到中文', zh: 'Switch to English' },
+  trans:           { en: 'translating {d}/{n}…', zh: '翻译中 {d}/{n}…' },
+  emptyDetail:     { en: 'Click anything for details (groups included); double-click a group to open it.', zh: '点击任意元素(含分组)查看详情;双击分组进入。' },
+  fit:             { en: 'fit', zh: '适配' },
+  refreshTitle:    { en: 'Re-fetch the live snapshot', zh: '重新拉取实时快照' },
+  stats:           { en: '{m} mounted · {s} shown · {e} edges', zh: '已挂载 {m} · 显示 {s} · 边 {e}' },
+  statsFailed:     { en: ' · {f} failed', zh: ' · 失败 {f}' },
+  scopeStats:      { en: '{l} · {a}/{b} members · {n} internal edges', zh: '{l} · 成员 {a}/{b} · 内部边 {n}' },
+  zoneExt:         { en: 'EXTERNAL CTX KEYS', zh: '外部上下文键' },
+  zoneIn:          { en: 'INJECTED BY', zh: '注入方' },
+  zoneOut:         { en: 'MEMBERS INJECT', zh: '成员注入' },
+  tipExt:          { en: 'injected by {n} unit(s), provided outside this process', zh: '由 {n} 个单元注入,由本进程之外提供' },
+  tipGrouped:      { en: '(grouped)', zh: '(分组)' },
+  tipUnits:        { en: '{n} mounted units', zh: '{n} 个已挂载单元' },
+  tipClusterHint:  { en: 'click for details, double-click to open', zh: '单击看详情,双击进入' },
+  tipInGroup:      { en: 'in group: {l}', zh: '所在分组:{l}' },
+  tipProvides:     { en: 'provides: {k}', zh: '提供:{k}' },
+  tipInject:       { en: 'inject: {k}', zh: '注入:{k}' },
+  tipStates:       { en: 'states: {k}', zh: '状态:{k}' },
+  dtState:         { en: 'state', zh: '状态' },
+  dtOrigin:        { en: 'origin', zh: '来源' },
+  dtForm:          { en: 'form', zh: '形态' },
+  dtCategory:      { en: 'category', zh: '类别' },
+  dtGroup:         { en: 'group', zh: '分组' },
+  dtRank:          { en: 'dep rank', zh: '依赖层级' },
+  dtProvides:      { en: 'provides', zh: '提供' },
+  dtInject:        { en: 'inject', zh: '注入' },
+  originEntry:     { en: 'config entry', zh: '配置项' },
+  originRuntime:   { en: 'programmatic mount', zh: '运行时挂载' },
+  originRuntimeTip:{ en: 'programmatic', zh: '运行时' },
+  other:           { en: 'other', zh: '其他' },
+  capabilityGroup: { en: 'capability group · {n} mounted units', zh: '能力分组 · {n} 个已挂载单元' },
+  seamKeys:        { en: 'seam keys', zh: '接缝键' },
+  openGroup:       { en: 'open group ↗', zh: '进入分组 ↗' },
+  ask:             { en: 'Ask in chat ↗', zh: '在对话中询问 ↗' },
+  askTitle:        { en: 'Copies a starter question and opens the chat — ask anything there', zh: '复制一条提问并打开对话窗口,可在对话中随便问' },
+  askQ:            { en: 'Explain the dsh plugin "{name}" ({id}): what it does, which services it injects/provides, and how it relates to other plugins.', zh: '请介绍 dsh 里的插件「{name}」({id}):它是做什么的、注入和提供了哪些服务、和其他插件是什么关系?' },
+  thUnit:          { en: 'unit', zh: '单元' },
+  thEntry:         { en: 'entry', zh: '入口' },
+  thState:         { en: 'state', zh: '状态' },
+  thForm:          { en: 'form', zh: '形态' },
+  thGroup:         { en: 'group', zh: '分组' },
+  thDesc:          { en: 'description', zh: '描述' },
+  thProvides:      { en: 'provides', zh: '提供' },
+  thInject:        { en: 'inject', zh: '注入' },
+  metaLine:        { en: 'live snapshot · {t} · source: this dsh process', zh: '实时快照 · {t} · 来源:当前 dsh 进程' },
+  loadFail:        { en: 'failed to load /schematic/graph.json — is the plugin mounted?', zh: '加载 /schematic/graph.json 失败——插件挂载了吗?' },
+  originLbl:       { en: 'origin:', zh: '来源:' },
+  extKeys:         { en: 'external keys', zh: '外部键' },
 }
+
+const CATS = [
+  { id: 'core-spine',         label: 'Core spine',              zh: '核心脊柱',           css: '--s1' },
+  { id: 'model-layer',        label: 'Model layer',             zh: '模型层',             css: '--s2' },
+  { id: 'execution-seams',    label: 'Execution seams',         zh: '执行接缝',           css: '--s3' },
+  { id: 'extension-seams',    label: 'Extension seams',         zh: '扩展接缝',           css: '--s4' },
+  { id: 'session-data',       label: 'Session & data',          zh: '会话与数据',         css: '--s5' },
+  { id: 'interaction-policy', label: 'Interaction & policy',    zh: '交互与策略',         css: '--s6' },
+  { id: 'host-protocol',      label: 'Host, boot & protocol',   zh: '宿主·启动与协议',    css: '--s7' },
+  { id: 'web-client',         label: 'Web client',              zh: '网页客户端',         css: '--s8' },
+]
 
 const CSS = `
 .sch { color-scheme: light;
@@ -56,6 +125,8 @@ const CSS = `
 .sch .crumb { display: none; }
 .sch .crumb.on { display: inline-flex; }
 .sch .stats { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.sch .trans { color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.sch .trans:empty { display: none; }
 .sch header .spacer { flex: 1; }
 .sch input[type="search"], .sch button, .sch select {
   font: inherit; color: var(--ink-1); background: var(--surface-1);
@@ -106,13 +177,8 @@ const CSS = `
 .sch aside .m span { font-size: 11.5px; color: var(--ink-2); }
 .sch aside .open-btn { margin-top: 2px; font: inherit; font-size: 12px; padding: 4px 10px; border: 1px solid var(--border);
   border-radius: 6px; background: var(--surface-1); color: var(--ink-1); cursor: pointer; }
-.sch aside .llm-btn { font: inherit; font-size: 11.5px; padding: 2px 8px; margin: 0 0 8px; border: 1px solid var(--border);
-  border-radius: 6px; background: var(--surface-1); color: var(--ink-2); cursor: pointer; }
-.sch aside .llm-btn:disabled { opacity: 0.55; cursor: wait; }
-.sch aside .llm-btn.wide { display: block; margin: 10px 0 0; }
-.sch aside .zh { font-size: 12.5px; color: var(--ink-1); margin: 0 0 10px; padding: 8px 10px;
-  border-left: 2px solid var(--s1); background: var(--page); border-radius: 0 6px 6px 0; }
-.sch aside .llm-out:empty { display: none; }
+.sch aside .ask-btn { display: block; margin-top: 10px; font: inherit; font-size: 12px; padding: 4px 10px; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--surface-1); color: var(--ink-1); cursor: pointer; }
 .sch .tableView { display: none; flex: 1; overflow: auto; padding: 12px 16px; }
 .sch .tableView table { border-collapse: collapse; width: 100%; font-size: 12px; }
 .sch .tableView th, .sch .tableView td {
@@ -150,7 +216,7 @@ const CSS = `
 .sch .edge.on { stroke-opacity: 0.95; stroke-width: 2.2; }
 `
 
-/** Idempotent stylesheet injection; one tag serves every mounted instance. */
+/** Idempotent stylesheet injection. */
 function injectStyles(): void {
   if (document.querySelector('style[data-schematic-css]') === null) {
     const tag = document.createElement('style')
@@ -163,37 +229,79 @@ function injectStyles(): void {
 /**
  * Mount the viewer into a container.
  * @param container - element the viewer DOM is built inside; must be empty.
- * @param options - standalone-page behaviors.
  * @returns dispose() removing listeners and the built DOM.
  */
-export function mountSchematic(container: HTMLElement, options: SchematicOptions = {}): () => void {
+export function mountSchematic(container: HTMLElement): () => void {
   injectStyles()
   const ac = new AbortController()
   const sig = { signal: ac.signal }
   let disposed = false
 
+  // ------- language state -------
+  let lang: Lang = 'en'
+  try {
+    if (localStorage.getItem('sch.lang') === 'zh') lang = 'zh'
+  } catch { /* storage unavailable: English only, toggle still works in-memory */ }
+  // ?lang=zh|en deep link overrides the stored choice and persists it
+  const qLang = new URLSearchParams(location.search).get('lang')
+  if (qLang === 'zh' || qLang === 'en') {
+    lang = qLang
+    try { localStorage.setItem('sch.lang', lang) } catch { /* storage unavailable: this page only */ }
+  }
+  const t = (key: string, params?: Record<string, string | number>): string => {
+    let s = T[key]?.[lang] ?? key
+    if (params) for (const [k, v] of Object.entries(params)) s = s.replaceAll(`{${k}}`, String(v))
+    return s
+  }
+  /** en→zh description translations, persisted across visits. */
+  const zhMap = new Map<string, string>()
+  try {
+    const saved = localStorage.getItem('sch.zhmap')
+    if (saved) for (const [k, v] of JSON.parse(saved) as [string, string][]) zhMap.set(k, v)
+  } catch { /* corrupt or unavailable storage: refetch translations */ }
+  const persistZh = (): void => {
+    try { localStorage.setItem('sch.zhmap', JSON.stringify([...zhMap])) } catch { /* quota exceeded: skip persisting */ }
+  }
+  const pendingZh = new Set<string>()
+  let zhTexts: string[] = []
+  let zhTotal = 0
+  /** Language-resolved description: English until the batch lands. */
+  const descOf = (x: { desc: string | null }): string | null => {
+    if (x.desc === null) return null
+    return lang === 'zh' ? (zhMap.get(x.desc) ?? x.desc) : x.desc
+  }
+  const updateTransLabel = (): void => {
+    const el = $('.trans')
+    if (lang !== 'zh' || zhTotal === 0) { el.textContent = ''; return }
+    const done = zhTexts.filter((s) => zhMap.has(s)).length
+    if (done >= zhTotal) { el.textContent = ''; return }
+    el.textContent = t('trans', { d: done, n: zhTotal })
+  }
+
   // ------- shell -------
   const html = `
 <header>
-  <h1>dsh-schematic <span class="subtitle">/ live topology</span></h1>
-  <button class="crumb">‹ overview</button>
-  <span class="stats">loading…</span>
+  <h1>dsh-schematic <span class="subtitle">${t('subtitle')}</span></h1>
+  <button class="crumb">${t('overview')}</button>
+  <span class="stats">${t('loading')}</span>
+  <span class="trans"></span>
   <span class="spacer"></span>
-  <input type="search" class="search" placeholder="filter by name, key, state…">
-  <button class="viewToggle" aria-pressed="false">table</button>
-  ${options.standalone ? '<button class="themeToggle">◐</button>' : ''}
+  <input type="search" class="search" placeholder="${t('searchPh')}">
+  <button class="viewToggle" aria-pressed="false">${t('table')}</button>
+  <button class="langToggle" title="${t('langTitle')}">中</button>
+  <button class="themeToggle">◐</button>
 </header>
 <div class="filters"></div>
 <main>
   <div class="stage"><svg class="graph" xmlns="http://www.w3.org/2000/svg"><g class="world"></g></svg></div>
   <div class="tableView"></div>
-  <aside class="detail"><p class="empty">Click anything for details (groups included); double-click a group to open it.</p></aside>
+  <aside class="detail"><p class="empty">${t('emptyDetail')}</p></aside>
 </main>
 <footer>
   <span class="meta"></span>
   <span class="spacer" style="flex:1"></span>
-  <button class="zoomOut">−</button><button class="zoomIn">+</button><button class="zoomFit">fit</button>
-  <button class="refresh" title="Re-fetch the live snapshot">⟳</button>
+  <button class="zoomOut">−</button><button class="zoomIn">+</button><button class="zoomFit">${t('fit')}</button>
+  <button class="refresh" title="${t('refreshTitle')}">⟳</button>
 </footer>
 <div class="tooltip"></div>`
   container.classList.add('sch')
@@ -209,19 +317,11 @@ export function mountSchematic(container: HTMLElement, options: SchematicOptions
     container.classList.remove('sch')
   }
 
-  // Categories in fixed slot order (palette slots 1..8); "other" and external
-  // keys are chrome gray, never a series slot. Live sets are small: everything
-  // starts visible.
-  const CATS = [
-    { id: 'core-spine',        label: 'Core spine',        css: '--s1' },
-    { id: 'model-layer',       label: 'Model layer',       css: '--s2' },
-    { id: 'execution-seams',   label: 'Execution seams',   css: '--s3' },
-    { id: 'extension-seams',   label: 'Extension seams',   css: '--s4' },
-    { id: 'session-data',      label: 'Session & data',    css: '--s5' },
-    { id: 'interaction-policy',label: 'Interaction & policy', css: '--s6' },
-    { id: 'host-protocol',     label: 'Host, boot & protocol', css: '--s7' },
-    { id: 'web-client',        label: 'Web client',        css: '--s8' },
-  ]
+  const catLabel = (id: string): string => {
+    const c = CATS.find((x) => x.id === id)
+    if (!c) return t('other')
+    return lang === 'zh' ? c.zh : c.label
+  }
   const catColor = (c: string): string | null => CATS.find((x) => x.id === c)?.css ?? null
 
   // ------- state -------
@@ -245,9 +345,6 @@ export function mountSchematic(container: HTMLElement, options: SchematicOptions
   const nodeLabel = (n: any): string => n.label ?? n.id
 
   // ------- layout -------
-  // Overview: singleton pills + cluster pills in rank columns, with an
-  // external-key ghost column at the far left. Scope: one cluster's members
-  // with neighbor units ghosted left (in) / right (out).
   const H = 30, PITCH = 38, COLGAP = 96
   const pillW = (label: string): number => Math.min(240, label.length * 7.2 + 46)
   const byCatThenLabel = (a: any, b: any): number =>
@@ -257,7 +354,6 @@ export function mountSchematic(container: HTMLElement, options: SchematicOptions
     (state.cats.has(n.category) || (n.category === 'other' && state.other))
     && originOk(n) && matchNode(n)
 
-  // Assign x/y by unit rank columns, starting at xStart.
   function placeUnits(units: any[], xStart: number) {
     const cols = new Map()
     for (const u of units) {
@@ -282,9 +378,6 @@ export function mountSchematic(container: HTMLElement, options: SchematicOptions
       if (!n.cluster && visibleNode(n))
         units.push({ id: n.id, label: nodeLabel(n), cat: n.category, rank: n.rank, kind: 'node', node: n })
     }
-    // a cluster pill shows by its own category (member categories may span);
-    // origin and search still need at least one member to qualify, unless the
-    // query matches the cluster label itself
     const memberShown = (n: any): boolean => originOk(n) && matchNode(n)
     for (const c of GRAPH.clusters) {
       const catOk = state.cats.has(c.category) || (c.category === 'other' && state.other)
@@ -295,7 +388,6 @@ export function mountSchematic(container: HTMLElement, options: SchematicOptions
       const rank = Math.round(members.reduce((s: number, m: any) => s + m.rank, 0) / members.length)
       units.push({ id: c.id, label: `${c.label} · ${c.members.length}`, cat: c.category, rank, kind: 'cluster', cluster: c })
     }
-    // external keys actually injected by a shown unit; informational column
     const shownIds = new Set(units.map((u) => u.id))
     const injectedByShown = new Set(
       GRAPH.nodes.filter((n: any) => shownIds.has(n.cluster ?? n.id)).flatMap((n: any) => n.inject))
@@ -313,7 +405,6 @@ export function mountSchematic(container: HTMLElement, options: SchematicOptions
     const memberIds = new Set(members.map((n: any) => n.id))
     const memberUnits = members.map((n: any) => ({ id: n.id, label: nodeLabel(n), cat: n.category, rank: n.rank, kind: 'node', node: n }))
 
-    // Aggregate member↔outside edges into ghost pills; ext keys feed the left column too.
     const ghosts = new Map()
     const addGhost = (node: any, side: string, keys: string[]) => {
       const cl = node.cluster ? clusterById.get(node.cluster) : null
@@ -355,7 +446,6 @@ export function mountSchematic(container: HTMLElement, options: SchematicOptions
     return { units: memberUnits, members, cluster: c, inList, outList, extList, edges, pos, height, width: totalW }
   }
 
-  // unit-level edge list for overview
   function overviewEdges(L: any) {
     const ids = new Set(L.units.map((u: any) => u.id))
     const unitOf = (n: any): string => n.cluster ?? n.id
@@ -384,8 +474,6 @@ export function mountSchematic(container: HTMLElement, options: SchematicOptions
   }
   let lastL: any = null
 
-  // live state → pill variant: failed gets the status red ring, anything not
-  // yet active gets the waiting dash
   const stateVariant = (n: any): string => n.state === 'failed' ? 'node fail'
     : (n.state && n.state !== 'active') ? 'node wait' : 'node'
 
@@ -433,8 +521,8 @@ export function mountSchematic(container: HTMLElement, options: SchematicOptions
       }
       const ghostHit = (g: Element, u: any): void => {
         g.addEventListener('mouseenter', () => {
-          tip.innerHTML = `<div class="t">${u.kind === 'cluster' ? u.label + ' (grouped)' : u.label}</div>` +
-            `<div class="d">${u.kind === 'cluster' ? u.cluster.members.length + ' mounted units' : byId.get(u.id)?.dir ?? ''}</div>` +
+          tip.innerHTML = `<div class="t">${u.kind === 'cluster' ? u.label + ' ' + t('tipGrouped') : u.label}</div>` +
+            `<div class="d">${u.kind === 'cluster' ? t('tipUnits', { n: u.cluster.members.length }) : byId.get(u.id)?.dir ?? ''}</div>` +
             `<div class="k">${[...u.keys].join(', ')}</div>`
           tip.style.display = 'block'
         })
@@ -457,7 +545,7 @@ export function mountSchematic(container: HTMLElement, options: SchematicOptions
         el('rect', { x: p.x, y: p.y, width: p.w, height: H, rx: '7' }, g)
         el('text', { x: p.x + 20, y: p.y + H / 2 + 1 }, g).textContent = k
         g.addEventListener('mouseenter', () => {
-          showTip(`<div class="t">⌁ ${k}</div><div class="d">injected by ${countInj(k)} unit(s), provided outside this process</div>`)
+          showTip(`<div class="t">⌁ ${k}</div><div class="d">${t('tipExt', { n: countInj(k) })}</div>`)
         })
         g.addEventListener('mousemove', moveTip)
         g.addEventListener('mouseleave', hideTip)
@@ -466,9 +554,9 @@ export function mountSchematic(container: HTMLElement, options: SchematicOptions
         const p = L.pos.get(id)
         if (p) el('text', { class: 'zone-h', x: p.x, y: '26' }, gN).textContent = txt
       }
-      zoneHead('EXTERNAL CTX KEYS', 'ext:' + L.extList[0])
-      zoneHead('INJECTED BY', 'in:' + L.inList[0]?.id)
-      zoneHead('MEMBERS INJECT', 'out:' + L.outList[0]?.id)
+      zoneHead(t('zoneExt'), 'ext:' + L.extList[0])
+      zoneHead(t('zoneIn'), 'in:' + L.inList[0]?.id)
+      zoneHead(t('zoneOut'), 'out:' + L.outList[0]?.id)
       for (const u of [...L.inList, ...L.outList]) {
         const p = L.pos.get(u.side + ':' + u.id)
         const g = drawPill(gN, u.id, p, u.label, u.cat, u.kind === 'cluster' ? 'ghost cluster' : 'ghost', null)
@@ -480,7 +568,7 @@ export function mountSchematic(container: HTMLElement, options: SchematicOptions
         nodeEls.set(u.id, g)
       }
       $('.stats').textContent =
-        `${L.cluster.label} · ${L.members.length}/${L.cluster.members.length} members · ${L.edges.length} internal edges`
+        t('scopeStats', { l: L.cluster.label, a: L.members.length, b: L.cluster.members.length, n: L.edges.length })
     } else {
       const unitEdges = overviewEdges(L)
       for (const e of unitEdges) {
@@ -496,20 +584,20 @@ export function mountSchematic(container: HTMLElement, options: SchematicOptions
         if (u.kind === 'cluster') bindClusterHover(g, u.cluster)
         nodeEls.set(u.id, g)
       }
-      // external-key ghost column (informational)
-      if (L.extList.length) el('text', { class: 'zone-h', x: '24', y: '26' }, gN).textContent = 'EXTERNAL CTX KEYS'
+      if (L.extList.length) el('text', { class: 'zone-h', x: '24', y: '26' }, gN).textContent = t('zoneExt')
       for (const k of L.extList) {
         const p = L.pos.get('ext:' + k)
         const g = el('g', { class: 'node ext' }, gN)
         el('rect', { x: p.x, y: p.y, width: p.w, height: H, rx: '7' }, g)
         el('text', { x: p.x + 20, y: p.y + H / 2 + 1 }, g).textContent = k
-        g.addEventListener('mouseenter', () => showTip(`<div class="t">⌁ ${k}</div><div class="d">injected by ${countInj(k)} unit(s), provided outside this process</div>`))
+        g.addEventListener('mouseenter', () => showTip(`<div class="t">⌁ ${k}</div><div class="d">${t('tipExt', { n: countInj(k) })}</div>`))
         g.addEventListener('mousemove', moveTip)
         g.addEventListener('mouseleave', hideTip)
       }
       const failed = GRAPH.nodes.filter((n: any) => n.state === 'failed').length
       $('.stats').textContent =
-        `${GRAPH.nodes.length} mounted · ${L.units.length} shown · ${unitEdges.length} edges` + (failed ? ` · ${failed} failed` : '')
+        t('stats', { m: GRAPH.nodes.length, s: L.units.length, e: unitEdges.length })
+        + (failed ? t('statsFailed', { f: failed }) : '')
     }
 
     svg.setAttribute('height', svg.clientHeight)
@@ -520,7 +608,8 @@ export function mountSchematic(container: HTMLElement, options: SchematicOptions
     else resetFocus(nodeEls, edgeEls)
     const crumb = $('.crumb')
     crumb.classList.toggle('on', scoped)
-    $('.subtitle').textContent = scoped ? '/ ' + L.cluster.label : '/ live topology'
+    crumb.textContent = t('overview')
+    $('.subtitle').textContent = scoped ? '/ ' + L.cluster.label : t('subtitle')
     if (refit) fit(L)
   }
 
@@ -542,18 +631,19 @@ export function mountSchematic(container: HTMLElement, options: SchematicOptions
   }
   function exitScope(): void {
     state.scope = null; state.sel = null
-    $('.detail').innerHTML = '<p class="empty">Click anything for details (groups included); double-click a group to open it.</p>'
+    $('.detail').innerHTML = `<p class="empty">${t('emptyDetail')}</p>`
     render(true)
   }
 
   function bindHover(g: Element, n: any): void {
     g.addEventListener('mouseenter', () => {
       const rows: string[] = []
-      if (n.desc) rows.push(`<div class="d">${esc(trunc(n.desc, 110))}</div>`)
-      rows.push(`<div class="d">${n.dir} · ${n.form}${n.pluginName ? ' · ' + n.pluginName : ''}${n.origin === 'runtime' ? ' · programmatic' : ''}${n.state && n.state !== 'active' ? ' · ' + n.state : ''}</div>`)
-      if (n.cluster) rows.push(`<div class="d">in group: ${clusterById.get(n.cluster).label}</div>`)
-      if (n.provides.length) rows.push(`<div class="k">provides: ${n.provides.join(', ')}</div>`)
-      if (n.inject.length) rows.push(`<div class="k">inject: ${n.inject.join(', ')}</div>`)
+      const d = descOf(n)
+      if (d) rows.push(`<div class="d">${esc(trunc(d, 110))}</div>`)
+      rows.push(`<div class="d">${n.dir} · ${n.form}${n.pluginName ? ' · ' + n.pluginName : ''}${n.origin === 'runtime' ? ' · ' + t('originRuntimeTip') : ''}${n.state && n.state !== 'active' ? ' · ' + n.state : ''}</div>`)
+      if (n.cluster) rows.push(`<div class="d">${t('tipInGroup', { l: clusterById.get(n.cluster).label })}</div>`)
+      if (n.provides.length) rows.push(`<div class="k">${t('tipProvides', { k: n.provides.join(', ') })}</div>`)
+      if (n.inject.length) rows.push(`<div class="k">${t('tipInject', { k: n.inject.join(', ') })}</div>`)
       showTip(`<div class="t">${esc(n.label ?? n.id)}</div>` + rows.join(''))
     })
     g.addEventListener('mousemove', moveTip)
@@ -571,11 +661,12 @@ export function mountSchematic(container: HTMLElement, options: SchematicOptions
       const states = c.members.map((m: string) => byId.get(m).state ?? '—')
       const dist = (arr: string[]): string => [...arr.reduce((m: any, v: string) => m.set(v, (m.get(v) ?? 0) + 1), new Map())]
         .map(([v, i]: any) => `${v}×${i}`).join(' ')
+      const d = descOf(c)
       showTip(`<div class="t">${esc(c.label)}</div>` +
-        (c.desc ? `<div class="d">${esc(trunc(c.desc, 130))}</div>` : '') +
-        `<div class="d">${c.members.length} mounted units — click for details, double-click to open</div>` +
+        (d ? `<div class="d">${esc(trunc(d, 130))}</div>` : '') +
+        `<div class="d">${t('tipUnits', { n: c.members.length })} — ${t('tipClusterHint')}</div>` +
         `<div class="k">${c.members.slice(0, 8).map((m: string) => nodeLabel(byId.get(m))).join(', ')}${c.members.length > 8 ? ' …' : ''}</div>` +
-        `<div class="k">states: ${dist(states)}</div>`)
+        `<div class="k">${t('tipStates', { k: dist(states) })}</div>`)
     })
     g.addEventListener('mousemove', moveTip)
     g.addEventListener('mouseleave', hideTip)
@@ -604,96 +695,116 @@ export function mountSchematic(container: HTMLElement, options: SchematicOptions
     for (const e of edgeEls) { e.classList.remove('dim'); e.classList.remove('on') }
   }
 
-  const llmCache = new Map<string, string>()
-  async function llmPost(path: string, payload: unknown): Promise<string> {
-    const key = path + JSON.stringify(payload)
-    if (llmCache.has(key)) return llmCache.get(key) as string
-    const res = await fetch(path, {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload),
-    })
-    const data = await res.json().catch(() => ({ error: '响应解析失败' }))
-    if (!res.ok) throw new Error((data as any).error || ('HTTP ' + res.status))
-    llmCache.set(key, (data as any).zh)
-    return (data as any).zh
-  }
-  /** Attach click behavior to one detail-panel LLM button (output = next sibling). */
-  function wireLlm(btn: HTMLElement, path: string, payload: unknown, busy: string): void {
-    const out = btn.nextElementSibling as HTMLElement
-    btn.onclick = async (): Promise<void> => {
-      btn.disabled = true; btn.textContent = busy
-      out.textContent = ''
-      try {
-        out.textContent = await llmPost(path, payload)
-      } catch (err) {
-        out.textContent = '⚠ ' + (err as Error).message
-      } finally {
-        btn.disabled = false; btn.textContent = btn.dataset.label ?? btn.textContent
-      }
-    }
-  }
-
   function renderDetail(n: any): void {
     const owners = (k: string): string => (keyOwners.get(k) ?? []).map((o) => nodeLabel(o)).join(', ')
     const keyChips = (list: string[]): string => list.map((k) => {
       const o = owners(k)
       return o ? `<code>${k} → ${o}</code>` : `<span class="ext" title="provided outside this process">${k}</span>`
     }).join(' ') || '<span class="empty">—</span>'
-    const c = CATS.find((x) => x.id === n.category)
+    const d = descOf(n)
     $('.detail').innerHTML = `
     <h2>${esc(n.label ?? n.id)}</h2>
     <div class="dir">${n.dir}${n.module ? ' · ' + esc(n.module) : ''}${n.pluginName ? ' · name: ' + esc(n.pluginName) : ''}</div>
-    ${n.desc ? `<p class="desc">${esc(n.desc)}</p>
-      <button class="llm-btn" data-label="译成中文">译成中文</button><div class="llm-out zh"></div>` : ''}
+    ${d ? `<p class="desc">${esc(d)}</p>` : ''}
     <dl>
-      <dt>state</dt><dd>${n.state ?? '—'}</dd>
-      <dt>origin</dt><dd>${n.origin === 'runtime' ? 'programmatic mount' : 'config entry'}</dd>
-      <dt>form</dt><dd>${n.form}</dd>
-      <dt>category</dt><dd>${c ? c.label : 'other'}</dd>
-      <dt>group</dt><dd>${n.cluster ? clusterById.get(n.cluster).label : '—'}</dd>
-      <dt>dep rank</dt><dd>${n.rank}</dd>
-      <dt>provides</dt><dd class="keys">${n.provides.length ? n.provides.map((k: string) => `<code>${k}</code>`).join(' ') : '<span class="empty">—</span>'}</dd>
-      <dt>inject</dt><dd class="keys">${keyChips(n.inject)}</dd>
+      <dt>${t('dtState')}</dt><dd>${n.state ?? '—'}</dd>
+      <dt>${t('dtOrigin')}</dt><dd>${n.origin === 'runtime' ? t('originRuntime') : t('originEntry')}</dd>
+      <dt>${t('dtForm')}</dt><dd>${n.form}</dd>
+      <dt>${t('dtCategory')}</dt><dd>${catLabel(n.category)}</dd>
+      <dt>${t('dtGroup')}</dt><dd>${n.cluster ? clusterById.get(n.cluster).label : '—'}</dd>
+      <dt>${t('dtRank')}</dt><dd>${n.rank}</dd>
+      <dt>${t('dtProvides')}</dt><dd class="keys">${n.provides.length ? n.provides.map((k: string) => `<code>${k}</code>`).join(' ') : '<span class="empty">—</span>'}</dd>
+      <dt>${t('dtInject')}</dt><dd class="keys">${keyChips(n.inject)}</dd>
     </dl>
-    <button class="llm-btn wide llm-explain" data-label="AI 解读这个插件">AI 解读这个插件</button>
-    <div class="llm-out zh"></div>`
-    const [translateBtn] = container.querySelectorAll<HTMLElement>('.detail .llm-btn:not(.llm-explain)')
-    if (translateBtn) wireLlm(translateBtn, '/schematic/api/translate', { text: n.desc }, '翻译中…')
-    const explainBtn = container.querySelector<HTMLElement>('.detail .llm-explain')
-    if (explainBtn) wireLlm(explainBtn, '/schematic/api/explain', { id: n.id }, '解读中…')
+    <button class="ask-btn" title="${t('askTitle')}">${t('ask')}</button>`
+    ;(container.querySelector('.detail .ask-btn') as HTMLElement).onclick = () => {
+      const name = n.pluginName ?? n.label ?? n.id
+      const q = t('askQ', { name, id: n.id })
+      // Best effort: the question is a convenience; the chat opens regardless.
+      void navigator.clipboard?.writeText(q).catch(() => { /* clipboard denied: user asks freely anyway */ })
+      window.open('/', '_blank', 'noopener')
+    }
   }
 
   function renderDetailCluster(c: any): void {
     const members = c.members.map((m: string) => byId.get(m))
-    const cat = CATS.find((x) => x.id === c.category)
+    const d = descOf(c)
     $('.detail').innerHTML = `
     <h2>${esc(c.label)}</h2>
-    <div class="dir">capability group · ${c.members.length} mounted units</div>
-    ${c.desc ? `<p class="desc">${esc(c.desc)}</p>
-      <button class="llm-btn" data-label="译成中文">译成中文</button><div class="llm-out zh"></div>` : ''}
+    <div class="dir">${t('capabilityGroup', { n: c.members.length })}</div>
+    ${d ? `<p class="desc">${esc(d)}</p>` : ''}
     <dl>
-      <dt>category</dt><dd>${cat ? cat.label : 'other'}</dd>
-      <dt>seam keys</dt><dd class="keys">${c.seamKeys?.length ? c.seamKeys.map((k: string) => `<code>${k}</code>`).join(' ') : '<span class="empty">—</span>'}</dd>
+      <dt>${t('dtCategory')}</dt><dd>${catLabel(c.category)}</dd>
+      <dt>${t('seamKeys')}</dt><dd class="keys">${c.seamKeys?.length ? c.seamKeys.map((k: string) => `<code>${k}</code>`).join(' ') : '<span class="empty">—</span>'}</dd>
     </dl>
     <div class="members">${members.map((m: any) =>
-      `<div class="m"><b>${esc(nodeLabel(m))}${m.state === 'failed' ? ' ✕' : m.state !== 'active' && m.state ? ' ⏳' : ''}</b>${m.desc ? `<span>${esc(m.desc)}</span>` : ''}</div>`).join('')}
+      `<div class="m"><b>${esc(nodeLabel(m))}${m.state === 'failed' ? ' ✕' : m.state !== 'active' && m.state ? ' ⏳' : ''}</b>${descOf(m) ? `<span>${esc(descOf(m) as string)}</span>` : ''}</div>`).join('')}
     </div>
-    <button class="open-btn">open group ↗</button>`
-    if (c.desc) {
-      const btn = container.querySelector<HTMLElement>('.detail .llm-btn')
-      if (btn) wireLlm(btn, '/schematic/api/translate', { text: c.desc }, '翻译中…')
-    }
+    <button class="open-btn">${t('openGroup')}</button>`
     ;(container.querySelector('.detail .open-btn') as HTMLElement).onclick = () => enterScope(c.id)
+  }
+
+  /** Re-localize whichever detail panel is showing (language flip). */
+  function refreshDetail(): void {
+    if (state.sel) {
+      if (byId.has(state.sel)) return renderDetail(byId.get(state.sel))
+      if (clusterById.has(state.sel)) return renderDetailCluster(clusterById.get(state.sel))
+    }
+    if (state.scope) return renderDetailCluster(clusterById.get(state.scope))
+    $('.detail').innerHTML = `<p class="empty">${t('emptyDetail')}</p>`
   }
 
   function renderTable(L: any): void {
     const rows = (state.scope ? L.members : GRAPH.nodes.filter(visibleNode))
       .sort((a: any, b: any) => (a.label ?? a.id).localeCompare(b.label ?? b.id))
-      .map((n: any) => `<tr><td>${esc(n.label ?? n.id)}</td><td>${n.dir}</td><td>${n.state ?? '—'}</td><td>${n.form}</td>
-      <td>${n.cluster ? clusterById.get(n.cluster).label : '—'}</td>
-      <td>${n.desc ? esc(n.desc) : '—'}</td>
-      <td>${n.provides.join(', ')}</td><td>${n.inject.join(', ')}</td></tr>`).join('')
+      .map((n: any) => {
+        const d = descOf(n)
+        return `<tr><td>${esc(n.label ?? n.id)}</td><td>${n.dir}</td><td>${n.state ?? '—'}</td><td>${n.form}</td>
+        <td>${n.cluster ? clusterById.get(n.cluster).label : '—'}</td>
+        <td>${d ? esc(d) : '—'}</td>
+        <td>${n.provides.join(', ')}</td><td>${n.inject.join(', ')}</td></tr>`
+      }).join('')
     $('.tableView').innerHTML =
-      `<table><thead><tr><th>unit</th><th>entry</th><th>state</th><th>form</th><th>group</th><th>description</th><th>provides</th><th>inject</th></tr></thead><tbody>${rows}</tbody></table>`
+      `<table><thead><tr><th>${t('thUnit')}</th><th>${t('thEntry')}</th><th>${t('thState')}</th><th>${t('thForm')}</th><th>${t('thGroup')}</th><th>${t('thDesc')}</th><th>${t('thProvides')}</th><th>${t('thInject')}</th></tr></thead><tbody>${rows}</tbody></table>`
+  }
+
+  // ------- batch translation -------
+  /** Kick off translation of every untranslated description (zh mode only). */
+  function ensureZh(): void {
+    if (lang !== 'zh' || GRAPH === null) { updateTransLabel(); return }
+    const texts = [...new Set(
+      [...GRAPH.nodes, ...GRAPH.clusters]
+        .map((x: any) => x.desc)
+        .filter((d: unknown): d is string => typeof d === 'string'),
+    )]
+    zhTotal = texts.length
+    zhTexts = texts
+    const missing = texts.filter((s) => !zhMap.has(s) && !pendingZh.has(s))
+    updateTransLabel()
+    if (missing.length === 0) return
+    missing.forEach((s) => pendingZh.add(s))
+    for (let i = 0; i < missing.length; i += 20) {
+      const chunk = missing.slice(i, i + 20)
+      void (async () => {
+        try {
+          const res = await fetch('/schematic/api/translate-batch', {
+            method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ texts: chunk }),
+          })
+          const data = await res.json().catch(() => ({ error: '响应解析失败' }))
+          if (!res.ok || !Array.isArray((data as any).zh) || (data as any).zh.length !== chunk.length) {
+            throw new Error((data as any).error || ('HTTP ' + res.status))
+          }
+          chunk.forEach((s, j) => { if (typeof (data as any).zh[j] === 'string') zhMap.set(s, (data as any).zh[j]) })
+        } catch { /* keep English for this chunk; retry on next toggle/reload */ }
+        finally {
+          chunk.forEach((s) => pendingZh.delete(s))
+          persistZh()
+          updateTransLabel()
+          render()
+          refreshDetail()
+        }
+      })()
+    }
   }
 
   // ------- controls -------
@@ -705,14 +816,14 @@ export function mountSchematic(container: HTMLElement, options: SchematicOptions
       const chip = document.createElement('span')
       chip.className = 'chip' + (state.cats.has(c.id) ? '' : ' off')
       chip.style.setProperty('--c', `var(${c.css})`)
-      chip.innerHTML = `<span class="dot"></span>${c.label} <b>${count(c.id)}</b>`
+      chip.innerHTML = `<span class="dot"></span>${catLabel(c.id)} <b>${count(c.id)}</b>`
       chip.onclick = () => { state.cats.has(c.id) ? state.cats.delete(c.id) : state.cats.add(c.id); renderChips(); render() }
       f.appendChild(chip)
     }
     const other = document.createElement('span')
     other.className = 'chip' + (state.other ? '' : ' off')
     other.style.setProperty('--c', 'var(--ink-3)')
-    other.innerHTML = `<span class="dot"></span>other <b>${GRAPH.nodes.filter((n: any) => n.category === 'other').length}</b>`
+    other.innerHTML = `<span class="dot"></span>${t('other')} <b>${GRAPH.nodes.filter((n: any) => n.category === 'other').length}</b>`
     other.onclick = () => { state.other = !state.other; renderChips(); render() }
     f.appendChild(other)
 
@@ -721,13 +832,13 @@ export function mountSchematic(container: HTMLElement, options: SchematicOptions
     f.appendChild(sep)
     const lbl = document.createElement('span')
     lbl.className = 'lbl'
-    lbl.textContent = 'origin:'
+    lbl.textContent = t('originLbl')
     f.appendChild(lbl)
-    for (const [id, label] of [['entry', 'config entry'], ['runtime', 'programmatic']] as const) {
+    for (const [id, label] of [['entry', 'originEntry'], ['runtime', 'originRuntimeTip']] as const) {
       const n = GRAPH.nodes.filter((x: any) => (x.origin ?? 'runtime') === id).length
       const chip = document.createElement('span')
       chip.className = 'chip' + (state.origins.has(id) ? '' : ' off')
-      chip.innerHTML = `<span class="dot plain"></span>${label} <b>${n}</b>`
+      chip.innerHTML = `<span class="dot plain"></span>${t(label)} <b>${n}</b>`
       chip.onclick = () => { state.origins.has(id) ? state.origins.delete(id) : state.origins.add(id); renderChips(); render() }
       f.appendChild(chip)
     }
@@ -737,7 +848,7 @@ export function mountSchematic(container: HTMLElement, options: SchematicOptions
     f.appendChild(sep2)
     const ext = document.createElement('span')
     ext.className = 'chip' + (state.ext ? '' : 'off')
-    ext.innerHTML = `<span class="dot ext"></span>external keys <b>${GRAPH.externalKeys.length}</b>`
+    ext.innerHTML = `<span class="dot ext"></span>${t('extKeys')} <b>${GRAPH.externalKeys.length}</b>`
     ext.onclick = () => { state.ext = !state.ext; renderChips(); render() }
     f.appendChild(ext)
   }
@@ -755,7 +866,7 @@ export function mountSchematic(container: HTMLElement, options: SchematicOptions
     try {
       GRAPH = await (await fetch('/schematic/graph.json', { cache: 'no-store' })).json()
     } catch {
-      $('.stats').textContent = 'failed to load /schematic/graph.json — is the plugin mounted?'
+      $('.stats').textContent = t('loadFail')
       return
     }
     if (disposed) return
@@ -767,15 +878,14 @@ export function mountSchematic(container: HTMLElement, options: SchematicOptions
       keyOwners.get(k)!.push(n)
     }
     state.scope = null; state.sel = null
-    $('.meta').textContent = `live snapshot · ${GRAPH.meta.generated} · source: this dsh process`
+    $('.meta').textContent = t('metaLine', { t: GRAPH.meta.generated })
     renderChips()
     render(true)
+    ensureZh()
     // deep link: open a cluster directly via #cluster:<label> (URL-encoded)
-    if (options.standalone) {
-      const m = decodeURIComponent(location.hash).match(/^#cluster:(.+)$/)
-      const target = m && GRAPH.clusters.find((c: any) => c.label === m[1])
-      if (target) enterScope(target.id)
-    }
+    const m = decodeURIComponent(location.hash).match(/^#cluster:(.+)$/)
+    const target = m && GRAPH.clusters.find((c: any) => c.label === m[1])
+    if (target) enterScope(target.id)
   }
 
   // ------- events -------
@@ -791,12 +901,27 @@ export function mountSchematic(container: HTMLElement, options: SchematicOptions
     $('.stage').style.display = table ? 'none' : ''
     $('.tableView').style.display = table ? 'block' : 'none'
   })
-  const themeToggle = container.querySelector<HTMLElement>('.themeToggle')
-  if (themeToggle) themeToggle.addEventListener('click', () => {
+  $('.themeToggle').addEventListener('click', () => {
     const cur = document.documentElement.dataset.theme ??
       (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
     document.documentElement.dataset.theme = cur === 'dark' ? 'light' : 'dark'
   })
+  const langToggle = $('.langToggle')
+  const updateLangButton = (): void => {
+    langToggle.textContent = lang === 'zh' ? 'EN' : '中'
+    langToggle.setAttribute('aria-pressed', String(lang === 'zh'))
+    langToggle.title = t('langTitle')
+  }
+  langToggle.addEventListener('click', () => {
+    lang = lang === 'zh' ? 'en' : 'zh'
+    try { localStorage.setItem('sch.lang', lang) } catch { /* storage unavailable: choice lasts for this page only */ }
+    updateLangButton()
+    renderChips()
+    render()
+    refreshDetail()
+    ensureZh()
+  })
+  updateLangButton()
   $('.refresh').addEventListener('click', () => { void load() })
   $('.zoomIn').addEventListener('click', () => { view.k = Math.min(2.5, view.k * 1.25); applyView() })
   $('.zoomOut').addEventListener('click', () => { view.k = Math.max(0.25, view.k / 1.25); applyView() })

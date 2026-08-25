@@ -1,34 +1,39 @@
 /**
- * Browser half of dsh-schematic: registers the topology viewer as a section
- * of the dsh web SPA's settings surface. The section hosts the same
- * framework-free engine as the standalone /schematic page (engine.ts) and
- * reads its data from the host half's same-origin endpoints.
+ * Browser half of dsh-schematic: one sidebar footer action in the dsh web
+ * SPA that opens the standalone /schematic page (served by the host half)
+ * in a new tab. The viewer page itself is not embedded — the SPA carries
+ * only the door to it.
  *
  * Bundle: scripts/build-client.mjs emits dist/client.js as a lazy-CJS
  * factory artifact — the format packages/client/tsdown.client.ts produces
  * in-repo (window.__ModuleLoader__.load({ id, factory })).
  */
 
-import { SchematicSection } from './SchematicSection.tsx'
+import { SchematicFooterAction, FOOTER_ACTION_CSS } from './FooterAction.tsx'
 
 /** Locale dictionary namespace owned by this plugin. */
-const NS = 'settings.schematic'
+const NS = 'schematic'
 
-const zh = { section: '插件拓扑' }
-const en = { section: 'Plugin topology' }
+const zh = { open: '插件拓扑' }
+const en = { open: 'Plugin topology' }
 
 export const inject = ['slots', 'locale']
 
-/** Contribute the section once the settings shell declares `settings.section`. */
+/** Contribute the footer action once ui-sidebar declares `sidebar.footer.action`. */
 export function apply(ctx: any): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-schematic: dictionaries')
   const t = ctx.locale.bind(NS)
-  ctx.slots.inject('settings.section', () => ctx.slots.register({
-    name: 'settings.section',
+  if (document.querySelector('style[data-schematic-foot-css]') === null) {
+    const tag = document.createElement('style')
+    tag.dataset.schematicFootCss = ''
+    tag.textContent = FOOTER_ACTION_CSS
+    document.head.appendChild(tag)
+  }
+  ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
+    name: 'sidebar.footer.action',
     id: 'schematic',
-    order: 90,
-    label: () => t('section'),
+    order: 10,
+    label: () => t('open'),
     locale: NS,
-    inject: () => ({}),
-  }, SchematicSection))
+  }, SchematicFooterAction))
 }

@@ -1,12 +1,13 @@
 /**
- * Build both browser artifacts from one engine source:
+ * Build both browser artifacts:
  *
  *   dist/engine.js  — IIFE for the standalone /schematic page (self-booting)
  *   dist/client.js  — lazy-CJS factory artifact for the dsh client module
  *                     system: window.__ModuleLoader__.load({ id, factory }),
  *                     the format packages/client/tsdown.client.ts produces
- *                     in-repo. React and react/jsx-runtime stay require()
- *                     calls answered by the shell's module table.
+ *                     in-repo. React, react/jsx-runtime, and the ui
+ *                     primitives stay require() calls answered by the
+ *                     shell's module table.
  *
  * Run: node scripts/build-client.mjs   (esbuild must be installed)
  */
@@ -33,7 +34,7 @@ const results = await Promise.all([
     target: 'es2022',
     outfile: 'dist/client.js',
     sourcemap: true,
-    external: ['react', 'react/jsx-runtime'],
+    external: ['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-ui-primitives'],
     jsx: 'automatic',
     banner: { js: `window.__ModuleLoader__.load({ id: ${JSON.stringify(pkg.id)}, factory: (require) => {\nvar module = { exports: {} }; var exports = module.exports;` },
     footer: { js: 'return module.exports; } });' },
