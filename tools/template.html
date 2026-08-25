@@ -44,6 +44,8 @@
   }
   header h1 { font-size: 15px; margin: 0; font-weight: 650; }
   header h1 span { color: var(--ink-3); font-weight: 400; }
+  #crumb { display: none; }
+  #crumb.on { display: inline-flex; }
   #stats { color: var(--ink-2); font-variant-numeric: tabular-nums; }
   header .spacer { flex: 1; }
   input[type="search"], button, select {
@@ -57,6 +59,8 @@
     display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
     padding: 8px 16px; background: var(--surface-1); border-bottom: 1px solid var(--border);
   }
+  #filters .sep { width: 1px; align-self: stretch; background: var(--border); margin: 0 4px; }
+  #filters .lbl { color: var(--ink-3); font-size: 12px; }
   .chip {
     display: inline-flex; align-items: center; gap: 6px;
     border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px;
@@ -64,6 +68,7 @@
   }
   .chip .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--c); }
   .chip .dot.ext { background: transparent; border: 1.5px dashed var(--ink-3); }
+  .chip .dot.plain { background: var(--ink-3); }
   .chip.off { opacity: 0.38; }
   .chip b { color: var(--ink-1); font-weight: 600; }
   main { flex: 1; display: flex; min-height: 0; }
@@ -108,7 +113,12 @@
   #tooltip .k { color: var(--ink-2); font: 11px ui-monospace, Menlo, monospace; }
   .node rect { fill: var(--surface-1); stroke: var(--c); stroke-width: 1.5; rx: 7; }
   .node text { fill: var(--ink-1); font-size: 11.5px; dominant-baseline: middle; pointer-events: none; }
+  .zone-h { fill: var(--ink-3); font-size: 10.5px; font-weight: 600; letter-spacing: .08em; }
   .node .accent { fill: var(--c); }
+  .node .bar { fill: var(--c); }
+  .node.cluster rect { stroke-width: 2; cursor: pointer; }
+  .node.ghost rect { stroke-dasharray: 4 3; }
+  .node.ghost text { fill: var(--ink-2); }
   .node.ext rect { stroke-dasharray: 4 3; stroke: var(--ink-3); }
   .node.ext text { fill: var(--ink-3); font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; }
   .edge { fill: none; stroke: var(--c); stroke-opacity: 0.34; stroke-width: 1.5; }
@@ -118,7 +128,8 @@
 </head>
 <body class="viz-root">
 <header>
-  <h1>dsh-schematic <span>/ static topology</span></h1>
+  <h1>dsh-schematic <span id="subtitle">/ topology</span></h1>
+  <button id="crumb">‹ overview</button>
   <span id="stats"></span>
   <span class="spacer"></span>
   <input type="search" id="search" placeholder="filter by name, dir, ctx key…">
@@ -130,7 +141,7 @@
 <main>
   <div id="stage"><svg id="graph" xmlns="http://www.w3.org/2000/svg"><g id="world"></g></svg></div>
   <div id="tableView"></div>
-  <aside id="detail"><p class="empty">Click a node for details.</p></aside>
+  <aside id="detail"><p class="empty">Click a node for details; click a grouped pill to open it.</p></aside>
 </main>
 <footer>
   <span id="meta"></span>
@@ -141,8 +152,9 @@
 <script>
 const GRAPH = __GRAPH__;
 
-// Categories in fixed slot order (palette slots 1..7); "other" and external
-// keys are chrome gray, never a series slot. Labels are display-only.
+// Categories in fixed slot order (palette slots 1..8); "other" and external
+// keys are chrome gray, never a series slot. web-client and other start
+// hidden: the default view is the harness core, not the client tree.
 const CATS = [
   { id: 'core-spine',        label: 'Core spine',        css: '--s1' },
   { id: 'model-layer',       label: 'Model layer',       css: '--s2' },
@@ -156,6 +168,7 @@ const CATS = [
 const catColor = (c) => CATS.find(x => x.id === c)?.css ?? null;
 
 const byId = new Map(GRAPH.nodes.map(n => [n.id, n]));
+const clusterById = new Map(GRAPH.clusters.map(c => [c.id, c]));
 const shortName = (id) => id.replace(/^@deepseek-ai\//, '').replace(/^dsh-/, '');
 const keyOwners = new Map();
 for (const n of GRAPH.nodes) for (const k of n.provides) {
@@ -165,57 +178,142 @@ for (const n of GRAPH.nodes) for (const k of n.provides) {
 
 // ------- state -------
 const state = {
-  cats: new Set(CATS.map(c => c.id)),          // visible categories
-  other: true, ext: true, libs: false,
-  q: '', sel: null,
+  cats: new Set(CATS.slice(0, 7).map(c => c.id)),   // web-client starts off
+  other: false, ext: true, libs: false,
+  bundles: new Set(['base', 'web-app', 'headless', 'multi', 'none']),
+  q: '', sel: null, scope: null,
 };
+const matchNode = (n) => {
+  if (!state.q) return true;
+  const hay = [n.id, n.dir, n.pluginName ?? '', ...n.provides, ...n.inject].join(' ').toLowerCase();
+  return hay.includes(state.q);
+};
+const bundleOk = (n) => state.bundles.has(n.bundle ?? 'none');
 
 // ------- layout -------
+// Overview: singleton pills + cluster pills in rank columns, with an
+// external-key ghost column at the far left. Scope: one cluster's members
+// with neighbor units ghosted left (in) / right (out).
 const H = 30, PITCH = 38, COLGAP = 96;
-function layout() {
-  const visible = (n) => state.cats.has(n.category) || (n.category === 'other' && state.other);
-  const match = (n) => {
-    if (!state.q) return true;
-    const hay = [n.id, n.dir, n.pluginName ?? '', ...n.provides, ...n.inject].join(' ').toLowerCase();
-    return hay.includes(state.q);
-  };
-  const nodes = GRAPH.nodes.filter(n => visible(n) && (state.libs || n.form !== 'library') && match(n));
-  const ids = new Set(nodes.map(n => n.id));
+const pillW = (label) => Math.min(240, label.length * 7.2 + 46);
+const byCatThenLabel = (a, b) =>
+  (CATS.findIndex(c => c.id === a.cat) - CATS.findIndex(c => c.id === b.cat)) || a.label.localeCompare(b.label);
+
+function visibleNode(n) {
+  return (state.cats.has(n.category) || (n.category === 'other' && state.other))
+    && bundleOk(n) && (state.libs || n.form !== 'library') && matchNode(n);
+}
+
+// Assign x/y by unit rank columns, starting at xStart.
+function placeUnits(units, xStart) {
   const cols = new Map();
-  for (const n of nodes) {
-    if (!cols.has(n.rank)) cols.set(n.rank, []);
-    cols.get(n.rank).push(n);
+  for (const u of units) {
+    if (!cols.has(u.rank)) cols.set(u.rank, []);
+    cols.get(u.rank).push(u);
   }
-  let x = 24;
+  let x = xStart;
   const pos = new Map();
-  const colX = [];
-  const order = [...cols.keys()].sort((a, b) => a - b);
-  // external-key pseudo-nodes in the leftmost ghost column
-  const extVisible = state.ext ? GRAPH.externalKeys.filter(k =>
-    !state.q || k.toLowerCase().includes(state.q) ||
-    nodes.some(n => n.inject.includes(k))) : [];
-  let wExt = 0;
-  const extPos = new Map();
-  if (extVisible.length) {
-    wExt = Math.max(...extVisible.map(k => k.length * 6.6 + 38));
-    extVisible.forEach((k, i) => extPos.set(k, { x, y: 40 + i * PITCH }));
-    x += wExt + COLGAP;
-  }
-  for (const r of order) {
-    const list = cols.get(r).sort((a, b) =>
-      (CATS.findIndex(c => c.id === a.category) - CATS.findIndex(c => c.id === b.category)) ||
-      a.id.localeCompare(b.id));
+  for (const r of [...cols.keys()].sort((a, b) => a - b)) {
+    const list = cols.get(r).sort(byCatThenLabel);
     let w = 0;
-    for (const n of list) w = Math.max(w, Math.min(240, shortName(n.id).length * 7.2 + 46));
-    list.forEach((n, i) => pos.set(n.id, { x, y: 40 + i * PITCH, w }));
-    colX.push({ r, x, w });
+    for (const u of list) w = Math.max(w, pillW(u.label));
+    list.forEach((u, i) => pos.set(u.id, { x, y: 40 + i * PITCH, w }));
     x += w + COLGAP;
   }
-  const height = Math.max(80, 40 + Math.max(
-    ...(extVisible.length ? [extVisible.length * PITCH] : [0]),
-    ...[...pos.values()].map(p => p.y + H)));
-  const edges = GRAPH.edges.filter(e => ids.has(e.from) && ids.has(e.to));
-  return { nodes, pos, extPos, wExt, edges, height, width: x };
+  return { pos, width: x - COLGAP + 24 };
+}
+
+function layoutOverview() {
+  const units = [];
+  for (const n of GRAPH.nodes)
+    if (!n.cluster && visibleNode(n))
+      units.push({ id: n.id, label: shortName(n.id), cat: n.category, rank: n.rank, kind: 'node', node: n });
+  // a cluster pill shows by its own category (member categories may span);
+  // bundle and search still need at least one member to qualify, unless the
+  // query matches the cluster label itself
+  const memberShown = (n) => bundleOk(n) && matchNode(n);
+  for (const c of GRAPH.clusters) {
+    const catOk = state.cats.has(c.category) || (c.category === 'other' && state.other);
+    if (!catOk) continue;
+    const members = c.members.map(m => byId.get(m));
+    const labelHit = state.q && c.label.toLowerCase().includes(state.q);
+    if (!(members.some(memberShown) || labelHit)) continue;
+    const rank = Math.round(members.reduce((s, m) => s + m.rank, 0) / members.length);
+    units.push({ id: c.id, label: `${c.label} · ${c.members.length}`, cat: c.category, rank, kind: 'cluster', cluster: c });
+  }
+  // external keys actually injected by a shown unit; informational column
+  const shownIds = new Set(units.map(u => u.id));
+  const injectedByShown = new Set(
+    GRAPH.nodes.filter(n => shownIds.has(n.cluster ?? n.id)).flatMap(n => n.inject));
+  const extList = state.ext ? GRAPH.externalKeys.filter(k => injectedByShown.has(k)) : [];
+  const extW = extList.length ? Math.max(...extList.map(k => k.length * 6.6 + 38)) : 0;
+  const { pos, width } = placeUnits(units, 24 + (extList.length ? extW + COLGAP : 0));
+  extList.forEach((k, i) => pos.set('ext:' + k, { x: 24, y: 40 + i * PITCH, w: k.length * 6.6 + 38 }));
+  const height = Math.max(80, 40 + Math.max(0, ...[...pos.values()].map(p => p.y + H)));
+  return { units, extList, pos, height, width: Math.max(width, 24 + extW) };
+}
+
+function layoutScope() {
+  const c = clusterById.get(state.scope);
+  const members = c.members.map(m => byId.get(m)).filter(n => bundleOk(n) && matchNode(n));
+  const memberIds = new Set(members.map(n => n.id));
+  const memberUnits = members.map(n => ({ id: n.id, label: shortName(n.id), cat: n.category, rank: n.rank, kind: 'node', node: n }));
+
+  // Aggregate member↔outside edges into ghost pills; ext keys feed the left column too.
+  const ghosts = new Map();
+  const addGhost = (node, side, keys) => {
+    const cl = node.cluster ? clusterById.get(node.cluster) : null;
+    const gid = node.cluster ?? node.id;
+    const gk = side + ':' + gid;
+    if (!ghosts.has(gk)) ghosts.set(gk, {
+      id: gid, label: cl ? cl.label : shortName(node.id),
+      cat: cl ? cl.category : node.category,
+      kind: cl ? 'cluster' : 'node', cluster: cl, side, keys: new Set(),
+    });
+    keys.forEach(k => ghosts.get(gk).keys.add(k));
+  };
+  const edges = [];
+  for (const e of GRAPH.edges) {
+    const a = byId.get(e.from), b = byId.get(e.to);
+    const aIn = memberIds.has(a.id), bIn = memberIds.has(b.id);
+    if (aIn && bIn) edges.push(e);
+    else if (aIn) addGhost(b, 'out', e.keys);
+    else if (bIn) addGhost(a, 'in', e.keys);
+  }
+  const extList = state.ext
+    ? [...new Set(members.flatMap(n => n.inject.filter(k => !keyOwners.has(k))))].sort()
+    : [];
+
+  const inList = [...ghosts.values()].filter(g => g.side === 'in').sort(byCatThenLabel);
+  const outList = [...ghosts.values()].filter(g => g.side === 'out').sort(byCatThenLabel);
+  const extW = extList.length ? Math.max(...extList.map(k => k.length * 6.6 + 38)) : 0;
+  const inW = inList.length ? Math.max(...inList.map(u => pillW(u.label))) : 0;
+  const outW = outList.length ? Math.max(...outList.map(u => pillW(u.label))) : 0;
+
+  const xBody = 24 + (extList.length ? extW + COLGAP : 0) + (inList.length ? inW + COLGAP : 0);
+  const { pos, width } = placeUnits(memberUnits, xBody);
+  const xOut = width - 24 + COLGAP;
+  extList.forEach((k, i) => pos.set('ext:' + k, { x: 24, y: 40 + i * PITCH, w: k.length * 6.6 + 38 }));
+  inList.forEach((u, i) => pos.set('in:' + u.id, { x: 24 + (extList.length ? extW + COLGAP : 0), y: 40 + i * PITCH, w: pillW(u.label) }));
+  outList.forEach((u, i) => pos.set('out:' + u.id, { x: xOut, y: 40 + i * PITCH, w: pillW(u.label) }));
+  const height = Math.max(80, 40 + Math.max(0, ...[...pos.values()].map(p => p.y + H)));
+  const totalW = outList.length ? xOut + outW + 24 : width;
+  return { units: memberUnits, members, cluster: c, inList, outList, extList, edges, pos, height, width: totalW };
+}
+
+// unit-level edge list for overview
+function overviewEdges(L) {
+  const ids = new Set(L.units.map(u => u.id));
+  const unitOf = (n) => n.cluster ?? n.id;
+  const agg = new Map();
+  for (const e of GRAPH.edges) {
+    const ua = unitOf(byId.get(e.from)), ub = unitOf(byId.get(e.to));
+    if (ua === ub || !ids.has(ua) || !ids.has(ub)) continue;
+    const key = ua + '→' + ub;
+    if (!agg.has(key)) agg.set(key, { from: ua, to: ub, keys: new Set() });
+    e.keys.forEach(k => agg.get(key).keys.add(k));
+  }
+  return [...agg.values()].map(e => ({ ...e, keys: [...e.keys].sort() }));
 }
 
 // ------- render -------
@@ -232,84 +330,189 @@ let view = { k: 1, tx: 0, ty: 0 };
 const applyView = () => {
   world.setAttribute('transform', `translate(${view.tx} ${view.ty}) scale(${view.k})`);
 };
+let lastL = null;
 
-function render() {
-  const L = layout();
+function drawPill(gN, id, p, label, cat, variant, hit) {
+  const c = catColor(cat);
+  const g = el('g', { class: 'node ' + variant, style: c ? `--c: var(${c})` : '--c: var(--ink-3)' }, gN);
+  el('rect', { x: p.x, y: p.y, width: p.w, height: H, rx: 7 }, g);
+  if (variant === 'cluster') el('rect', { class: 'bar', x: p.x + 6, y: p.y + 6, width: 4, height: H - 12, rx: 2 }, g);
+  else el('circle', { class: 'accent', cx: p.x + 14, cy: p.y + H / 2, r: 4.5 }, g);
+  const tx = variant === 'cluster' ? p.x + 18 : p.x + 26;
+  el('text', { x: tx, y: p.y + H / 2 + 1 }, g).textContent = label;
+  g.dataset.id = id;
+  if (hit) bindHover(g, hit);
+  return g;
+}
+
+function render(refit = false) {
+  const scoped = !!state.scope;
+  const L = scoped ? layoutScope() : layoutOverview();
+  lastL = L;
   svg.setAttribute('viewBox', `0 0 ${svg.clientWidth} ${svg.clientHeight}`);
   world.innerHTML = '';
   const gE = el('g', {}, world);
   const gN = el('g', {}, world);
   const nodeEls = new Map(), edgeEls = [];
 
-  for (const e of L.edges) {
-    const a = L.pos.get(e.from), b = L.pos.get(e.to);
-    const c = catColor(byId.get(e.to).category);
+  const edgePath = (a, b) => {
     const dx = Math.max(30, (b.x - (a.x + a.w)) * 0.45);
-    const p = el('path', {
-      class: 'edge', style: c ? `--c: var(${c})` : '--c: var(--ink-3)',
-      d: `M ${a.x + a.w} ${a.y + H / 2} C ${a.x + a.w + dx} ${a.y + H / 2}, ${b.x - dx} ${b.y + H / 2}, ${b.x} ${b.y + H / 2}`,
-    }, gE);
-    p.dataset.from = e.from; p.dataset.to = e.to;
-    edgeEls.push(p);
+    return `M ${a.x + a.w} ${a.y + H / 2} C ${a.x + a.w + dx} ${a.y + H / 2}, ${b.x - dx} ${b.y + H / 2}, ${b.x} ${b.y + H / 2}`;
+  };
+  const catOfUnit = (id) => {
+    if (id.startsWith('cluster:')) return clusterById.get(id)?.category;
+    if (id.startsWith('ext:') || id.includes('|')) return null;
+    return byId.get(id)?.category;
+  };
+
+  if (scoped) {
+    for (const e of L.edges) {
+      const a = L.pos.get(e.from), b = L.pos.get(e.to);
+      if (!a || !b) continue;
+      const c = catColor(catOfUnit(e.to));
+      const p = el('path', { class: 'edge', style: c ? `--c: var(${c})` : '--c: var(--ink-3)', d: edgePath(a, b) }, gE);
+      p.dataset.from = e.from; p.dataset.to = e.to; edgeEls.push(p);
+    }
+    const ghostHit = (g, u) => {
+      const tip = document.getElementById('tooltip');
+      g.addEventListener('mouseenter', () => {
+        tip.innerHTML = `<div class="t">${u.kind === 'cluster' ? u.label + ' (grouped)' : u.label}</div>` +
+          `<div class="d">${u.kind === 'cluster' ? u.cluster.members.length + ' packages' : byId.get(u.id)?.dir ?? ''}</div>` +
+          `<div class="k">${[...u.keys].join(', ')}</div>`;
+        tip.style.display = 'block';
+      });
+      g.addEventListener('mousemove', moveTip);
+      g.addEventListener('mouseleave', hideTip);
+      g.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        if (u.kind === 'cluster') { enterScope(u.cluster.id); }
+      });
+    };
+    for (const k of L.extList) {
+      const p = L.pos.get('ext:' + k);
+      const g = el('g', { class: 'node ext' }, gN);
+      el('rect', { x: p.x, y: p.y, width: p.w, height: H, rx: 7 }, g);
+      el('text', { x: p.x + 20, y: p.y + H / 2 + 1 }, g).textContent = k;
+      g.addEventListener('mouseenter', () => {
+        showTip(`<div class="t">⌁ ${k}</div><div class="d">injected by ${countInj(k)} package(s)</div>`);
+      });
+      g.addEventListener('mousemove', moveTip);
+      g.addEventListener('mouseleave', hideTip);
+    }
+    const zoneHead = (txt, id) => {
+      const p = L.pos.get(id);
+      if (p) el('text', { class: 'zone-h', x: p.x, y: 26 }, gN).textContent = txt;
+    };
+    zoneHead('EXTERNAL CTX KEYS', 'ext:' + L.extList[0]);
+    zoneHead('INJECTED BY', 'in:' + L.inList[0]?.id);
+    zoneHead('MEMBERS INJECT', 'out:' + L.outList[0]?.id);
+    for (const u of [...L.inList, ...L.outList]) {
+      const p = L.pos.get(u.side + ':' + u.id);
+      const g = drawPill(gN, u.id, p, u.label, u.cat, u.kind === 'cluster' ? 'ghost cluster' : 'ghost', null);
+      ghostHit(g, u);
+      nodeEls.set(u.side + ':' + u.id, g);
+    }
+    for (const u of L.units) {
+      const g = drawPill(gN, u.id, L.pos.get(u.id), u.label, u.cat, 'node', u.node);
+      nodeEls.set(u.id, g);
+    }
+    document.getElementById('stats').textContent =
+      `${L.cluster.label} · ${L.members.length}/${L.cluster.members.length} members · ${L.edges.length} internal edges`;
+  } else {
+    const unitEdges = overviewEdges(L);
+    for (const e of unitEdges) {
+      const a = L.pos.get(e.from), b = L.pos.get(e.to);
+      const c = catColor(catOfUnit(e.to));
+      const p = el('path', { class: 'edge', style: c ? `--c: var(${c})` : '--c: var(--ink-3)', d: edgePath(a, b) }, gE);
+      p.dataset.from = e.from; p.dataset.to = e.to;
+      p.dataset.keys = e.keys.join(', ');
+      edgeEls.push(p);
+    }
+    for (const u of L.units) {
+      const g = drawPill(gN, u.id, L.pos.get(u.id), u.label, u.cat, u.kind === 'cluster' ? 'cluster' : 'node', u.kind === 'node' ? u.node : null);
+      if (u.kind === 'cluster') bindClusterHover(g, u.cluster);
+      nodeEls.set(u.id, g);
+    }
+    // external-key ghost column (informational)
+    if (L.extList.length) el('text', { class: 'zone-h', x: 24, y: 26 }, gN).textContent = 'EXTERNAL CTX KEYS';
+    for (const k of L.extList) {
+      const p = L.pos.get('ext:' + k);
+      const g = el('g', { class: 'node ext' }, gN);
+      el('rect', { x: p.x, y: p.y, width: p.w, height: H, rx: 7 }, g);
+      el('text', { x: p.x + 20, y: p.y + H / 2 + 1 }, g).textContent = k;
+      g.addEventListener('mouseenter', () => showTip(`<div class="t">⌁ ${k}</div><div class="d">injected by ${countInj(k)} package(s)</div>`));
+      g.addEventListener('mousemove', moveTip);
+      g.addEventListener('mouseleave', hideTip);
+    }
+    document.getElementById('stats').textContent =
+      `${GRAPH.nodes.length} packages · ${L.units.length} shown · ${unitEdges.length} edges`;
   }
-  for (const [k, p] of L.extPos) {
-    const w = k.length * 6.6 + 38;
-    const g = el('g', { class: 'node ext' }, gN);
-    el('rect', { x: p.x, y: p.y, width: w, height: H, rx: 7 }, g);
-    el('text', { x: p.x + 20, y: p.y + H / 2 + 1 }, g).textContent = k;
-    g.dataset.key = k;
-    bindHover(g, { id: `ext:${k}`, dir: 'external ctx key (vendored Cordis or unresolved)', ext: true, injectCount: countInj(k) });
-  }
-  for (const n of L.nodes) {
-    const p = L.pos.get(n.id);
-    const c = catColor(n.category);
-    const g = el('g', { class: 'node', style: c ? `--c: var(${c})` : '--c: var(--ink-3)' }, gN);
-    el('rect', { x: p.x, y: p.y, width: p.w, height: H, rx: 7 }, g);
-    el('circle', { class: 'accent', cx: p.x + 14, cy: p.y + H / 2, r: 4.5 }, g);
-    el('text', { x: p.x + 26, y: p.y + H / 2 + 1 }, g).textContent = shortName(n.id);
-    g.dataset.id = n.id;
-    bindHover(g, n);
-    nodeEls.set(n.id, g);
-  }
+
   svg.setAttribute('height', svg.clientHeight);
   world.dataset.height = L.height;
-  document.getElementById('stats').textContent =
-    `${L.nodes.length} packages · ${L.nodes.filter(n => n.form !== 'library').length} plugins · ${L.edges.length} dependency edges · ${GRAPH.externalKeys.length} external keys`;
+  world.dataset.width = L.width;
   renderTable(L);
   if (state.sel && nodeEls.has(state.sel)) focusNode(state.sel, nodeEls, edgeEls);
   else resetFocus(nodeEls, edgeEls);
-  fit(L);
+  const crumb = document.getElementById('crumb');
+  crumb.classList.toggle('on', scoped);
+  document.getElementById('subtitle').textContent = scoped ? '/ ' + L.cluster.label : '/ topology';
+  if (refit) fit(L);
 }
 
 const countInj = (k) => GRAPH.nodes.filter(n => n.inject.includes(k)).length;
+const tip = document.getElementById('tooltip');
+const showTip = (html) => { tip.innerHTML = html; tip.style.display = 'block'; };
+const hideTip = () => { tip.style.display = 'none'; };
+const moveTip = (ev) => {
+  tip.style.left = Math.min(innerWidth - 360, ev.clientX + 14) + 'px';
+  tip.style.top = (ev.clientY + 14) + 'px';
+};
+
+function enterScope(id) {
+  state.scope = id; state.sel = null;
+  renderDetailCluster(clusterById.get(id));
+  render(true);
+}
+function exitScope() {
+  state.scope = null; state.sel = null;
+  document.getElementById('detail').innerHTML = '<p class="empty">Click a node for details; click a grouped pill to open it.</p>';
+  render(true);
+}
 
 function bindHover(g, n) {
-  const tip = document.getElementById('tooltip');
   g.addEventListener('mouseenter', () => {
-    const rows = [];
-    if (!n.ext) {
-      rows.push(`<div class="d">${n.dir} · ${n.form}${n.pluginName ? ' · ' + n.pluginName : ''}</div>`);
-      if (n.provides.length) rows.push(`<div class="k">provides: ${n.provides.join(', ')}</div>`);
-      if (n.inject.length) rows.push(`<div class="k">inject: ${n.inject.join(', ')}</div>`);
-      if (n.softInject.length) rows.push(`<div class="k">soft: ${n.softInject.join(', ')}</div>`);
-    } else {
-      rows.push(`<div class="d">injected by ${n.injectCount} package(s)</div>`);
-    }
-    tip.innerHTML = `<div class="t">${n.id.replace('ext:', '⌁ ')}</div>` + rows.join('');
-    tip.style.display = 'block';
+    const rows = [`<div class="d">${n.dir} · ${n.form}${n.pluginName ? ' · ' + n.pluginName : ''}${n.bundle ? ' · ' + n.bundle : ' · unbundled'}</div>`];
+    if (n.cluster) rows.push(`<div class="d">in group: ${clusterById.get(n.cluster).label}</div>`);
+    if (n.provides.length) rows.push(`<div class="k">provides: ${n.provides.join(', ')}</div>`);
+    if (n.inject.length) rows.push(`<div class="k">inject: ${n.inject.join(', ')}</div>`);
+    if (n.softInject.length) rows.push(`<div class="k">soft: ${n.softInject.join(', ')}</div>`);
+    showTip(`<div class="t">${n.id}</div>` + rows.join(''));
   });
-  g.addEventListener('mousemove', (ev) => {
-    tip.style.left = Math.min(innerWidth - 360, ev.clientX + 14) + 'px';
-    tip.style.top = (ev.clientY + 14) + 'px';
-  });
-  g.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+  g.addEventListener('mousemove', moveTip);
+  g.addEventListener('mouseleave', hideTip);
   g.addEventListener('click', (ev) => {
     ev.stopPropagation();
-    if (n.ext) return;
     state.sel = n.id;
     renderDetail(n);
     render();
   });
+}
+
+function bindClusterHover(g, c) {
+  g.addEventListener('mouseenter', () => {
+    const forms = c.members.map(m => byId.get(m).form);
+    const bundles = c.members.map(m => byId.get(m).bundle ?? 'none');
+    const dist = (arr) => [...arr.reduce((m, v) => m.set(v, (m.get(v) ?? 0) + 1), new Map())]
+      .map(([v, i]) => `${v}×${i}`).join(' ');
+    showTip(`<div class="t">${c.label}</div>` +
+      `<div class="d">${c.members.length} packages — click to open</div>` +
+      `<div class="k">${c.members.slice(0, 8).map(shortName).join(', ')}${c.members.length > 8 ? ' …' : ''}</div>` +
+      `<div class="k">bundles: ${dist(bundles)}</div><div class="k">forms: ${dist(forms)}</div>`);
+  });
+  g.addEventListener('mousemove', moveTip);
+  g.addEventListener('mouseleave', hideTip);
+  g.addEventListener('click', (ev) => { ev.stopPropagation(); enterScope(c.id); });
 }
 
 function focusNode(id, nodeEls, edgeEls) {
@@ -330,7 +533,7 @@ function resetFocus(nodeEls, edgeEls) {
 
 function renderDetail(n) {
   const owners = (k) => (keyOwners.get(k) ?? []).map(o => shortName(o.id)).join(', ');
-  const keyChips = (list, extMark) => list.map(k => {
+  const keyChips = (list) => list.map(k => {
     const o = owners(k);
     return o ? `<code>${k} → ${o}</code>` : `<span class="ext" title="provided outside packages/">${k}</span>`;
   }).join(' ') || '<span class="empty">—</span>';
@@ -341,6 +544,8 @@ function renderDetail(n) {
     <dl>
       <dt>form</dt><dd>${n.form}</dd>
       <dt>category</dt><dd>${c ? c.label : 'other'}</dd>
+      <dt>bundle</dt><dd>${n.bundle ?? 'unbundled'}</dd>
+      <dt>group</dt><dd>${n.cluster ? clusterById.get(n.cluster).label : '—'}</dd>
       <dt>dep rank</dt><dd>${n.rank}</dd>
       <dt>provides</dt><dd class="keys">${n.provides.length ? n.provides.map(k => `<code>${k}</code>`).join(' ') : '<span class="empty">—</span>'}</dd>
       <dt>inject</dt><dd class="keys">${keyChips(n.inject)}</dd>
@@ -348,12 +553,29 @@ function renderDetail(n) {
     </dl>`;
 }
 
+function renderDetailCluster(c) {
+  const members = c.members.map(m => byId.get(m));
+  const provides = [...new Set(members.flatMap(m => m.provides))].sort();
+  const cat = CATS.find(x => x.id === c.category);
+  document.getElementById('detail').innerHTML = `
+    <h2>${c.label}</h2>
+    <div class="dir">capability group · ${c.members.length} packages</div>
+    <dl>
+      <dt>category</dt><dd>${cat ? cat.label : 'other'}</dd>
+      <dt>members</dt><dd class="keys">${members.map(m => `<code>${shortName(m.id)}</code>`).join(' ')}</dd>
+      <dt>provides</dt><dd class="keys">${provides.length ? provides.map(k => `<code>${k}</code>`).join(' ') : '<span class="empty">—</span>'}</dd>
+    </dl>`;
+}
+
 function renderTable(L) {
-  const rows = [...L.nodes].sort((a, b) => a.dir.localeCompare(b.dir)).map(n => `
-    <tr><td>${n.id}</td><td>${n.dir}</td><td>${n.form}</td>
-    <td>${n.provides.join(', ')}</td><td>${n.inject.join(', ')}</td></tr>`).join('');
+  const rows = (state.scope ? L.members : GRAPH.nodes.filter(visibleNode))
+    .sort((a, b) => a.dir.localeCompare(b.dir))
+    .map(n => `<tr><td>${n.id}</td><td>${n.dir}</td><td>${n.form}</td>
+      <td>${n.cluster ? clusterById.get(n.cluster).label : '—'}</td>
+      <td>${n.bundle ?? '—'}</td>
+      <td>${n.provides.join(', ')}</td><td>${n.inject.join(', ')}</td></tr>`).join('');
   document.getElementById('tableView').innerHTML =
-    `<table><thead><tr><th>package</th><th>dir</th><th>form</th><th>provides</th><th>inject</th></tr></thead><tbody>${rows}</tbody></table>`;
+    `<table><thead><tr><th>package</th><th>dir</th><th>form</th><th>group</th><th>bundle</th><th>provides</th><th>inject</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 // ------- controls -------
@@ -370,11 +592,31 @@ function renderChips() {
     f.appendChild(chip);
   }
   const other = document.createElement('span');
-  other.className = 'chip' + (state.other ? '' : 'off');
+  other.className = 'chip' + (state.other ? '' : ' off');
   other.style.setProperty('--c', 'var(--ink-3)');
   other.innerHTML = `<span class="dot"></span>other <b>${GRAPH.nodes.filter(n => n.category === 'other').length}</b>`;
   other.onclick = () => { state.other = !state.other; renderChips(); render(); };
   f.appendChild(other);
+
+  const sep = document.createElement('span');
+  sep.className = 'sep';
+  f.appendChild(sep);
+  const lbl = document.createElement('span');
+  lbl.className = 'lbl';
+  lbl.textContent = 'bundle origin:';
+  f.appendChild(lbl);
+  for (const [id, label] of [['base', 'base'], ['web-app', 'web-app'], ['headless', 'headless'], ['multi', 'web+headless'], ['none', 'unmounted']]) {
+    const n = GRAPH.nodes.filter(x => (x.bundle ?? 'none') === id).length;
+    const chip = document.createElement('span');
+    chip.className = 'chip' + (state.bundles.has(id) ? '' : ' off');
+    chip.innerHTML = `<span class="dot plain"></span>${label} <b>${n}</b>`;
+    chip.onclick = () => { state.bundles.has(id) ? state.bundles.delete(id) : state.bundles.add(id); renderChips(); render(); };
+    f.appendChild(chip);
+  }
+
+  const sep2 = document.createElement('span');
+  sep2.className = 'sep';
+  f.appendChild(sep2);
   const ext = document.createElement('span');
   ext.className = 'chip' + (state.ext ? '' : 'off');
   ext.innerHTML = `<span class="dot ext"></span>external keys <b>${GRAPH.externalKeys.length}</b>`;
@@ -385,6 +627,10 @@ function renderChips() {
 document.getElementById('search').addEventListener('input', (e) => { state.q = e.target.value.trim().toLowerCase(); render(); });
 document.getElementById('libToggle').addEventListener('click', (e) => {
   state.libs = !state.libs; e.target.setAttribute('aria-pressed', state.libs); render();
+});
+document.getElementById('crumb').addEventListener('click', exitScope);
+addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { state.scope ? exitScope() : (state.sel = null, render()); }
 });
 const viewToggle = document.getElementById('viewToggle');
 viewToggle.addEventListener('click', () => {
@@ -400,11 +646,12 @@ document.getElementById('themeToggle').addEventListener('click', () => {
 });
 document.getElementById('zoomIn').addEventListener('click', () => { view.k = Math.min(2.5, view.k * 1.25); applyView(); });
 document.getElementById('zoomOut').addEventListener('click', () => { view.k = Math.max(0.25, view.k / 1.25); applyView(); });
-document.getElementById('zoomFit').addEventListener('click', () => render());
+document.getElementById('zoomFit').addEventListener('click', () => lastL && fit(lastL));
 function fit(L) {
+  const w = Number(world.dataset.width || L.width || 1200);
   const h = Number(world.dataset.height || L.height || 800);
-  const k = Math.min(1, svg.clientHeight / h);
-  view = { k, tx: 0, ty: 0 };
+  const k = Math.min(1, svg.clientWidth / (w + 48), svg.clientHeight / (h + 24));
+  view = { k, tx: Math.max(8, (svg.clientWidth - w * k) / 2), ty: Math.max(8, (svg.clientHeight - h * k) / 2) };
   applyView();
 }
 svg.addEventListener('wheel', (e) => {
@@ -417,14 +664,20 @@ let pan = null;
 svg.addEventListener('pointerdown', (e) => { pan = { x: e.clientX, y: e.clientY, tx: view.tx, ty: view.ty }; svg.classList.add('panning'); });
 addEventListener('pointermove', (e) => { if (pan) { view.tx = pan.tx + e.clientX - pan.x; view.ty = pan.ty + e.clientY - pan.y; applyView(); } });
 addEventListener('pointerup', () => { pan = null; svg.classList.remove('panning'); });
-svg.addEventListener('click', () => { state.sel = null; document.getElementById('detail').innerHTML = '<p class="empty">Click a node for details.</p>'; render(); });
+svg.addEventListener('click', () => { state.sel = null; render(); });
 addEventListener('resize', () => render());
 
 document.getElementById('meta').textContent =
   `source: ${GRAPH.meta.source}${GRAPH.meta.commit ? ' @ ' + GRAPH.meta.commit : ''} · generated ${GRAPH.meta.generated}`;
 
 renderChips();
-render();
+render(true);
+// deep link: open a cluster directly via #cluster:<label> (URL-encoded)
+{
+  const m = decodeURIComponent(location.hash).match(/^#cluster:(.+)$/);
+  const target = m && GRAPH.clusters.find(c => c.label === m[1]);
+  if (target) enterScope(target.id);
+}
 </script>
 </body>
 </html>
