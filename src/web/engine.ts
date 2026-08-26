@@ -321,7 +321,10 @@ const CSS = `
 .sch[data-tab="table"] .tableView { display: block; }
 .sch[data-tab="journey"] .journey { display: flex; }
 .sch[data-tab="journey"] .detail { display: none; }
-.sch .journey { display: none; flex: 1; min-width: 0; flex-direction: column; padding: 12px 16px 6px; }
+.sch .journey { display: none; flex: 1; min-width: 0; flex-direction: column; padding: 12px 16px 6px; cursor: grab; }
+.sch .journey.dragging { cursor: grabbing; }
+.sch .journey.dragging * { user-select: none; }
+.sch .journey .pill { cursor: pointer; }
 .sch .journey .hint { margin: 0 0 8px; color: var(--ink-3); font-size: 12px; }
 .sch .jr { display: flex; align-items: stretch; gap: 0; overflow-x: auto; padding-bottom: 8px; }
 .sch .stg {
@@ -1294,6 +1297,33 @@ export function mountSchematic(container: HTMLElement): () => void {
       render(state.tab === 'domains')
     })
   })
+  // drag-to-pan the journey row (plain HTML — the SVG canvas has its own pan;
+  // touch input keeps the native overflow scroll, only mouse gets the drag)
+  const jrPane = $('.journey')
+  const jrRow = $('.jr')
+  let jrDrag: { x: number; left: number; moved: boolean } | null = null
+  jrPane.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'mouse' || e.button !== 0) return
+    jrDrag = { x: e.clientX, left: jrRow.scrollLeft, moved: false }
+    jrPane.classList.add('dragging')
+  })
+  window.addEventListener('pointermove', (e) => {
+    if (jrDrag === null) return
+    const dx = e.clientX - jrDrag.x
+    if (Math.abs(dx) > 5) jrDrag.moved = true
+    jrRow.scrollLeft = jrDrag.left - dx
+  }, sig)
+  window.addEventListener('pointerup', () => {
+    if (jrDrag?.moved === true) {
+      // a drag ending on a pill must not also select it: swallow the
+      // click that follows (dispatched before this timeout runs)
+      const swallow = (ev: Event): void => { ev.stopPropagation(); ev.preventDefault() }
+      jrPane.addEventListener('click', swallow, { capture: true, once: true })
+      window.setTimeout(() => jrPane.removeEventListener('click', swallow, { capture: true }), 0)
+    }
+    jrDrag = null
+    jrPane.classList.remove('dragging')
+  }, sig)
   $('.themeToggle').addEventListener('click', () => {
     const cur = document.documentElement.dataset.theme ??
       (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
