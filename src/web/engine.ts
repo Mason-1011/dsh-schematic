@@ -80,7 +80,8 @@ const T: Record<string, { en: string; zh: string }> = {
   tabJourney:      { en: 'journey', zh: '旅程' },
   tabDomains:      { en: 'domains', zh: '分域' },
   tabTable:        { en: 'table', zh: '表格' },
-  journeyHint:     { en: 'One message, left to right: UI → connection → session & loop → context → model → tools. Persistence and support ride alongside.', zh: '一条消息从左到右:界面 → 连接 → 会话与循环 → 上下文 → 模型 → 工具;记录与支撑在旁路随行。' },
+  journeyHint:     { en: 'One message, left to right: UI → connection → session & loop → context → model → tools. Persistence and support ride on the parallel row beneath — each card footnotes the ctx keys it really exchanges with the flow.', zh: '一条消息从左到右走主流程:界面 → 连接 → 会话与循环 → 上下文 → 模型 → 工具;记录与支撑在下方旁路并行,卡片脚注列出它们与主流程实际交换的服务键。' },
+  sideTag:         { en: 'alongside', zh: '旁路' },
   statsJourney:    { en: '{m} mounted · arranged as one message\'s journey', zh: '已挂载 {m} · 按一条消息的旅程排列' },
   stgUi:           { en: 'Browser UI', zh: '网页界面' },
   stgUiD:          { en: 'Conversations, sidebar, settings — turns clicks into RPCs.', zh: '对话、侧栏、设置——把点击变成 RPC 请求。' },
@@ -181,7 +182,10 @@ function stageOf(n: any): string {
 }
 
 /** Left-to-right display order of the stage cards. */
-const DISPLAY = ['ui', 'gw', 'sess', 'ctx', 'model', 'tools', 'persist', 'support']
+/** Main-flow stages, in message order. */
+const FLOW = ['ui', 'gw', 'sess', 'ctx', 'model', 'tools']
+/** Sidecar stages: they serve the flow from alongside, not in message order. */
+const SIDE = ['persist', 'support']
 
 const CSS = `
 .sch { color-scheme: light;
@@ -326,7 +330,12 @@ const CSS = `
 .sch .journey.dragging * { user-select: none; }
 .sch .journey .pill { cursor: pointer; }
 .sch .journey .hint { margin: 0 0 8px; color: var(--ink-3); font-size: 12px; }
-.sch .jr { display: flex; align-items: stretch; gap: 0; overflow-x: auto; padding-bottom: 8px; }
+.sch .jr { overflow-x: auto; padding-bottom: 8px; }
+.sch .jrRow { display: flex; align-items: stretch; width: max-content; min-width: 100%; }
+.sch .jrRow.side { margin-top: 10px; padding-top: 12px; border-top: 1px dashed var(--border); align-items: flex-start; gap: 12px; }
+.sch .sideTag { flex: 0 0 auto; align-self: center; color: var(--ink-3); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+.sch .stg .xkeys { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); font: 10.5px/1.5 ui-monospace, Menlo, monospace; color: var(--ink-3); overflow-wrap: anywhere; }
+.sch .stg .xkeys b { font-weight: 500; }
 .sch .stg {
   min-width: 218px; max-width: 252px; flex: 0 0 auto;
   border: 1px solid var(--border); border-radius: 10px;
@@ -679,7 +688,8 @@ export function mountSchematic(container: HTMLElement): () => void {
 
   // ------- journey view -------
 
-  /** Render the message-journey tab: stage cards left to right with flow keys. */
+  /** Render the message-journey tab: the main flow as one row of stage cards,
+   *  sidecar stages on a parallel row beneath, keyed by what they exchange. */
   function renderJourney(): void {
     if (GRAPH === null) return
     const stageById = new Map<string, string>(GRAPH.nodes.map((n: any) => [n.id, stageOf(n)]))
@@ -695,16 +705,22 @@ export function mountSchematic(container: HTMLElement): () => void {
       }
       return [...keys].sort()
     }
-    let html = `<p class="hint">${t('journeyHint')}</p><div class="jr">`
-    DISPLAY.forEach((sid, i) => {
-      const stg = STAGES.find((s) => s.id === sid)!
-      if (i > 0) {
-        const keys = crossKeys(DISPLAY[i - 1], sid)
-        html += `<div class="flow">${keys.length ? `<span class="keys">${keys.join(' ')}</span>` : ''}<span class="arr">→</span></div>`
+    // keys a sidecar stage actually exchanges with any main-flow stage
+    const sideKeys = (sid: string): string[] => {
+      const keys = new Set<string>()
+      for (const e of GRAPH.edges) {
+        const fs = stageById.get(e.from), ts = stageById.get(e.to)
+        if ((fs === sid && FLOW.includes(ts)) || (ts === sid && FLOW.includes(fs))) {
+          e.keys.forEach((k: string) => keys.add(k))
+        }
       }
+      return [...keys].sort()
+    }
+    const card = (sid: string, no: number, footer = ''): string => {
+      const stg = STAGES.find((s) => s.id === sid)!
       const members = membersOf(sid)
-      html += `<section class="stg" style="--c: var(${stg.css})">
-        <header><span class="no">${String(i + 1).padStart(2, '0')}</span><h3>${t(stg.title)}</h3><b>${members.length}</b></header>
+      return `<section class="stg" style="--c: var(${stg.css})">
+        <header><span class="no">${String(no).padStart(2, '0')}</span><h3>${t(stg.title)}</h3><b>${members.length}</b></header>
         <p class="d">${t(stg.desc)}</p>
         <div class="chips">${members.map((n: any) => {
           const c = catColor(n.category)
@@ -712,10 +728,25 @@ export function mountSchematic(container: HTMLElement): () => void {
             freshIds.has(n.id) ? 'pulse' : ''].filter(Boolean).join(' ')
           const mark = n.state === 'failed' ? ' ✕' : (n.state && n.state !== 'active' ? ' ⏳' : '')
           return `<span class="${cls}" data-id="${esc(n.id)}"${c ? ` style="--pc: var(${c})"` : ''}><span class="dot"></span>${esc(nodeLabel(n))}${mark}</span>`
-        }).join('')}</div>
-      </section>`
+        }).join('')}</div>${footer}</section>`
+    }
+    let flow = ''
+    FLOW.forEach((sid, i) => {
+      if (i > 0) {
+        const keys = crossKeys(FLOW[i - 1], sid)
+        flow += `<div class="flow">${keys.length ? `<span class="keys">${keys.join(' ')}</span>` : ''}<span class="arr">→</span></div>`
+      }
+      flow += card(sid, i + 1)
     })
-    $('.journey').innerHTML = html + '</div>'
+    let side = `<span class="sideTag">${t('sideTag')}</span>`
+    SIDE.forEach((sid, i) => {
+      const keys = sideKeys(sid)
+      const footer = keys.length
+        ? `<div class="xkeys"><b>↔</b> ${keys.slice(0, 8).map(esc).join(' · ')}${keys.length > 8 ? ` +${keys.length - 8}` : ''}</div>`
+        : ''
+      side += card(sid, FLOW.length + i + 1, footer)
+    })
+    $('.journey').innerHTML = `<p class="hint">${t('journeyHint')}</p><div class="jr"><div class="jrRow">${flow}</div><div class="jrRow side">${side}</div></div>`
     $('.journey').querySelectorAll<HTMLElement>('.pill').forEach((chip) => {
       const n = byId.get(chip.dataset.id ?? '')
       if (n) bindHover(chip, n)
