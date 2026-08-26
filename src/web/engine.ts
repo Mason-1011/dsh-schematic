@@ -1300,18 +1300,21 @@ export function mountSchematic(container: HTMLElement): () => void {
   // drag-to-pan the journey row (plain HTML — the SVG canvas has its own pan;
   // touch input keeps the native overflow scroll, only mouse gets the drag)
   const jrPane = $('.journey')
-  const jrRow = $('.jr')
-  let jrDrag: { x: number; left: number; moved: boolean } | null = null
+  let jrDrag: { row: HTMLElement; x: number; left: number; moved: boolean } | null = null
   jrPane.addEventListener('pointerdown', (e) => {
     if (e.pointerType !== 'mouse' || e.button !== 0) return
-    jrDrag = { x: e.clientX, left: jrRow.scrollLeft, moved: false }
+    // renderJourney rebuilds .jr via innerHTML on every render — resolve the
+    // live row per drag, never cache the element across renders
+    const row = jrPane.querySelector<HTMLElement>('.jr')
+    if (row === null) return
+    jrDrag = { row, x: e.clientX, left: row.scrollLeft, moved: false }
     jrPane.classList.add('dragging')
   })
   window.addEventListener('pointermove', (e) => {
     if (jrDrag === null) return
     const dx = e.clientX - jrDrag.x
     if (Math.abs(dx) > 5) jrDrag.moved = true
-    jrRow.scrollLeft = jrDrag.left - dx
+    jrDrag.row.scrollLeft = jrDrag.left - dx
   }, sig)
   window.addEventListener('pointerup', () => {
     if (jrDrag?.moved === true) {
