@@ -24,6 +24,13 @@ export interface SessionState {
   /** True between the first assistant/chunk and the assembling assistant/message. */
   streaming: boolean
   inflightTools: string[]
+  /**
+   * Modules with work in flight right now (in-flight tool owners, plus the
+   * streaming provider while chunks flow). The page re-hydrates its
+   * highlight map from this on (re)connect, so a page opened mid-run lights
+   * up immediately instead of waiting for the next event.
+   */
+  activeModules: string[]
   /** Unix ms of the last observed event (envelope time); 0 when never. */
   lastEventAt: number
   /** Set on the final state frame when the session was disposed. */

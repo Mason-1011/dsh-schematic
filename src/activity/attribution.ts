@@ -109,7 +109,7 @@ const EVENT_OWNER_PREFIX: [prefix: string, module: string][] = [
 ]
 
 /** Provider route key fragments → the adapter package behind them. */
-function providerModule(provider: string): string {
+export function providerModule(provider: string): string {
   if (provider.includes('pi-ai')) return `${DSH}/dsh-llm-pi-ai`
   if (provider.includes('deepseek')) return `${DSH}/dsh-llm-deepseek`
   return `${DSH}/dsh-llm`

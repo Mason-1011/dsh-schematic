@@ -106,6 +106,25 @@ const T: Record<string, { en: string; zh: string }> = {
   familyMembers:   { en: 'family members', zh: '家族成员' },
   changedToast:    { en: 'topology changed: +{a} · −{r}', zh: '拓扑变化:+{a} · −{r}' },
   autoTitle:       { en: 'toggle auto-refresh (every 5s)', zh: '切换自动刷新(每 5 秒)' },
+  sessFollow:      { en: '↪ follow chat', zh: '↪ 跟随聊天' },
+  actSub:          { en: 'subagents', zh: '含子代理' },
+  actSubTitle:     { en: 'also show subagent sessions running in this process', zh: '同时显示本进程里运行的子代理会话' },
+  actEmpty:        { en: 'no activity yet — send a message in the followed session', zh: '暂无活动——在跟随的会话里发条消息试试' },
+  actRunning:      { en: 'running', zh: '运行中' },
+  actIdle:         { en: 'idle', zh: '空闲' },
+  actLiveHint:     { en: 'glow = active now', zh: '发光 = 正在活动' },
+  actReconnected:  { en: 'activity stream reconnected', zh: '活动流已重连' },
+  akUser:          { en: 'user message', zh: '用户消息' },
+  akLlm:           { en: 'model reply', zh: '模型回复' },
+  akTool:          { en: 'tool call', zh: '工具调用' },
+  akToolEnd:       { en: 'tool done', zh: '工具完成' },
+  akTurn:          { en: 'turn', zh: '回合' },
+  akApproval:      { en: 'approval', zh: '审批' },
+  akTodo:          { en: 'todo write', zh: '待办写入' },
+  akCompaction:    { en: 'compaction', zh: '压缩' },
+  akRetry:         { en: 'LLM retry', zh: '模型重试' },
+  akSubagent:      { en: 'subagent', zh: '子代理' },
+  akTitle:         { en: 'title', zh: '标题' },
 }
 
 const CATS = [
@@ -371,6 +390,50 @@ const CSS = `
 .sch .stg .pill.pulse, .sch .node.pulse rect { animation: schPulse 1.1s ease-in-out 6; }
 .sch .node.family rect { stroke-dasharray: 5 3; }
 .sch .legend { color: var(--ink-3); font-size: 11.5px; padding: 0 2px; }
+/* runtime activity: live = recent (breathing, TTL), live-strong = in flight */
+@keyframes schLive { 50% { filter: brightness(1.3); } }
+.sch .stg .pill.live {
+  border-color: var(--pc, var(--ink-2));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--pc, var(--ink-3)) 26%, transparent);
+  animation: schLive 1.6s ease-in-out infinite;
+}
+.sch .stg .pill.live-strong {
+  border-color: var(--pc, var(--ink-1));
+  background: color-mix(in srgb, var(--pc, var(--ink-2)) 16%, var(--page));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--pc, var(--ink-3)) 40%, transparent);
+}
+.sch .node.live rect {
+  stroke-width: 2.5;
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--c) 65%, transparent));
+  animation: schLive 1.6s ease-in-out infinite;
+}
+.sch .node.live-strong rect {
+  stroke-width: 2.5;
+  fill: color-mix(in srgb, var(--c) 20%, var(--surface-1));
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--c) 80%, transparent));
+}
+.sch header .sessSel { max-width: 260px; }
+.sch header .subBtn { border-radius: 999px; padding: 3px 10px; color: var(--ink-2); }
+.sch .actbar { border-top: 1px solid var(--border); background: var(--surface-1); flex: 0 0 auto; }
+.sch .actHead { display: flex; align-items: center; gap: 8px; padding: 5px 16px; font-size: 12px; }
+.sch .actHead .actSess { font-weight: 600; max-width: 34vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sch .actHead .actState { color: var(--ink-2); font-size: 11.5px; }
+.sch .runDot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); flex: 0 0 auto; }
+.sch .runDot.on { background: var(--s3); animation: schPulse 1.1s ease-in-out infinite; }
+.sch .actFold { border: 0; background: none; color: var(--ink-3); padding: 0 4px; font-size: 11px; cursor: pointer; }
+.sch .actbar.folded .actList { display: none; }
+.sch .actbar.folded .actFold { transform: rotate(180deg); }
+.sch .actList { max-height: 118px; overflow-y: auto; padding: 0 16px 7px; display: flex; flex-direction: column; gap: 2px; }
+.sch .actRow { display: flex; gap: 8px; align-items: baseline; font-size: 11.5px; min-width: 0; }
+.sch .actRow time { color: var(--ink-3); font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+.sch .actRow .md {
+  flex: 0 0 auto; font: 10.5px/1.5 ui-monospace, Menlo, monospace;
+  border: 1px solid var(--border); border-radius: 5px; padding: 0 5px;
+  color: var(--mc, var(--ink-3));
+}
+.sch .actRow .tx { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sch .actRow.err .tx { color: var(--s8); }
+.sch .actList .emptyRow { color: var(--ink-3); font-size: 11.5px; }
 `
 
 /** Idempotent stylesheet injection. */
@@ -462,6 +525,8 @@ export function mountSchematic(container: HTMLElement): () => void {
   <span class="stats">${t('loading')}</span>
   <span class="trans"></span>
   <span class="spacer"></span>
+  <select class="sessSel" title="${t('actSubTitle')}"></select>
+  <button class="chip subBtn" aria-pressed="false" title="${t('actSubTitle')}">${t('actSub')}</button>
   <input type="search" class="search" placeholder="${t('searchPh')}">
   <button class="langToggle" title="${t('langTitle')}">中</button>
   <button class="themeToggle">◐</button>
@@ -473,6 +538,15 @@ export function mountSchematic(container: HTMLElement): () => void {
   <div class="tableView"></div>
   <aside class="detail"><p class="empty">${t('emptyDetail')}</p></aside>
 </main>
+<div class="actbar">
+  <div class="actHead">
+    <span class="runDot"></span><b class="actSess">—</b><span class="actState"></span>
+    <span class="spacer" style="flex:1"></span>
+    <span class="legend">${t('actLiveHint')}</span>
+    <button class="actFold" aria-pressed="true">▾</button>
+  </div>
+  <div class="actList"></div>
+</div>
 <footer>
   <span class="meta"></span>
   <span class="spacer" style="flex:1"></span>
@@ -507,10 +581,12 @@ export function mountSchematic(container: HTMLElement): () => void {
 
   let pollTimer = 0
   let toastTimer = 0
+  let disposeExtra: (() => void) | null = null
   const dispose = (): void => {
     disposed = true
     window.clearInterval(pollTimer)
     window.clearTimeout(toastTimer)
+    disposeExtra?.()
     ac.abort()
     container.innerHTML = ''
     container.classList.remove('sch')
@@ -545,6 +621,8 @@ export function mountSchematic(container: HTMLElement): () => void {
   let byId = new Map<string, any>()
   let clusterById = new Map<string, any>()
   let keyOwners = new Map<string, any[]>()
+  /** module specifier → node ids (activity frames attribute by module). */
+  let moduleIds = new Map<string, string[]>()
   const nodeLabel = (n: any): string => n.label ?? n.id
 
   // ------- layout -------
@@ -813,7 +891,7 @@ export function mountSchematic(container: HTMLElement): () => void {
 
   function render(refit = false): void {
     if (GRAPH === null) return
-    if (state.tab === 'journey') { renderJourney(); return }
+    if (state.tab === 'journey') { renderJourney(); paintActivity(); return }
     const scoped = !!state.scope
     const L = scoped ? layoutScope() : layoutOverview()
     lastL = L
@@ -963,6 +1041,7 @@ export function mountSchematic(container: HTMLElement): () => void {
     crumb.classList.toggle('on', scoped)
     crumb.textContent = t('overview')
     $('.subtitle').textContent = scoped ? '/ ' + L.cluster.label : t('subtitle')
+    paintActivity()
   }
 
   const countInj = (k: string): number => GRAPH.nodes.filter((n: any) => n.inject.includes(k)).length
@@ -1239,6 +1318,12 @@ export function mountSchematic(container: HTMLElement): () => void {
       if (!keyOwners.has(k)) keyOwners.set(k, [])
       keyOwners.get(k)!.push(n)
     }
+    moduleIds = new Map()
+    for (const n of GRAPH.nodes) {
+      if (typeof n.module !== 'string') continue
+      if (!moduleIds.has(n.module)) moduleIds.set(n.module, [])
+      moduleIds.get(n.module)!.push(n.id)
+    }
     if (first) { state.scope = null; state.sel = null }
     else if (state.scope !== null && !clusterById.has(state.scope)) { state.scope = null; state.sel = null }
     else if (state.sel !== null && !byId.has(state.sel) && !clusterById.has(state.sel) && !state.sel.startsWith('fam:')) state.sel = null
@@ -1314,6 +1399,312 @@ export function mountSchematic(container: HTMLElement): () => void {
     autoBtn.textContent = autoOn ? '⏸' : '▶'
   })
 
+  // ------- activity feed (SSE /schematic/events) -------
+  /**
+   * The runtime-activity layer rides on top of the structural renders: the
+   * 5s graph poll rebuilds the DOM, then paintActivity() re-applies live
+   * classes to whatever pills now exist — two independent clocks, one paint.
+   */
+  const LIVE_TTL_MS = 4000
+  const act = {
+    sessions: new Map<string, any>(),
+    timelines: new Map<string, any[]>(),
+    /** null = follow the SPA's current chat session (dsh.sessions.current). */
+    pinned: null as string | null,
+    followId: '' as string,
+    includeSub: false,
+    /** module → { until, strong }; strong entries survive the TTL sweeper. */
+    active: new Map<string, { until: number; strong: boolean }>(),
+    /** last known llm provider module per session (for streaming highlight). */
+    lastLlm: new Map<string, string | null>(),
+  }
+  const AK: Record<string, string> = {
+    user: 'akUser', llm: 'akLlm', tool: 'akTool', 'tool-end': 'akToolEnd', turn: 'akTurn',
+    approval: 'akApproval', todo: 'akTodo', compaction: 'akCompaction', retry: 'akRetry',
+    subagent: 'akSubagent', title: 'akTitle',
+  }
+  const sessSel = $('.sessSel') as unknown as HTMLSelectElement
+  const subBtn = $('.subBtn')
+  const actbar = $('.actbar')
+  const actList = $('.actList')
+  const runDot = $('.runDot')
+  const actSess = $('.actSess')
+  const actState = $('.actState')
+
+  /** module → the pills currently drawn for it (node, its cluster, or its family). */
+  const cssEscape: (v: string) => string = (globalThis as any).CSS?.escape?.bind((globalThis as any).CSS)
+    ?? ((v: string) => v.replace(/["\\]/g, '\\$&'))
+  const elsForModule = (module: string): Element[] => {
+    const out: Element[] = []
+    for (const id of moduleIds.get(module) ?? []) {
+      const n = byId.get(id)
+      if (n === undefined) continue
+      for (const cand of [typeof n.cluster === 'string' ? n.cluster : null, 'fam:' + n.group, id]) {
+        if (cand === null) continue
+        const els = container.querySelectorAll(`[data-id="${cssEscape(cand)}"]`)
+        if (els.length > 0) { out.push(...els); break }
+      }
+    }
+    return out
+  }
+
+  /** Re-apply live/live-strong to the currently drawn pills; clears stale ones. */
+  function paintActivity(): void {
+    container.querySelectorAll('.live').forEach((e) => e.classList.remove('live'))
+    container.querySelectorAll('.live-strong').forEach((e) => e.classList.remove('live-strong'))
+    const now = Date.now()
+    for (const [module, info] of act.active) {
+      if (!info.strong && info.until < now) continue
+      const els = elsForModule(module)
+      for (const el of els) el.classList.add(info.strong ? 'live-strong' : 'live')
+    }
+  }
+
+  const touchModule = (module: string, strong: boolean): void => {
+    const prev = act.active.get(module)
+    // strong means "work in flight": it survives the TTL sweeper until the
+    // matching end event downgrades it (or a snapshot rebuilds the map).
+    const nextStrong = strong || (prev?.strong ?? false)
+    act.active.set(module, { until: nextStrong ? Number.POSITIVE_INFINITY : Date.now() + LIVE_TTL_MS, strong: nextStrong })
+    paintActivity()
+  }
+
+  /**
+   * Hydrate in-flight highlights from a session state: in-flight tool owners
+   * light up strong (a page opened mid-run, or a missed activity frame), and
+   * the streaming provider lights while chunks flow. The has() guard means a
+   * tool-end downgrade is never resurrected by a trailing throttled state.
+   */
+  const hydrateState = (s: any): void => {
+    if (!shownEntry(s.sessionId)) return
+    const llmMod = act.lastLlm.get(s.sessionId)
+      ?? (Array.isArray(s.activeModules) ? s.activeModules.find((m: string) => m.includes('/dsh-llm')) : undefined)
+    if (llmMod !== undefined && s.streaming === true) {
+      act.lastLlm.set(s.sessionId, llmMod)
+      act.active.set(llmMod, { until: Date.now() + LIVE_TTL_MS, strong: true })
+    }
+    for (const m of Array.isArray(s.activeModules) ? s.activeModules : []) {
+      if (act.active.has(m)) continue
+      act.active.set(m, { until: Number.POSITIVE_INFINITY, strong: true })
+    }
+  }
+
+  /** Which sessions the timeline shows: the followed one, plus subagents when toggled. */
+  const shownSessions = (): string[] => {
+    const out = [act.pinned ?? act.followId]
+    if (act.includeSub) {
+      for (const [id, s] of act.sessions) {
+        if (s.kind === 'subagent' && !out.includes(id)) out.push(id)
+      }
+    }
+    return out.filter((id) => id !== '' && id !== null)
+  }
+  const shownEntry = (sessionId: string): boolean =>
+    sessionId === (act.pinned ?? act.followId)
+    || (act.includeSub && act.sessions.get(sessionId)?.kind === 'subagent')
+
+  const moduleShort = (m: string): string => {
+    const last = m.split('/').pop() ?? m
+    return last.replace(/^dsh-/, '')
+  }
+  const moduleColorCss = (m: string): string | null => {
+    for (const id of moduleIds.get(m) ?? []) {
+      const n = byId.get(id)
+      const c = n ? catColor(n.category) : null
+      if (c) return `var(${c})`
+    }
+    return null
+  }
+  const detailOf = (e: any): string => {
+    switch (e.kind) {
+      case 'user': return (e.snippet ?? e.name ?? '') || '—'
+      case 'llm': return [e.provider, e.model].filter(Boolean).join(' · ') || '—'
+      case 'tool': return e.name ?? ''
+      case 'tool-end': return (e.name ?? '') + (e.durationMs !== undefined ? ` · ${e.durationMs}ms` : '') + (e.isError ? ' ✕' : '')
+      case 'turn': return '#' + (e.name ?? '')
+      default: return e.name ?? ''
+    }
+  }
+  const fmtTime = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour12: false })
+
+  /** Full redraw of the timeline list from the shown sessions' rings. */
+  function renderActList(): void {
+    const rows: any[] = []
+    for (const id of shownSessions()) rows.push(...(act.timelines.get(id) ?? []))
+    rows.sort((a, b) => b.time - a.time)
+    const shown = rows.slice(0, 60)
+    if (shown.length === 0) {
+      actList.innerHTML = `<span class="emptyRow">${t('actEmpty')}</span>`
+      return
+    }
+    actList.innerHTML = shown.map((e) => {
+      const badge = e.module !== null
+        ? `<span class="md"${moduleColorCss(e.module) ? ` style="--mc: ${moduleColorCss(e.module)}"` : ''}>${esc(moduleShort(e.module))}</span>`
+        : ''
+      const label = t(AK[e.kind] ?? AK.turn)
+      return `<div class="actRow${e.isError ? ' err' : ''}"><time>${fmtTime(e.time)}</time>${badge}<span class="tx">${label} · ${esc(detailOf(e))}</span></div>`
+    }).join('')
+  }
+
+  /** Header line: followed session title + running state + in-flight tools. */
+  function renderActHead(): void {
+    const id = act.pinned ?? act.followId
+    const s = id !== '' ? act.sessions.get(id) : undefined
+    actSess.textContent = s ? (s.title || s.sessionId) : '—'
+    runDot.classList.toggle('on', s?.running === true)
+    actState.textContent = s
+      ? (s.running ? t('actRunning') : t('actIdle')) + (s.inflightTools?.length ? ' · ' + s.inflightTools.join(' ') : '') + (s.kind === 'subagent' ? ' · ' + t('akSubagent') : '')
+      : ''
+  }
+
+  /** Session selector options: follow-chat first, then sessions (running ● first). */
+  function renderSessSel(): void {
+    const order = [...act.sessions.values()].sort((a: any, b: any) =>
+      (Number(b.running) - Number(a.running)) || (Number(a.kind === 'main') - Number(b.kind === 'main')))
+    const opts = [`<option value="">${t('sessFollow')}</option>`].concat(order.map((s: any) => {
+      const label = (s.running ? '● ' : '') + (s.title || s.sessionId.slice(0, 18)) + (s.kind === 'subagent' ? ' ⌥' : '')
+      return `<option value="${esc(s.sessionId)}">${esc(label)}</option>`
+    }))
+    sessSel.innerHTML = opts.join('')
+    sessSel.value = act.pinned ?? ''
+  }
+  sessSel.addEventListener('change', () => {
+    act.pinned = sessSel.value === '' ? null : sessSel.value
+    try { localStorage.setItem('sch.session', act.pinned ?? '') } catch { /* storage unavailable: choice lasts for this page only */ }
+    renderActHead()
+    renderActList()
+    paintActivity()
+  })
+  subBtn.addEventListener('click', () => {
+    act.includeSub = !act.includeSub
+    subBtn.setAttribute('aria-pressed', String(act.includeSub))
+    renderActList()
+  })
+  $('.actFold').addEventListener('click', () => {
+    const folded = actbar.classList.toggle('folded')
+    $('.actFold').setAttribute('aria-pressed', String(!folded))
+  })
+
+  /** Follow mode: track the SPA's current session from localStorage. */
+  const applyFollow = (): void => {
+    if (act.pinned !== null) return
+    let id = ''
+    try {
+      const raw = JSON.parse(localStorage.getItem('dsh.sessions.current') ?? 'null')
+      if (raw !== null && typeof raw.sessionId === 'string') id = raw.sessionId
+    } catch { /* unreadable selection falls through to the running/first chain */ }
+    if (id === '' || !act.sessions.has(id)) {
+      // no SPA selection to follow: prefer a running session, else the most
+      // recently active one, so the bar does not land on a stale empty session
+      const all = [...act.sessions.values()]
+      const running = all.find((s: any) => s.running)
+      const recent = [...all].sort((a: any, b: any) => (b.lastEventAt ?? 0) - (a.lastEventAt ?? 0))[0]
+      id = (running ?? recent)?.sessionId ?? ''
+    }
+    if (id !== act.followId) {
+      act.followId = id
+      renderSessSel()
+      renderActHead()
+      renderActList()
+    }
+  }
+  window.addEventListener('storage', (e) => {
+    if (e.key === 'dsh.sessions.current') applyFollow()
+  }, sig)
+
+  /** One SSE frame. State frames are full; activity frames are incremental. */
+  function onFrame(frame: any): void {
+    if (frame.type === 'snapshot') {
+      const changed: string[] = []
+      for (const s of frame.sessions as any[]) {
+        const prev = act.sessions.get(s.sessionId)
+        if (prev === undefined
+          || prev.title !== s.title || prev.running !== s.running || prev.kind !== s.kind) changed.push(s.sessionId)
+        act.sessions.set(s.sessionId, s)
+      }
+      for (const { sessionId, entries } of frame.timeline as any[]) {
+        act.timelines.set(sessionId, entries)
+      }
+      applyFollow()
+      // The snapshot is authoritative for in-flight work: rebuild the
+      // highlight map from it so connecting mid-run lights up immediately.
+      act.active.clear()
+      for (const s of frame.sessions as any[]) hydrateState(s)
+      renderSessSel()
+      renderActHead()
+      renderActList()
+      paintActivity()
+      return
+    }
+    if (frame.type === 'state') {
+      const s = frame.state
+      if (s.disposed === true) {
+        act.sessions.delete(s.sessionId)
+        act.timelines.delete(s.sessionId)
+        if (act.followId === s.sessionId || act.pinned === s.sessionId) applyFollow()
+        renderSessSel()
+        renderActHead()
+        renderActList()
+        return
+      }
+      const prev = act.sessions.get(s.sessionId)
+      act.sessions.set(s.sessionId, s)
+      if (prev === undefined || prev.title !== s.title || prev.running !== s.running) renderSessSel()
+      if (shownEntry(s.sessionId)) {
+        renderActHead()
+        hydrateState(s)
+        paintActivity()
+      }
+      return
+    }
+    if (frame.type === 'activity') {
+      const { sessionId, entry } = frame
+      const ring = act.timelines.get(sessionId) ?? []
+      ring.push(entry)
+      if (ring.length > 200) ring.splice(0, ring.length - 200)
+      act.timelines.set(sessionId, ring)
+      if (entry.kind === 'llm') act.lastLlm.set(sessionId, entry.module)
+      // highlight only what the timeline shows; a tool-end downgrades strong
+      if (entry.module !== null && entry.kind !== 'user' && shownEntry(sessionId)) {
+        if (entry.kind === 'tool-end') {
+          act.active.set(entry.module, { until: Date.now() + LIVE_TTL_MS, strong: false })
+          paintActivity()
+        } else {
+          touchModule(entry.module, entry.kind === 'tool')
+        }
+      }
+      if (shownEntry(sessionId)) renderActList()
+    }
+  }
+
+  // restore a pinned session, then connect; EventSource auto-reconnects
+  try {
+    const saved = localStorage.getItem('sch.session')
+    if (saved !== null && saved !== '') act.pinned = saved
+  } catch { /* storage unavailable: always follow */ }
+  const es = new EventSource('/schematic/events')
+  let everConnected = false
+  es.onopen = () => {
+    // silent on the first connect; a later open means the stream dropped and
+    // EventSource reconnected (snapshot-first makes that seamless)
+    if (!everConnected) { everConnected = true; return }
+    toast(t('actReconnected'))
+  }
+  es.onmessage = (ev) => {
+    try { onFrame(JSON.parse(ev.data)) } catch { /* malformed frame: skip it, snapshot self-heals */ }
+  }
+  const sweep = window.setInterval(() => {
+    const now = Date.now()
+    let dirty = false
+    for (const [module, info] of act.active) {
+      if (info.strong || info.until >= now) continue
+      act.active.delete(module)
+      dirty = true
+    }
+    if (dirty) paintActivity()
+  }, 600)
+  disposeExtra = () => { es.close(); window.clearInterval(sweep) }
+
   // ------- events -------
   $('.search').addEventListener('input', (e) => { state.q = (e.target as HTMLInputElement).value.trim().toLowerCase(); render() })
   $('.crumb').addEventListener('click', exitScope)
@@ -1378,6 +1769,9 @@ export function mountSchematic(container: HTMLElement): () => void {
     render()
     refreshDetail()
     ensureZh()
+    renderSessSel()
+    renderActHead()
+    renderActList()
   })
   updateLangButton()
   $('.refresh').addEventListener('click', () => { void load() })

@@ -11,7 +11,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionState, TimelineEntry } from './protocol.ts'
-import { attributeEvent, ownerOfTool, knownToolNames } from './attribution.ts'
+import { attributeEvent, ownerOfTool, knownToolNames, providerModule } from './attribution.ts'
 
 /** Structural slice of a Session (out-of-tree: no type import). */
 interface SessionSlice {
@@ -39,8 +39,10 @@ interface AgentsServiceSlice {
 interface Rec {
   state: SessionState
   timeline: TimelineEntry[]
-  /** callId → tool name + start envelope time, popped by matching tool/result. */
-  inflight: Map<string, { name: string; startAt: number }>
+  /** callId → tool name + start envelope time + owner module, popped by tool/result. */
+  inflight: Map<string, { name: string; startAt: number; module: string | null }>
+  /** Provider route module of the current/last model request, for streaming highlight. */
+  lastLlmModule: string | null
   dirty: boolean
   timer: ReturnType<typeof setTimeout> | undefined
   lastFlush: number
@@ -92,7 +94,11 @@ export class ActivityCollector {
     const sessions: SessionState[] = []
     const timeline: { sessionId: string; entries: TimelineEntry[] }[] = []
     for (const rec of this.recs.values()) {
-      sessions.push({ ...rec.state, inflightTools: [...rec.state.inflightTools] })
+      sessions.push({
+        ...rec.state,
+        inflightTools: [...rec.state.inflightTools],
+        activeModules: [...rec.state.activeModules],
+      })
       if (rec.timeline.length > 0) {
         timeline.push({ sessionId: rec.state.sessionId, entries: rec.timeline.slice(-SNAPSHOT_TAIL) })
       }
@@ -171,10 +177,12 @@ export class ActivityCollector {
         running: false,
         streaming: false,
         inflightTools: [],
+        activeModules: [],
         lastEventAt: 0,
       },
       timeline: [],
       inflight: new Map(),
+      lastLlmModule: null,
       dirty: true,
       timer: undefined,
       lastFlush: 0,
@@ -208,10 +216,12 @@ export class ActivityCollector {
    * adoption's history (states settle, no per-event frames).
    */
   private fold(rec: Rec, type: string, time: number, data: unknown, emit: boolean): void {
-    // For tool/result: the paired call's name and duration, captured while
-    // the inflight entry is still on the map.
+    // For tool/result: the paired call's name, owner module, and duration,
+    // captured while the inflight entry is still on the map.
     let pairedName: string | undefined
+    let pairedModule: string | null = null
     let pairedDuration: number | undefined
+    let callModule: string | null = null
     switch (type) {
       case 'session/title': {
         const title = (data as { title?: unknown } | null)?.title
@@ -224,16 +234,32 @@ export class ActivityCollector {
       case 'assistant/chunk':
         rec.state.streaming = true
         return
-      case 'assistant/message':
+      case 'assistant/message': {
         rec.state.streaming = false
+        // Remember the serving provider so the streaming bit (and snapshot
+        // hydration) can attribute it even before the completed message.
+        const source = (data as { message?: { source?: unknown } } | null)?.message?.source
+        if (source !== null && typeof source === 'object'
+          && (source as { kind?: unknown }).kind === 'model') {
+          const provider = (source as { provider?: unknown }).provider
+          if (typeof provider === 'string' && provider !== '') rec.lastLlmModule = providerModule(provider)
+        }
         break
+      }
+      case 'request/header': {
+        // Arrives before the chunks; gives lastLlmModule for turn one.
+        const provider = ((data ?? {}) as { header?: { config?: { provider?: unknown } } }).header?.config?.provider
+        if (typeof provider === 'string' && provider !== '') rec.lastLlmModule = providerModule(provider)
+        break
+      }
       case 'turn/end':
         rec.state.streaming = false
         break
       case 'tool/call': {
         const d = (data ?? {}) as { callId?: unknown; name?: unknown }
         const name = typeof d.name === 'string' ? d.name : '?'
-        if (typeof d.callId === 'string') rec.inflight.set(d.callId, { name, startAt: time })
+        callModule = this.toolOwner(name)
+        if (typeof d.callId === 'string') rec.inflight.set(d.callId, { name, startAt: time, module: callModule })
         break
       }
       case 'tool/result': {
@@ -242,6 +268,7 @@ export class ActivityCollector {
           const pending = rec.inflight.get(callId)
           if (pending !== undefined) {
             pairedName = pending.name
+            pairedModule = pending.module
             pairedDuration = Math.max(0, time - pending.startAt)
           }
           rec.inflight.delete(callId)
@@ -268,17 +295,15 @@ export class ActivityCollector {
     if (pairedDuration !== undefined) entry.durationMs = pairedDuration
     if (attributed.provider !== undefined) entry.provider = attributed.provider
     if (attributed.model !== undefined) entry.model = attributed.model
-    if (type === 'tool/call' || type === 'tool/result') {
-      entry.module = this.resolveToolModule(entry)
-    }
+    if (type === 'tool/call') entry.module = callModule
+    if (type === 'tool/result') entry.module = pairedModule
     rec.timeline.push(entry)
     if (rec.timeline.length > TIMELINE_CAP) rec.timeline.splice(0, rec.timeline.length - TIMELINE_CAP)
     for (const listener of this.listeners) listener.onActivity(rec.state.sessionId, entry)
   }
 
-  private resolveToolModule(entry: TimelineEntry): string | null {
-    const name = entry.name
-    if (name === undefined) return null
+  /** Owner module for a tool name, warning once per unknown name. */
+  private toolOwner(name: string): string | null {
     const module = ownerOfTool(name, this.mountedModules)
     if (module === null && !this.warnedTools.has(name)) {
       this.warnedTools.add(name)
@@ -298,6 +323,12 @@ export class ActivityCollector {
   private touch(rec: Rec): void {
     rec.dirty = true
     rec.state.inflightTools = [...new Set([...rec.inflight.values()].map((call) => call.name))]
+    rec.state.activeModules = [
+      ...new Set([
+        ...[...rec.inflight.values()].flatMap((call) => (call.module !== null ? [call.module] : [])),
+        ...(rec.state.streaming && rec.lastLlmModule !== null ? [rec.lastLlmModule] : []),
+      ]),
+    ]
     const now = Date.now()
     if (rec.timer === undefined && now - rec.lastFlush >= STATE_THROTTLE_MS) {
       this.flush(rec, now)
@@ -313,7 +344,11 @@ export class ActivityCollector {
   private flush(rec: Rec, now: number): void {
     rec.dirty = false
     rec.lastFlush = now
-    const state = { ...rec.state, inflightTools: [...rec.state.inflightTools] }
+    const state = {
+      ...rec.state,
+      inflightTools: [...rec.state.inflightTools],
+      activeModules: [...rec.state.activeModules],
+    }
     for (const listener of this.listeners) listener.onState(rec.state.sessionId, state)
   }
 }
