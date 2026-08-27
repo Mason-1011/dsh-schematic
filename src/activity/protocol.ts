@@ -8,7 +8,7 @@
  */
 
 /** Bump on any breaking change to a frame's field meaning. */
-export const PROTOCOL_VERSION = 1
+export const PROTOCOL_VERSION = 2
 
 /**
  * Live per-session state. `inflightTools` holds tool NAMES (not call ids) so
@@ -57,8 +57,10 @@ export interface TimelineEntry {
     | 'retry'
     | 'subagent'
     | 'title'
+    /** Host-scope operation: an RPC mutation (archive, settings write…) or a live registry change. */
+    | 'action'
   module: string | null
-  /** Tool name, turn ordinal label, or provider id depending on kind. */
+  /** Tool name, turn ordinal label, provider id, or RPC/live-event name depending on kind. */
   name?: string
   /** Short user-text snippet for kind 'user'. */
   snippet?: string
@@ -74,9 +76,13 @@ export type Frame =
     type: 'snapshot'
     sessions: SessionState[]
     timeline: { sessionId: string; entries: TimelineEntry[] }[]
+    /** Host-scope action ring (RPC mutations + live registry changes). */
+    actions: TimelineEntry[]
   }
   | { type: 'activity'; sessionId: string; entry: TimelineEntry }
   | { type: 'state'; sessionId: string; state: SessionState }
+  /** Host-scope action — no sessionId: these are process-level, not per-chat. */
+  | { type: 'action'; entry: TimelineEntry }
 
 /** Serialize one SSE frame (`data: <json>\n\n`). */
 export function frameText(frame: Frame): string {

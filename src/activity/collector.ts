@@ -11,7 +11,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionState, TimelineEntry } from './protocol.ts'
-import { attributeEvent, ownerOfTool, knownToolNames, providerModule } from './attribution.ts'
+import { attributeEvent, ownerOfTool, knownToolNames, providerModule, LIVE_ACTION } from './attribution.ts'
 
 /** Structural slice of a Session (out-of-tree: no type import). */
 interface SessionSlice {
@@ -51,6 +51,8 @@ interface Rec {
 export interface ActivityListener {
   onActivity(sessionId: string, entry: TimelineEntry): void
   onState(sessionId: string, state: SessionState): void
+  /** Host-scope action (RPC mutation or live registry change). */
+  onAction(entry: TimelineEntry): void
 }
 
 /** How often state frames may leave per session (leading + trailing edge). */
@@ -73,6 +75,8 @@ function toolResultCallId(data: unknown): string | undefined {
 export class ActivityCollector {
   private readonly recs = new Map<string, Rec>()
   private readonly listeners = new Set<ActivityListener>()
+  /** Host-scope action ring (RPC mutations + live registry changes), newest-last. */
+  private readonly actions: TimelineEntry[] = []
   /** Module specifiers currently in the graph, for tool-owner resolution. */
   private mountedModules = new Set<string>()
   private readonly warnedTools = new Set<string>()
@@ -90,7 +94,7 @@ export class ActivityCollector {
   }
 
   /** Current full state — the reconnect/self-heal anchor frame. */
-  snapshot(): { sessions: SessionState[]; timeline: { sessionId: string; entries: TimelineEntry[] }[] } {
+  snapshot(): { sessions: SessionState[]; timeline: { sessionId: string; entries: TimelineEntry[] }[]; actions: TimelineEntry[] } {
     const sessions: SessionState[] = []
     const timeline: { sessionId: string; entries: TimelineEntry[] }[] = []
     for (const rec of this.recs.values()) {
@@ -103,7 +107,16 @@ export class ActivityCollector {
         timeline.push({ sessionId: rec.state.sessionId, entries: rec.timeline.slice(-SNAPSHOT_TAIL) })
       }
     }
-    return { sessions, timeline }
+    return { sessions, timeline, actions: this.actions.slice(-SNAPSHOT_TAIL) }
+  }
+
+  /** Record one host-scope action and broadcast it to the sinks. */
+  noteAction(entry: TimelineEntry): void {
+    this.actions.push(entry)
+    if (this.actions.length > TIMELINE_CAP) this.actions.splice(0, this.actions.length - TIMELINE_CAP)
+    for (const listener of this.listeners) {
+      try { listener.onAction(entry) } catch { /* a broken sink never stops the feed */ }
+    }
   }
 
   /**
@@ -152,6 +165,12 @@ export class ActivityCollector {
       on('agent/status', (({ agent, status }: { agent: AgentSlice; status: 'idle' | 'running' }) => {
         this.setRunning(agent.session.id, status === 'running')
       }) as (...args: never[]) => void),
+      // Live registry events (non-durable, never in any session log): each
+      // tracked one becomes a host-scope action row attributed to its owner.
+      ...Object.keys(LIVE_ACTION).map((name) =>
+        on(name, (() => {
+          this.noteAction({ time: Date.now(), kind: 'action', module: LIVE_ACTION[name], name })
+        }) as (...args: never[]) => void)),
     )
 
     if (sessions !== undefined) for (const session of sessions.list()) this.adopt(session)

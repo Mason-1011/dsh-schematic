@@ -23,7 +23,11 @@ export interface EventsLayer {
   dispose(): void
 }
 
-export function createEventsLayer(collector: ActivityCollector, log: (err: Error) => void): EventsLayer {
+export function createEventsLayer(
+  collector: ActivityCollector,
+  log: (err: Error) => void,
+  onConnect?: () => void,
+): EventsLayer {
   const connections = new Set<ServerResponse>()
 
   function write(res: ServerResponse, frame: Frame): void {
@@ -33,10 +37,6 @@ export function createEventsLayer(collector: ActivityCollector, log: (err: Error
     } catch (err) {
       log(err instanceof Error ? err : new Error(String(err)))
     }
-  }
-
-  function broadcast(frame: Frame): void {
-    for (const res of connections) write(res, frame)
   }
 
   return {
@@ -53,13 +53,19 @@ export function createEventsLayer(collector: ActivityCollector, log: (err: Error
       })
       res.write(': connected\nretry: 3000\n\n')
       connections.add(res)
+      // A fresh watcher is a natural moment to re-check observation surfaces
+      // that may have appeared after boot (apiProxy remount, late services).
+      onConnect?.()
       // Snapshot first: a reconnecting client rebuilds all session state and
       // the timeline tail before any incremental frame can arrive.
       write(res, { type: 'hello', proto: PROTOCOL_VERSION, serverTime: Date.now() })
       write(res, { type: 'snapshot', ...collector.snapshot() })
       const unsubscribe = collector.subscribe({
-        onActivity: (sessionId, entry) => { broadcast({ type: 'activity', sessionId, entry }) },
-        onState: (sessionId, state) => { broadcast({ type: 'state', sessionId, state }) },
+        // Each connection's listener writes ONLY to its own socket: a global
+        // fan-out here would write every frame once per open connection.
+        onActivity: (sessionId, entry) => { write(res, { type: 'activity', sessionId, entry }) },
+        onState: (sessionId, state) => { write(res, { type: 'state', sessionId, state }) },
+        onAction: (entry) => { write(res, { type: 'action', entry }) },
       })
       const heartbeat = setInterval(() => {
         if (res.writableEnded || res.destroyed) return

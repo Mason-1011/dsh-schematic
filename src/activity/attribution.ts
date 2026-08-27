@@ -108,6 +108,63 @@ const EVENT_OWNER_PREFIX: [prefix: string, module: string][] = [
   ['tool-workflow/', `${DSH}/dsh-tool-workflow`],
 ]
 
+/**
+ * Wire RPC mutations → owning module. Keys are the wire method names from the
+ * harness's rpc-map (POST /api/<method>). Read-only methods (list/describe/
+ * providers/models/history) are deliberately absent: the UI polls them
+ * constantly and they would drown the timeline — the noise floor, not a gap.
+ * These are host-scope actions; they never appear in any session log.
+ */
+export const RPC_ACTION: Record<string, string> = {
+  'session.create': `${DSH}/dsh-session`,
+  'session.rename': `${DSH}/dsh-session`,
+  'session.fork': `${DSH}/dsh-session`,
+  'session.prompt': `${DSH}/dsh-session`,
+  'session.attachment': `${DSH}/dsh-session`,
+  'session.updateQueue': `${DSH}/dsh-session`,
+  'session.cancel': `${DSH}/dsh-session`,
+  'session.selectModel': `${DSH}/dsh-session`,
+  'subagent.prompt': `${DSH}/dsh-subagent`,
+  'subagent.interrupt': `${DSH}/dsh-subagent`,
+  'host.pickDirectory': `${DSH}/dsh-host-apiproxy`,
+  'host.createDirectory': `${DSH}/dsh-host-apiproxy`,
+  'host.openPath': `${DSH}/dsh-host-apiproxy`,
+  'workspace.create': `${DSH}/dsh-workspace`,
+  'workspace.rename': `${DSH}/dsh-workspace`,
+  'workspace.delete': `${DSH}/dsh-workspace`,
+  'workspace.insertBefore': `${DSH}/dsh-workspace`,
+  'workspace.insertSessionBefore': `${DSH}/dsh-workspace`,
+  'workspace.archiveSession': `${DSH}/dsh-workspace`,
+  'agentPreset.select': `${DSH}/dsh-agent-presets`,
+  'agentPreset.copy': `${DSH}/dsh-agent-presets`,
+  'agentPreset.remove': `${DSH}/dsh-agent-presets`,
+  'goal.create': `${DSH}/dsh-goal`,
+  'goal.edit': `${DSH}/dsh-goal`,
+  'goal.pause': `${DSH}/dsh-goal`,
+  'goal.resume': `${DSH}/dsh-goal`,
+  'goal.complete': `${DSH}/dsh-goal`,
+  'goal.clear': `${DSH}/dsh-goal`,
+  'settings.update': `${DSH}/dsh-settings-file`,
+  'settings.replace': `${DSH}/dsh-settings-file`,
+  'settings.mutate': `${DSH}/dsh-settings-file`,
+  'credentials.set': `${DSH}/dsh-credentials-local`,
+  'credentials.unset': `${DSH}/dsh-credentials-local`,
+  'llm.discoverModels': `${DSH}/dsh-llm`,
+}
+
+/**
+ * Live (non-durable, in-process) registry events worth a timeline row:
+ * emitted by Cordis ctx.emit, visible to a root-scope listener, and never
+ * written to any session log. High-frequency plumbing (fs/observed watchers,
+ * cordis/* loader internals) stays out — noise floor.
+ */
+export const LIVE_ACTION: Record<string, string> = {
+  'tools/change': `${DSH}/dsh-tools`,
+  'system-prompt/change': `${DSH}/dsh-system-prompt`,
+  'subagent/provider-added': `${DSH}/dsh-subagent`,
+  'goal/changed': `${DSH}/dsh-goal`,
+}
+
 /** Provider route key fragments → the adapter package behind them. */
 export function providerModule(provider: string): string {
   if (provider.includes('pi-ai')) return `${DSH}/dsh-llm-pi-ai`

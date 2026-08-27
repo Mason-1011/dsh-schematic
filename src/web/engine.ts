@@ -125,6 +125,7 @@ const T: Record<string, { en: string; zh: string }> = {
   akRetry:         { en: 'LLM retry', zh: '模型重试' },
   akSubagent:      { en: 'subagent', zh: '子代理' },
   akTitle:         { en: 'title', zh: '标题' },
+  akAction:        { en: 'action', zh: '操作' },
 }
 
 const CATS = [
@@ -1417,11 +1418,13 @@ export function mountSchematic(container: HTMLElement): () => void {
     active: new Map<string, { until: number; strong: boolean }>(),
     /** last known llm provider module per session (for streaming highlight). */
     lastLlm: new Map<string, string | null>(),
+    /** host-scope action ring (RPC mutations + live registry changes). */
+    actions: [] as any[],
   }
   const AK: Record<string, string> = {
     user: 'akUser', llm: 'akLlm', tool: 'akTool', 'tool-end': 'akToolEnd', turn: 'akTurn',
     approval: 'akApproval', todo: 'akTodo', compaction: 'akCompaction', retry: 'akRetry',
-    subagent: 'akSubagent', title: 'akTitle',
+    subagent: 'akSubagent', title: 'akTitle', action: 'akAction',
   }
   const sessSel = $('.sessSel') as unknown as HTMLSelectElement
   const subBtn = $('.subBtn')
@@ -1522,14 +1525,15 @@ export function mountSchematic(container: HTMLElement): () => void {
       case 'tool': return e.name ?? ''
       case 'tool-end': return (e.name ?? '') + (e.durationMs !== undefined ? ` · ${e.durationMs}ms` : '') + (e.isError ? ' ✕' : '')
       case 'turn': return '#' + (e.name ?? '')
+      case 'action': return (e.name ?? '') + (e.durationMs !== undefined ? ` · ${e.durationMs}ms` : '') + (e.isError ? ' ✕' : '')
       default: return e.name ?? ''
     }
   }
   const fmtTime = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour12: false })
 
-  /** Full redraw of the timeline list from the shown sessions' rings. */
+  /** Full redraw of the timeline list from the shown sessions' rings + host actions. */
   function renderActList(): void {
-    const rows: any[] = []
+    const rows: any[] = [...act.actions]
     for (const id of shownSessions()) rows.push(...(act.timelines.get(id) ?? []))
     rows.sort((a, b) => b.time - a.time)
     const shown = rows.slice(0, 60)
@@ -1625,6 +1629,7 @@ export function mountSchematic(container: HTMLElement): () => void {
       for (const { sessionId, entries } of frame.timeline as any[]) {
         act.timelines.set(sessionId, entries)
       }
+      act.actions = Array.isArray(frame.actions) ? frame.actions.slice(-200) : []
       applyFollow()
       // The snapshot is authoritative for in-flight work: rebuild the
       // highlight map from it so connecting mid-run lights up immediately.
@@ -1674,6 +1679,15 @@ export function mountSchematic(container: HTMLElement): () => void {
         }
       }
       if (shownEntry(sessionId)) renderActList()
+      return
+    }
+    if (frame.type === 'action') {
+      // Host-scope actions are process-level, not per-chat: always recorded
+      // and always lit, regardless of which session the timeline follows.
+      act.actions.push(frame.entry)
+      if (act.actions.length > 200) act.actions.splice(0, act.actions.length - 200)
+      if (frame.entry.module !== null) touchModule(frame.entry.module, false)
+      renderActList()
     }
   }
 
