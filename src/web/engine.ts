@@ -129,6 +129,7 @@ const T: Record<string, { en: string; zh: string }> = {
   recvLine:        { en: 'session/event broadcast → {n} in-listeners', zh: 'session/event 广播 → {n} 个插件在听' },
   recvNames:       { en: 'listeners of the session-event broadcast (from the live event bus)', zh: '会话事件广播的接收插件(来自运行中的事件总线)' },
   dtListens:       { en: 'listens to', zh: '监听事件' },
+  dtListensTip:    { en: 'broadcast events this package listens to; packages that only provide/inject services register none', zh: '该包监听的广播事件;纯服务接线(只提供/注入服务)的包不注册任何监听' },
 }
 
 const CATS = [
@@ -347,7 +348,6 @@ const CSS = `
 .sch[data-tab="table"] svg.graph { display: none; }
 .sch[data-tab="table"] .tableView { display: block; }
 .sch[data-tab="journey"] .journey { display: flex; }
-.sch[data-tab="journey"] .detail { display: none; }
 .sch .journey { display: none; flex: 1; min-width: 0; flex-direction: column; padding: 12px 16px 6px; cursor: grab; }
 .sch .journey.dragging { cursor: grabbing; }
 .sch .journey.dragging * { user-select: none; }
@@ -1225,7 +1225,7 @@ export function mountSchematic(container: HTMLElement): () => void {
       <dt>${t('dtRank')}</dt><dd>${n.rank}</dd>
       <dt>${t('dtProvides')}</dt><dd class="keys">${n.provides.length ? n.provides.map((k: string) => `<code>${k}</code>`).join(' ') : '<span class="empty">—</span>'}</dd>
       <dt>${t('dtInject')}</dt><dd class="keys">${keyChips(n.inject)}</dd>
-      <dt>${t('dtListens')}</dt><dd class="keys">${(typeof n.module === 'string' ? modSubs.get(n.module) ?? [] : []).length ? (modSubs.get(n.module) ?? []).map((k: string) => `<code>${k}</code>`).join(' ') : '<span class="empty">—</span>'}</dd>
+      <dt title="${t('dtListensTip')}">${t('dtListens')}</dt><dd class="keys">${(typeof n.module === 'string' ? modSubs.get(n.module) ?? [] : []).length ? (modSubs.get(n.module) ?? []).map((k: string) => `<code>${k}</code>`).join(' ') : '<span class="empty">—</span>'}</dd>
     </dl>
     <button class="ask-btn" title="${t('askTitle')}">${t('ask')}</button>`
     ;(container.querySelector('.detail .ask-btn') as HTMLElement).onclick = () => {
@@ -1502,6 +1502,8 @@ export function mountSchematic(container: HTMLElement): () => void {
     /** null = follow the SPA's current chat session (dsh.sessions.current). */
     pinned: null as string | null,
     followId: '' as string,
+    /** set once the first SSE snapshot lands; absence knowledge needs it. */
+    seenSnapshot: false,
     includeSub: false,
     /** module → { until, strong }; strong entries survive the TTL sweeper. */
     active: new Map<string, { until: number; strong: boolean }>(),
@@ -1706,6 +1708,7 @@ export function mountSchematic(container: HTMLElement): () => void {
 
   /** Follow mode: track the SPA's current session from localStorage. */
   const applyFollow = (): void => {
+    unpinIfGone()
     if (act.pinned !== null) return
     let id = ''
     try {
@@ -1726,6 +1729,18 @@ export function mountSchematic(container: HTMLElement): () => void {
       renderActHead()
       renderActList()
     }
+  }
+
+  /** A pinned session that no longer exists must not pin the bar forever. */
+  const unpinIfGone = (): void => {
+    // only trust absence once a snapshot has stated what exists — before it,
+    // an empty map says nothing and a valid pin must survive
+    if (!act.seenSnapshot || act.pinned === null || act.sessions.has(act.pinned)) return
+    act.pinned = null
+    try { localStorage.setItem('sch.session', '') } catch { /* storage unavailable: pin lasts for this page only */ }
+    sessSel.value = ''
+    renderActHead()
+    renderActList()
   }
   window.addEventListener('storage', (e) => {
     if (e.key === 'dsh.sessions.current') applyFollow()
@@ -1757,6 +1772,7 @@ export function mountSchematic(container: HTMLElement): () => void {
         act.timelines.set(sessionId, entries)
       }
       act.actions = Array.isArray(frame.actions) ? frame.actions.slice(-200) : []
+      act.seenSnapshot = true
       applyFollow()
       // The snapshot is authoritative for in-flight work: rebuild the
       // highlight map from it so connecting mid-run lights up immediately.
@@ -1781,6 +1797,10 @@ export function mountSchematic(container: HTMLElement): () => void {
       }
       const prev = act.sessions.get(s.sessionId)
       act.sessions.set(s.sessionId, s)
+      // a session appearing can resolve a follow that raced ahead of it:
+      // the storage event fired before this session existed, so applyFollow
+      // fell back to an older one — re-read the SPA's pick now that it can match
+      if (prev === undefined) applyFollow()
       if (prev === undefined || prev.title !== s.title || prev.running !== s.running) renderSessSel()
       if (shownEntry(s.sessionId)) {
         renderActHead()
