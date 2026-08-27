@@ -1,19 +1,13 @@
-# Dev mount for dsh-schematic. Mounted BY NAME so both halves resolve:
-# the host half via exports["."] (./src/index.ts, source launch) and the
-# browser half via the client-module scan (package.json dsh.client ->
-# dist/client.js). Name resolution anchors at the profile directory, so the
-# package must be reachable from ~/.dsh/profiles/web/node_modules — the
-# dev checkout is symlinked there:
+# Dev patch for dsh-schematic. The plugin itself is mounted BY NAME from the
+# shared profile patch (~/.dsh/profiles/web/cordis.patch.yml inserts
+# {id: schematic, name: dsh-schematic}); name resolution anchors at the
+# profile directory, where the dev checkout is symlinked:
 #   ln -sfn ~/Projects/dsh-schematic ~/.dsh/profiles/web/node_modules/dsh-schematic
-# Flat patch rows: {id, config} replaces the target row's whole config;
-# {insert: [...]} appends to the root list. Port 3081: the daily long-lived
-# instance owns 3080.
+# Do NOT also insert it here — duplicate loader entry ids fail the whole tree.
+# This patch only overrides the port: 3081 dev vs the long-lived 3080.
 # Usage, from the harness checkout:
-#   pnpm dsh web --patch ~/Projects/dsh-schematic/dev.cordis.yml --no-open
+#   node --import tsx/esm apps/cli/src/bin.ts --profile web --patch <this file>
 - id: webserver
   config:
     host: 127.0.0.1
     port: 3081
-- insert:
-    - id: schematic
-      name: dsh-schematic

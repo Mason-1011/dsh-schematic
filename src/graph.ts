@@ -100,6 +100,14 @@ export interface LiveNode {
   rank?: number
 }
 
+/** One event name and the units listening to it (the broadcast-bus wiring). */
+export interface EventSubscription {
+  /** Broadcast event name; internal/* framework events are not enumerated. */
+  name: string
+  /** Owning units with at least one listener, busiest first. */
+  listeners: { id: string; module: string | null; count: number }[]
+}
+
 /** The full snapshot served at /schematic/graph.json. */
 export interface LiveGraph {
   meta: { mode: 'live'; generated: string; universalKeys: string[] }
@@ -107,6 +115,8 @@ export interface LiveGraph {
   edges: { from: string; to: string; keys: string[] }[]
   clusters: { id: string; label: string; provider: string; category: string; desc: string | null; seamKeys: string[]; members: string[] }[]
   externalKeys: string[]
+  /** Broadcast subscriptions, event name first — the other half of the wiring. */
+  eventSubs: EventSubscription[]
 }
 
 /** Live service implementations from the reflect store, keyed by isolation symbol. */
@@ -264,6 +274,31 @@ export function buildGraph(ctx: Context): LiveGraph {
     })
   }
 
+  // broadcast subscriptions: every listener registered on the shared event
+  // bus (ctx.events._hooks — a core own-property, readable without inject),
+  // attributed to the owning unit through the same nearest-unit walk as the
+  // service edges. Listener identity is the registering context's fiber;
+  // listeners on the bare root context have no unit and surface as 'root'.
+  const moduleOfId = new Map(nodes.map((n) => [n.id, n.module]))
+  const hooksOf = (ctx.events as unknown as {
+    _hooks: Record<PropertyKey, { ctx: { fiber: Fiber } }[]>
+  })._hooks
+  const eventSubs: EventSubscription[] = []
+  for (const key of Reflect.ownKeys(hooksOf)) {
+    if (typeof key !== 'string' || key.startsWith('internal/')) continue
+    const tally = new Map<string, { id: string; module: string | null; count: number }>()
+    for (const hook of hooksOf[key] ?? []) {
+      const owner = nearestUnit(hook.ctx.fiber)
+      const id = owner !== undefined ? idOf.get(owner) ?? `dyn:${hook.ctx.fiber.uid}` : 'root'
+      const rec = tally.get(id) ?? { id, module: moduleOfId.get(id) ?? null, count: 0 }
+      rec.count += 1
+      tally.set(id, rec)
+    }
+    const listeners = [...tally.values()].sort((a, b) => b.count - a.count || a.id.localeCompare(b.id))
+    if (listeners.length > 0) eventSubs.push({ name: key, listeners })
+  }
+  eventSubs.sort((a, b) => a.name.localeCompare(b.name))
+
   // edges: injector unit → provider unit per ctx key, aggregated per pair
   const pairKeys = new Map<string, Set<string>>()
   const external = new Set<string>()
@@ -309,5 +344,6 @@ export function buildGraph(ctx: Context): LiveGraph {
     edges,
     clusters: wireClusters,
     externalKeys: [...external].sort(),
+    eventSubs,
   }
 }

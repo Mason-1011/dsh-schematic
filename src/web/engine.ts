@@ -126,6 +126,9 @@ const T: Record<string, { en: string; zh: string }> = {
   akSubagent:      { en: 'subagent', zh: '子代理' },
   akTitle:         { en: 'title', zh: '标题' },
   akAction:        { en: 'action', zh: '操作' },
+  recvLine:        { en: 'session/event broadcast → {n} in-listeners', zh: 'session/event 广播 → {n} 个插件在听' },
+  recvNames:       { en: 'listeners of the session-event broadcast (from the live event bus)', zh: '会话事件广播的接收插件(来自运行中的事件总线)' },
+  dtListens:       { en: 'listens to', zh: '监听事件' },
 }
 
 const CATS = [
@@ -421,6 +424,7 @@ const CSS = `
 .sch .actHead { display: flex; align-items: center; gap: 8px; padding: 5px 16px; font-size: 12px; }
 .sch .actHead .actSess { font-weight: 600; max-width: 34vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sch .actHead .actState { color: var(--ink-2); font-size: 11.5px; }
+.sch .actHead .recv { color: var(--ink-3); font-size: 11px; max-width: 30vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sch .runDot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); flex: 0 0 auto; }
 .sch .runDot.on { background: var(--s3); animation: schPulse 1.1s ease-in-out infinite; }
 .sch .actFold { border: 0; background: none; color: var(--ink-3); padding: 0 4px; font-size: 11px; cursor: pointer; }
@@ -543,7 +547,7 @@ export function mountSchematic(container: HTMLElement): () => void {
 </main>
 <div class="actbar">
   <div class="actHead">
-    <span class="runDot"></span><b class="actSess">—</b><span class="actState"></span>
+    <span class="runDot"></span><b class="actSess">—</b><span class="actState"></span><span class="recv"></span>
     <span class="spacer" style="flex:1"></span>
     <span class="legend">${t('actLiveHint')}</span>
     <button class="actFold" aria-pressed="true">▾</button>
@@ -626,6 +630,10 @@ export function mountSchematic(container: HTMLElement): () => void {
   let keyOwners = new Map<string, any[]>()
   /** module specifier → node ids (activity frames attribute by module). */
   let moduleIds = new Map<string, string[]>()
+  /** event name → owning units listening to it (the broadcast-bus wiring). */
+  let evRecv = new Map<string, { id: string; module: string | null; count: number }[]>()
+  /** module specifier → event names it listens to (detail panel). */
+  let modSubs = new Map<string, string[]>()
   const nodeLabel = (n: any): string => n.label ?? n.id
 
   /**
@@ -1217,6 +1225,7 @@ export function mountSchematic(container: HTMLElement): () => void {
       <dt>${t('dtRank')}</dt><dd>${n.rank}</dd>
       <dt>${t('dtProvides')}</dt><dd class="keys">${n.provides.length ? n.provides.map((k: string) => `<code>${k}</code>`).join(' ') : '<span class="empty">—</span>'}</dd>
       <dt>${t('dtInject')}</dt><dd class="keys">${keyChips(n.inject)}</dd>
+      <dt>${t('dtListens')}</dt><dd class="keys">${(typeof n.module === 'string' ? modSubs.get(n.module) ?? [] : []).length ? (modSubs.get(n.module) ?? []).map((k: string) => `<code>${k}</code>`).join(' ') : '<span class="empty">—</span>'}</dd>
     </dl>
     <button class="ask-btn" title="${t('askTitle')}">${t('ask')}</button>`
     ;(container.querySelector('.detail .ask-btn') as HTMLElement).onclick = () => {
@@ -1395,6 +1404,16 @@ export function mountSchematic(container: HTMLElement): () => void {
       if (!moduleIds.has(n.module)) moduleIds.set(n.module, [])
       moduleIds.get(n.module)!.push(n.id)
     }
+    evRecv = new Map((GRAPH.eventSubs ?? []).map((e: any) => [e.name as string, e.listeners as { id: string; module: string | null; count: number }[]]))
+    modSubs = new Map()
+    for (const e of GRAPH.eventSubs ?? []) {
+      for (const l of e.listeners ?? []) {
+        if (typeof l.module !== 'string') continue
+        if (!modSubs.has(l.module)) modSubs.set(l.module, [])
+        modSubs.get(l.module)!.push(e.name)
+      }
+    }
+    paintRecv()
     if (first) { state.scope = null; state.sel = null }
     else if (state.scope !== null && scopeTarget(state.scope) === undefined) { state.scope = null; state.sel = null }
     else if (state.sel !== null && !byId.has(state.sel) && !clusterById.has(state.sel) && !state.sel.startsWith('fam:')) state.sel = null
@@ -1620,7 +1639,10 @@ export function mountSchematic(container: HTMLElement): () => void {
         ? `<span class="md"${moduleColorCss(e.module) ? ` style="--mc: ${moduleColorCss(e.module)}"` : ''}>${esc(moduleShort(e.module))}</span>`
         : ''
       const label = t(AK[e.kind] ?? AK.turn)
-      return `<div class="actRow${e.isError ? ' err' : ''}"><time>${fmtTime(e.time)}</time>${badge}<span class="tx">${label} · ${esc(detailOf(e))}</span></div>`
+      // every non-action row arrived as one session/event broadcast — hover
+      // names the units that received it (host-domain actions did not broadcast)
+      const tip = e.kind === 'action' ? '' : recvTip()
+      return `<div class="actRow${e.isError ? ' err' : ''}"${tip ? ` title="${esc(tip)}"` : ''}><time>${fmtTime(e.time)}</time>${badge}<span class="tx">${label} · ${esc(detailOf(e))}</span></div>`
     }).join('')
   }
 
@@ -1633,6 +1655,25 @@ export function mountSchematic(container: HTMLElement): () => void {
     actState.textContent = s
       ? (s.running ? t('actRunning') : t('actIdle')) + (s.inflightTools?.length ? ' · ' + s.inflightTools.join(' ') : '') + (s.kind === 'subagent' ? ' · ' + t('akSubagent') : '')
       : ''
+  }
+
+  /**
+   * Header receiver line: which mounted units listen to the session-event
+   * broadcast every timeline row rode on. Names in the native tooltip.
+   */
+  function paintRecv(): void {
+    const el = $('.recv')
+    if (el === null) return
+    const ls = evRecv.get('session/event') ?? []
+    const names = ls.map((l) => l.module ?? l.id)
+    el.textContent = ls.length > 0 ? t('recvLine', { n: ls.length }) + ' · ' + names.join(', ') : ''
+    el.title = names.length > 0 ? t('recvNames') + ':\n' + names.join('\n') : ''
+  }
+
+  /** Row tooltip: the session/event broadcast this row rode on, and its receivers. */
+  function recvTip(): string {
+    const ls = evRecv.get('session/event') ?? []
+    return ls.length > 0 ? `session/event → ${ls.map((l) => l.module ?? l.id).join(', ')}` : ''
   }
 
   /** Session selector options: follow-chat first, then sessions (running ● first). */
@@ -1874,6 +1915,7 @@ export function mountSchematic(container: HTMLElement): () => void {
     ensureZh()
     renderSessSel()
     renderActHead()
+    paintRecv()
     renderActList()
   })
   updateLangButton()
