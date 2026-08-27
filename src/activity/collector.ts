@@ -82,7 +82,11 @@ export class ActivityCollector {
   private readonly warnedTools = new Set<string>()
   private readonly disposers: (() => void)[] = []
 
-  constructor(private readonly ctx: Context) {}
+  private readonly ctx: Context
+
+  constructor(ctx: Context) {
+    this.ctx = ctx
+  }
 
   /**
    * Subscribe to activity; the sink gets the current snapshot first, then

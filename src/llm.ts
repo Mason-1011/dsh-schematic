@@ -20,8 +20,11 @@ import type { Context } from '@deepseek-ai/cordis'
 
 /** HTTP-facing failure: status reaches the route handler, message reaches the page. */
 export class HttpError extends Error {
-  constructor(readonly status: number, message: string) {
+  readonly status: number
+
+  constructor(status: number, message: string) {
     super(message)
+    this.status = status
   }
 }
 
