@@ -348,26 +348,28 @@ const CSS = `
 .sch .journey { display: none; flex: 1; min-width: 0; flex-direction: column; padding: 12px 16px 6px; cursor: grab; }
 .sch .journey.dragging { cursor: grabbing; }
 .sch .journey.dragging * { user-select: none; }
-.sch .journey .pill { cursor: pointer; }
+.sch .journey .stg .pill { font-size: 10.5px; padding: 1px 7px; max-width: 100%; }
+.sch .journey .stg .pill .lb { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sch .journey .hint { margin: 0 0 8px; color: var(--ink-3); font-size: 12px; }
-.sch .jr { overflow-x: auto; padding-bottom: 8px; }
-.sch .jrRow { display: flex; align-items: stretch; width: max-content; min-width: 100%; }
+.sch .jr { flex: 1; min-height: 0; overflow: auto; }
+.sch .jrFit { transform-origin: 0 0; }
+.sch .jrRow { display: flex; align-items: stretch; width: 100%; }
 .sch .jrRow.side { margin-top: 10px; padding-top: 12px; border-top: 1px dashed var(--border); align-items: flex-start; gap: 12px; }
 .sch .sideTag { flex: 0 0 auto; align-self: center; color: var(--ink-3); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
 .sch .stg .xkeys { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); font: 10.5px/1.5 ui-monospace, Menlo, monospace; color: var(--ink-3); overflow-wrap: anywhere; }
 .sch .stg .xkeys b { font-weight: 500; }
 .sch .stg {
-  min-width: 218px; max-width: 252px; flex: 0 0 auto;
+  flex: 1 1 0; min-width: 96px; max-width: none;
   border: 1px solid var(--border); border-radius: 10px;
-  background: var(--surface-1); padding: 9px 11px 11px;
+  background: var(--surface-1); padding: 8px 10px 10px;
 }
 .sch .stg header { display: flex; align-items: baseline; gap: 7px; padding: 0 0 0 9px; border: 0; background: none; position: relative; }
 .sch .stg header::before { content: ""; position: absolute; left: 0; top: 3px; bottom: 3px; width: 4px; border-radius: 2px; background: var(--c); }
 .sch .stg header .no { color: var(--ink-3); font-size: 11px; font-variant-numeric: tabular-nums; }
 .sch .stg header h3 { font-size: 13px; font-weight: 650; margin: 0; flex: 1; }
 .sch .stg header b { color: var(--ink-3); font-weight: 500; font-size: 11.5px; }
-.sch .stg .d { font-size: 11.5px; color: var(--ink-2); margin: 3px 0 8px; min-height: 32px; }
-.sch .stg .chips { display: flex; flex-wrap: wrap; gap: 5px; align-content: flex-start; max-height: 300px; overflow-y: auto; }
+.sch .stg .d { font-size: 10.5px; line-height: 1.35; color: var(--ink-2); margin: 2px 0 6px; }
+.sch .stg .chips { display: flex; flex-wrap: wrap; gap: 4px; align-content: flex-start; }
 .sch .stg .pill {
   display: inline-flex; align-items: center; gap: 5px; cursor: pointer; user-select: none;
   border: 1px solid var(--border); border-radius: 999px; padding: 1px 9px;
@@ -377,9 +379,9 @@ const CSS = `
 .sch .stg .pill.sel { border-color: var(--ink-1); font-weight: 600; }
 .sch .stg .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--pc, var(--ink-3)); flex: 0 0 auto; }
 .sch .stg .pill.fail { border-color: var(--s8); }
-.sch .flow { flex: 0 0 auto; align-self: center; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 0 5px; min-width: 46px; }
-.sch .flow .keys { font: 10px/1.3 ui-monospace, Menlo, monospace; color: var(--ink-2); text-align: center; max-width: 96px; overflow-wrap: anywhere; }
-.sch .flow .arr { color: var(--ink-3); font-size: 17px; line-height: 1; }
+.sch .flow { flex: 0 0 auto; align-self: center; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 0 2px; min-width: 24px; }
+.sch .flow .keys { font: 9px/1.25 ui-monospace, Menlo, monospace; color: var(--ink-2); text-align: center; max-width: 72px; overflow-wrap: anywhere; }
+.sch .flow .arr { color: var(--ink-3); font-size: 14px; line-height: 1; }
 .sch .toast {
   position: fixed; left: 50%; bottom: 48px; transform: translateX(-50%);
   background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
@@ -814,7 +816,9 @@ export function mountSchematic(container: HTMLElement): () => void {
     const card = (sid: string, no: number, footer = ''): string => {
       const stg = STAGES.find((s) => s.id === sid)!
       const members = membersOf(sid)
-      return `<section class="stg" style="--c: var(${stg.css})">
+      // width ∝ member count: heavy stages grow wide and short, so the rows
+      // stay close in height and the fit-to-view scale stays readable
+      return `<section class="stg" style="--c: var(${stg.css}); flex-grow: ${Math.max(1, members.length)}">
         <header><span class="no">${String(no).padStart(2, '0')}</span><h3>${t(stg.title)}</h3><b>${members.length}</b></header>
         <p class="d">${t(stg.desc)}</p>
         <div class="chips">${members.map((n: any) => {
@@ -822,7 +826,7 @@ export function mountSchematic(container: HTMLElement): () => void {
           const cls = ['pill', n.state === 'failed' ? 'fail' : '', state.sel === n.id ? 'sel' : '',
             freshIds.has(n.id) ? 'pulse' : ''].filter(Boolean).join(' ')
           const mark = n.state === 'failed' ? ' ✕' : (n.state && n.state !== 'active' ? ' ⏳' : '')
-          return `<span class="${cls}" data-id="${esc(n.id)}"${c ? ` style="--pc: var(${c})"` : ''}><span class="dot"></span>${esc(nodeLabel(n))}${mark}</span>`
+          return `<span class="${cls}" data-id="${esc(n.id)}"${c ? ` style="--pc: var(${c})"` : ''}><span class="dot"></span><span class="lb">${esc(nodeLabel(n))}${mark}</span></span>`
         }).join('')}</div>${footer}</section>`
     }
     let flow = ''
@@ -841,12 +845,59 @@ export function mountSchematic(container: HTMLElement): () => void {
         : ''
       side += card(sid, FLOW.length + i + 1, footer)
     })
-    $('.journey').innerHTML = `<p class="hint">${t('journeyHint')}</p><div class="jr"><div class="jrRow">${flow}</div><div class="jrRow side">${side}</div></div>`
+    $('.journey').innerHTML = `<p class="hint">${t('journeyHint')}</p><div class="jr"><div class="jrZoom"><div class="jrFit"><div class="jrRow">${flow}</div><div class="jrRow side">${side}</div></div></div></div>`
     $('.journey').querySelectorAll<HTMLElement>('.pill').forEach((chip) => {
       const n = byId.get(chip.dataset.id ?? '')
       if (n) bindHover(chip, n)
     })
     $('.stats').textContent = t('statsJourney', { m: GRAPH.nodes.length })
+    fitJourney(true)
+  }
+
+  /** Journey zoom multiplier on top of the auto-fit scale: 1 = fit, up to 4 for reading. */
+  let journeyZoom = 1
+  /** Last measured natural (unscaled) journey block size; frozen while zoomed so pill wrapping never re-flows. */
+  let journeyNat: { w: number; h: number } | null = null
+
+  /**
+   * Scale the journey rows so the whole message path fits the visible area
+   * with no scrollbars. `scale()` alone cannot create scrollable extent —
+   * layout size is transform-independent — so the measured natural size also
+   * drives the `.jrZoom` wrapper's explicit width/height; that wrapper is what
+   * `.jr` scrolls when `journeyZoom` > 1 magnifies the block past the viewport.
+   * `reset` re-measures the natural layout (render, viewport change at fit);
+   * zoom buttons reuse the cached size so wrapping stays stable while reading.
+   */
+  function fitJourney(reset = false): void {
+    const jr = $('.jr') as HTMLElement
+    const zoom = jr.querySelector(':scope > .jrZoom') as HTMLElement | null
+    const fit = zoom?.querySelector(':scope > .jrFit') as HTMLElement | null
+    if (zoom === null || fit === null) return
+    const cw = jr.clientWidth
+    const ch = jr.clientHeight
+    if (reset || journeyNat === null) {
+      // measure against the real viewport: stale explicit sizes on the wrapper
+      // would otherwise cap the natural layout at the previous pass's scale
+      zoom.style.width = ''
+      zoom.style.height = ''
+      zoom.style.marginLeft = ''
+      zoom.style.marginTop = ''
+      fit.style.width = ''
+      journeyNat = { w: Math.max(fit.offsetWidth, fit.scrollWidth), h: fit.offsetHeight }
+    }
+    const { w, h } = journeyNat
+    fit.style.width = `${w}px`
+    const base = Math.min(1, (cw - 2) / Math.max(1, w), (ch - 2) / Math.max(1, h))
+    const k = base * journeyZoom
+    zoom.style.width = `${w * k}px`
+    zoom.style.height = `${h * k}px`
+    zoom.style.marginLeft = w * k >= cw ? '0px' : `${(cw - w * k) / 2}px`
+    zoom.style.marginTop = h * k >= ch ? '0px' : `${(ch - h * k) / 2}px`
+    fit.style.transform = `scale(${k})`
+    // applying the fit can itself flip scrollbars on/off (the pre-fit natural
+    // layout overflows), which changes the client box no ResizeObserver sees —
+    // re-run once when that happened; sizes converge on the second pass
+    if (jr.clientWidth !== cw || jr.clientHeight !== ch) fitJourney(reset)
   }
 
   /** Detail panel for a package-family card (domains view). */
@@ -1638,6 +1689,18 @@ export function mountSchematic(container: HTMLElement): () => void {
   window.addEventListener('storage', (e) => {
     if (e.key === 'dsh.sessions.current') applyFollow()
   }, sig)
+  // Any resize of the journey viewport — window resize, the activity bar
+  // growing as the SSE snapshot arrives or being folded — re-fits the scale.
+  // Observing the static .journey container (renderJourney replaces .jr's
+  // subtree each render); a transform never resizes it, so this cannot loop.
+  if (typeof ResizeObserver !== 'undefined') {
+    const journey = $('.journey') as Element | null
+    if (journey !== null) {
+      const ro = new ResizeObserver(() => { if (state.tab === 'journey') fitJourney(journeyZoom === 1) })
+      ro.observe(journey)
+      ac.signal.addEventListener('abort', () => ro.disconnect())
+    }
+  }
 
   /** One SSE frame. State frames are full; activity frames are incremental. */
   function onFrame(frame: any): void {
@@ -1760,21 +1823,23 @@ export function mountSchematic(container: HTMLElement): () => void {
   // drag-to-pan the journey row (plain HTML — the SVG canvas has its own pan;
   // touch input keeps the native overflow scroll, only mouse gets the drag)
   const jrPane = $('.journey')
-  let jrDrag: { row: HTMLElement; x: number; left: number; moved: boolean } | null = null
+  let jrDrag: { row: HTMLElement; x: number; y: number; left: number; top: number; moved: boolean } | null = null
   jrPane.addEventListener('pointerdown', (e) => {
     if (e.pointerType !== 'mouse' || e.button !== 0) return
     // renderJourney rebuilds .jr via innerHTML on every render — resolve the
     // live row per drag, never cache the element across renders
     const row = jrPane.querySelector<HTMLElement>('.jr')
     if (row === null) return
-    jrDrag = { row, x: e.clientX, left: row.scrollLeft, moved: false }
+    jrDrag = { row, x: e.clientX, y: e.clientY, left: row.scrollLeft, top: row.scrollTop, moved: false }
     jrPane.classList.add('dragging')
   })
   window.addEventListener('pointermove', (e) => {
     if (jrDrag === null) return
     const dx = e.clientX - jrDrag.x
-    if (Math.abs(dx) > 5) jrDrag.moved = true
+    const dy = e.clientY - jrDrag.y
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) jrDrag.moved = true
     jrDrag.row.scrollLeft = jrDrag.left - dx
+    jrDrag.row.scrollTop = jrDrag.top - dy
   }, sig)
   window.addEventListener('pointerup', () => {
     if (jrDrag?.moved === true) {
@@ -1813,9 +1878,18 @@ export function mountSchematic(container: HTMLElement): () => void {
   })
   updateLangButton()
   $('.refresh').addEventListener('click', () => { void load() })
-  $('.zoomIn').addEventListener('click', () => { view.k = Math.min(2.5, view.k * 1.25); applyView() })
-  $('.zoomOut').addEventListener('click', () => { view.k = Math.max(0.25, view.k / 1.25); applyView() })
-  $('.zoomFit').addEventListener('click', () => lastL && fit(lastL))
+  $('.zoomIn').addEventListener('click', () => {
+    if (state.tab === 'journey') { journeyZoom = Math.min(4, journeyZoom * 1.25); fitJourney(); return }
+    view.k = Math.min(2.5, view.k * 1.25); applyView()
+  })
+  $('.zoomOut').addEventListener('click', () => {
+    if (state.tab === 'journey') { journeyZoom = Math.max(1, journeyZoom / 1.25); fitJourney(); return }
+    view.k = Math.max(0.25, view.k / 1.25); applyView()
+  })
+  $('.zoomFit').addEventListener('click', () => {
+    if (state.tab === 'journey') { journeyZoom = 1; fitJourney(); return }
+    if (lastL) fit(lastL)
+  })
   svg.addEventListener('wheel', (e) => {
     if (!e.ctrlKey) return
     e.preventDefault()
