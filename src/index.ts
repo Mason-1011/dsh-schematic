@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import { buildGraph } from './graph.ts'
 import { translateBatch, HttpError } from './llm.ts'
+import { applyActivity } from './activity/index.ts'
 
 export const name = 'dsh-schematic'
 export const inject = ['loader', 'webServer']
@@ -92,9 +93,23 @@ export function apply(ctx: Context): void {
   const html = readFileSync(fileURLToPath(new URL('./web/index.html', import.meta.url)), 'utf8')
   const clientDir = fileURLToPath(new URL('./../dist/', import.meta.url))
 
+  const activity = applyActivity(ctx)
+  // Tool attribution resolves against currently mounted modules; refresh on
+  // every graph build so HMR-mounted tools re-resolve without a restart.
+  const noteModules = (nodes: { module: string | null }[]): void => {
+    activity.noteGraphModules(new Set(nodes.flatMap((node) => node.module ?? [])))
+  }
+  noteModules(buildGraph(ctx).nodes)
+  activity.collector.logDrift()
+
   const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const sub = new URL(req.url ?? '/', 'http://x').pathname.slice(PREFIX.length)
     try {
+      if (sub === '/events') {
+        // The SSE layer owns the whole response lifecycle from here on.
+        activity.events.handle(req, res)
+        return
+      }
       if (req.method === 'GET' || req.method === 'HEAD') {
         if (sub === '' || sub === '/') return send(res, 200, 'text/html; charset=utf-8', html)
         if (sub === '/engine.js') {
@@ -106,7 +121,9 @@ export function apply(ctx: Context): void {
           }
         }
         if (sub === '/graph.json') {
-          return send(res, 200, 'application/json', JSON.stringify(buildGraph(ctx)))
+          const graph = buildGraph(ctx)
+          noteModules(graph.nodes)
+          return send(res, 200, 'application/json', JSON.stringify(graph))
         }
         return send(res, 404, 'text/plain', 'not found')
       }
