@@ -53,6 +53,8 @@ export interface ActivityListener {
   onState(sessionId: string, state: SessionState): void
   /** Host-scope action (RPC mutation or live registry change). */
   onAction(entry: TimelineEntry): void
+  /** Host-scope service-read deltas (the provide/inject wiring exercised). */
+  onTraffic(rows: { module: string | null; key: string; n: number }[]): void
 }
 
 /** How often state frames may leave per session (leading + trailing edge). */
@@ -120,6 +122,13 @@ export class ActivityCollector {
     if (this.actions.length > TIMELINE_CAP) this.actions.splice(0, this.actions.length - TIMELINE_CAP)
     for (const listener of this.listeners) {
       try { listener.onAction(entry) } catch { /* a broken sink never stops the feed */ }
+    }
+  }
+
+  /** Broadcast service-read deltas to the sinks; live-only, no ring keeps them. */
+  noteTraffic(rows: { module: string | null; key: string; n: number }[]): void {
+    for (const listener of this.listeners) {
+      try { listener.onTraffic(rows) } catch { /* a broken sink never stops the feed */ }
     }
   }
 

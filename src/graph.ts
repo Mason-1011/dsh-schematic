@@ -108,6 +108,13 @@ export interface EventSubscription {
   listeners: { id: string; module: string | null; count: number }[]
 }
 
+/** Runtime service reads: which units actually exercised an injected ctx key. */
+export interface ServiceRead {
+  module: string | null
+  key: string
+  count: number
+}
+
 /** The full snapshot served at /schematic/graph.json. */
 export interface LiveGraph {
   meta: { mode: 'live'; generated: string; universalKeys: string[] }
@@ -117,6 +124,11 @@ export interface LiveGraph {
   externalKeys: string[]
   /** Broadcast subscriptions, event name first — the other half of the wiring. */
   eventSubs: EventSubscription[]
+  /**
+   * Cumulative service-read counts from the activity tap, merged by the
+   * /graph.json route (buildGraph itself carries no live counters).
+   */
+  serviceReads?: ServiceRead[]
 }
 
 /** Live service implementations from the reflect store, keyed by isolation symbol. */

@@ -8,7 +8,7 @@
  */
 
 /** Bump on any breaking change to a frame's field meaning. */
-export const PROTOCOL_VERSION = 2
+export const PROTOCOL_VERSION = 3
 
 /**
  * Live per-session state. `inflightTools` holds tool NAMES (not call ids) so
@@ -83,6 +83,12 @@ export type Frame =
   | { type: 'state'; sessionId: string; state: SessionState }
   /** Host-scope action — no sessionId: these are process-level, not per-chat. */
   | { type: 'action'; entry: TimelineEntry }
+  /**
+   * Service-read deltas since the previous frame: the provide/inject wiring
+   * actually exercised, reader module → ctx key. Live-only by design —
+   * cumulative counts ride graph.json instead, so no replay is needed.
+   */
+  | { type: 'traffic'; rows: { module: string | null; key: string; n: number }[] }
 
 /** Serialize one SSE frame (`data: <json>\n\n`). */
 export function frameText(frame: Frame): string {

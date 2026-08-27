@@ -126,10 +126,15 @@ const T: Record<string, { en: string; zh: string }> = {
   akSubagent:      { en: 'subagent', zh: '子代理' },
   akTitle:         { en: 'title', zh: '标题' },
   akAction:        { en: 'action', zh: '操作' },
+  akSvc:           { en: 'service read', zh: '服务读取' },
+  actSvc:          { en: 'svc', zh: '服务读' },
+  actSvcTitle:     { en: 'show service-read rows: which package actually read which ctx service key (the provide/inject wiring in use)', zh: '显示服务读取行:哪个包真的读了哪个 ctx 服务键(实际发生作用的提供/注入接线)' },
   recvLine:        { en: 'session/event broadcast → {n} in-listeners', zh: 'session/event 广播 → {n} 个插件在听' },
   recvNames:       { en: 'listeners of the session-event broadcast (from the live event bus)', zh: '会话事件广播的接收插件(来自运行中的事件总线)' },
   dtListens:       { en: 'listens to', zh: '监听事件' },
   dtListensTip:    { en: 'broadcast events this package listens to; packages that only provide/inject services register none', zh: '该包监听的广播事件;纯服务接线(只提供/注入服务)的包不注册任何监听' },
+  dtReads:         { en: 'runtime reads', zh: '运行时读取' },
+  dtReadsTip:      { en: 'ctx service keys this package actually read since process start, with counts — the wiring that did work, not just the wiring that exists', zh: '进程启动以来该包真实读取过的 ctx 服务键及次数——是实际发生作用的接线,不只是存在的接线' },
 }
 
 const CATS = [
@@ -428,6 +433,7 @@ const CSS = `
 .sch .runDot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); flex: 0 0 auto; }
 .sch .runDot.on { background: var(--s3); animation: schPulse 1.1s ease-in-out infinite; }
 .sch .actFold { border: 0; background: none; color: var(--ink-3); padding: 0 4px; font-size: 11px; cursor: pointer; }
+.sch .actbar .chip[aria-pressed="false"] { opacity: 0.45; }
 .sch .actbar.folded .actList { display: none; }
 .sch .actbar.folded .actFold { transform: rotate(180deg); }
 .sch .actList { max-height: 118px; overflow-y: auto; padding: 0 16px 7px; display: flex; flex-direction: column; gap: 2px; }
@@ -549,6 +555,7 @@ export function mountSchematic(container: HTMLElement): () => void {
   <div class="actHead">
     <span class="runDot"></span><b class="actSess">—</b><span class="actState"></span><span class="recv"></span>
     <span class="spacer" style="flex:1"></span>
+    <button class="chip svcBtn" aria-pressed="true" title="${t('actSvcTitle')}">${t('actSvc')}</button>
     <span class="legend">${t('actLiveHint')}</span>
     <button class="actFold" aria-pressed="true">▾</button>
   </div>
@@ -634,6 +641,8 @@ export function mountSchematic(container: HTMLElement): () => void {
   let evRecv = new Map<string, { id: string; module: string | null; count: number }[]>()
   /** module specifier → event names it listens to (detail panel). */
   let modSubs = new Map<string, string[]>()
+  /** module → the ctx keys it actually read at runtime, with counts (graph.json). */
+  let modReads = new Map<string, { key: string; count: number }[]>()
   const nodeLabel = (n: any): string => n.label ?? n.id
 
   /**
@@ -1226,6 +1235,7 @@ export function mountSchematic(container: HTMLElement): () => void {
       <dt>${t('dtProvides')}</dt><dd class="keys">${n.provides.length ? n.provides.map((k: string) => `<code>${k}</code>`).join(' ') : '<span class="empty">—</span>'}</dd>
       <dt>${t('dtInject')}</dt><dd class="keys">${keyChips(n.inject)}</dd>
       <dt title="${t('dtListensTip')}">${t('dtListens')}</dt><dd class="keys">${(typeof n.module === 'string' ? modSubs.get(n.module) ?? [] : []).length ? (modSubs.get(n.module) ?? []).map((k: string) => `<code>${k}</code>`).join(' ') : '<span class="empty">—</span>'}</dd>
+      <dt title="${t('dtReadsTip')}">${t('dtReads')}</dt><dd class="keys">${(typeof n.module === 'string' ? modReads.get(n.module) ?? [] : []).length ? (modReads.get(n.module) ?? []).map((r: { key: string; count: number }) => `<code>${r.key} <b>×${r.count}</b></code>`).join(' ') : '<span class="empty">—</span>'}</dd>
     </dl>
     <button class="ask-btn" title="${t('askTitle')}">${t('ask')}</button>`
     ;(container.querySelector('.detail .ask-btn') as HTMLElement).onclick = () => {
@@ -1413,6 +1423,12 @@ export function mountSchematic(container: HTMLElement): () => void {
         modSubs.get(l.module)!.push(e.name)
       }
     }
+    modReads = new Map()
+    for (const r of GRAPH.serviceReads ?? []) {
+      if (typeof r.module !== 'string') continue
+      if (!modReads.has(r.module)) modReads.set(r.module, [])
+      modReads.get(r.module)!.push({ key: r.key as string, count: r.count as number })
+    }
     paintRecv()
     if (first) { state.scope = null; state.sel = null }
     else if (state.scope !== null && scopeTarget(state.scope) === undefined) { state.scope = null; state.sel = null }
@@ -1505,6 +1521,8 @@ export function mountSchematic(container: HTMLElement): () => void {
     /** set once the first SSE snapshot lands; absence knowledge needs it. */
     seenSnapshot: false,
     includeSub: false,
+    /** service-read rows visible in the timeline (toggle on the activity bar). */
+    showSvc: true,
     /** module → { until, strong }; strong entries survive the TTL sweeper. */
     active: new Map<string, { until: number; strong: boolean }>(),
     /** last known llm provider module per session (for streaming highlight). */
@@ -1515,10 +1533,11 @@ export function mountSchematic(container: HTMLElement): () => void {
   const AK: Record<string, string> = {
     user: 'akUser', llm: 'akLlm', tool: 'akTool', 'tool-end': 'akToolEnd', turn: 'akTurn',
     approval: 'akApproval', todo: 'akTodo', compaction: 'akCompaction', retry: 'akRetry',
-    subagent: 'akSubagent', title: 'akTitle', action: 'akAction',
+    subagent: 'akSubagent', title: 'akTitle', action: 'akAction', svc: 'akSvc',
   }
   const sessSel = $('.sessSel') as unknown as HTMLSelectElement
   const subBtn = $('.subBtn')
+  const svcBtn = $('.svcBtn')
   const actbar = $('.actbar')
   const actList = $('.actList')
   const runDot = $('.runDot')
@@ -1621,6 +1640,7 @@ export function mountSchematic(container: HTMLElement): () => void {
       case 'tool-end': return (e.name ?? '') + (e.durationMs !== undefined ? ` · ${e.durationMs}ms` : '') + (e.isError ? ' ✕' : '')
       case 'turn': return '#' + (e.name ?? '')
       case 'action': return (e.name ?? '') + (e.durationMs !== undefined ? ` · ${e.durationMs}ms` : '') + (e.isError ? ' ✕' : '')
+      case 'svc': return e.name ?? ''
       default: return e.name ?? ''
     }
   }
@@ -1630,8 +1650,9 @@ export function mountSchematic(container: HTMLElement): () => void {
   function renderActList(): void {
     const rows: any[] = [...act.actions]
     for (const id of shownSessions()) rows.push(...(act.timelines.get(id) ?? []))
-    rows.sort((a, b) => b.time - a.time)
-    const shown = rows.slice(0, 60)
+    const visible = act.showSvc ? rows : rows.filter((e) => e.kind !== 'svc')
+    visible.sort((a, b) => b.time - a.time)
+    const shown = visible.slice(0, 60)
     if (shown.length === 0) {
       actList.innerHTML = `<span class="emptyRow">${t('actEmpty')}</span>`
       return
@@ -1642,8 +1663,9 @@ export function mountSchematic(container: HTMLElement): () => void {
         : ''
       const label = t(AK[e.kind] ?? AK.turn)
       // every non-action row arrived as one session/event broadcast — hover
-      // names the units that received it (host-domain actions did not broadcast)
-      const tip = e.kind === 'action' ? '' : recvTip()
+      // names the units that received it (host-domain actions and service
+      // reads did not broadcast)
+      const tip = e.kind === 'action' || e.kind === 'svc' ? '' : recvTip()
       return `<div class="actRow${e.isError ? ' err' : ''}"${tip ? ` title="${esc(tip)}"` : ''}><time>${fmtTime(e.time)}</time>${badge}<span class="tx">${label} · ${esc(detailOf(e))}</span></div>`
     }).join('')
   }
@@ -1699,6 +1721,11 @@ export function mountSchematic(container: HTMLElement): () => void {
   subBtn.addEventListener('click', () => {
     act.includeSub = !act.includeSub
     subBtn.setAttribute('aria-pressed', String(act.includeSub))
+    renderActList()
+  })
+  svcBtn.addEventListener('click', () => {
+    act.showSvc = !act.showSvc
+    svcBtn.setAttribute('aria-pressed', String(act.showSvc))
     renderActList()
   })
   $('.actFold').addEventListener('click', () => {
@@ -1835,6 +1862,22 @@ export function mountSchematic(container: HTMLElement): () => void {
       act.actions.push(frame.entry)
       if (act.actions.length > 200) act.actions.splice(0, act.actions.length - 200)
       if (frame.entry.module !== null) touchModule(frame.entry.module, false)
+      renderActList()
+      return
+    }
+    if (frame.type === 'traffic') {
+      // The pure-wiring signal: a package actually read an injected ctx key.
+      // Both ends light — the reader and the key's provider(s) — which is the
+      // only live highlight packages with no broadcast listeners ever get.
+      const time = Date.now()
+      for (const r of frame.rows as any[]) {
+        act.actions.push({ time, kind: 'svc', module: r.module ?? null, name: `ctx.${r.key} ×${r.n}` })
+        if (act.actions.length > 200) act.actions.splice(0, act.actions.length - 200)
+        if (typeof r.module === 'string') touchModule(r.module, false)
+        for (const owner of keyOwners.get(r.key) ?? []) {
+          if (typeof owner.module === 'string') touchModule(owner.module, false)
+        }
+      }
       renderActList()
     }
   }

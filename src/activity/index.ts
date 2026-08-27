@@ -11,10 +11,17 @@ import { createEventsLayer } from './sse.ts'
 import type { EventsLayer } from './sse.ts'
 import { installRpcObserver } from './rpc.ts'
 import { RPC_ACTION } from './attribution.ts'
+import { installTrafficTap } from './traffic.ts'
+import type { TrafficTap } from './traffic.ts'
+
+/** Live traffic-flush cadence: rows ride one aggregated frame, not one per read. */
+const TRAFFIC_FLUSH_MS = 750
 
 export interface ActivitySetup {
   collector: ActivityCollector
   events: EventsLayer
+  /** Cumulative service-read counts, merged into graph.json. */
+  traffic: TrafficTap
   /** Refresh the graph-module set after every graph rebuild. */
   noteGraphModules: (modules: Iterable<string>) => void
 }
@@ -26,14 +33,23 @@ export interface ActivitySetup {
  */
 export function applyActivity(ctx: Context): ActivitySetup {
   const collector = new ActivityCollector(ctx)
+  const traffic = installTrafficTap(ctx)
   const rpc = installRpcObserver(ctx, (method, isError, durationMs) => {
     const module = RPC_ACTION[method] ?? null
     collector.noteAction({ time: Date.now(), kind: 'action', module, name: method, isError, durationMs })
   })
+  // Draining on a timer (not per read) is what keeps the tap O(1) on the hot
+  // path: the listener only counts, and deltas leave as aggregated frames.
+  const flush = setInterval(() => {
+    const rows = traffic.drain()
+    if (rows.length > 0) collector.noteTraffic(rows)
+  }, TRAFFIC_FLUSH_MS) as unknown as { unref(): void }
+  flush.unref()
   ctx.effect(() => {
     const stop = collector.start()
     rpc.ensure()
     return () => {
+      clearInterval(flush)
       events.dispose()
       rpc.dispose()
       stop()
@@ -47,6 +63,7 @@ export function applyActivity(ctx: Context): ActivitySetup {
   return {
     collector,
     events,
+    traffic,
     noteGraphModules: (modules) => {
       collector.noteGraphModules(modules)
       rpc.ensure()

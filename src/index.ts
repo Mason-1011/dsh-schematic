@@ -122,6 +122,7 @@ export function apply(ctx: Context): void {
         }
         if (sub === '/graph.json') {
           const graph = buildGraph(ctx)
+          graph.serviceReads = activity.traffic.snapshot()
           noteModules(graph.nodes)
           return send(res, 200, 'application/json', JSON.stringify(graph))
         }

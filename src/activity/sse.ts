@@ -66,6 +66,7 @@ export function createEventsLayer(
         onActivity: (sessionId, entry) => { write(res, { type: 'activity', sessionId, entry }) },
         onState: (sessionId, state) => { write(res, { type: 'state', sessionId, state }) },
         onAction: (entry) => { write(res, { type: 'action', entry }) },
+        onTraffic: (rows) => { write(res, { type: 'traffic', rows }) },
       })
       const heartbeat = setInterval(() => {
         if (res.writableEnded || res.destroyed) return
