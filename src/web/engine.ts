@@ -626,6 +626,22 @@ export function mountSchematic(container: HTMLElement): () => void {
   let moduleIds = new Map<string, string[]>()
   const nodeLabel = (n: any): string => n.label ?? n.id
 
+  /**
+   * The scope target for a cluster id or a family card id (fam:<group>):
+   * a family synthesizes the cluster shape from its unclustered members, so
+   * family cards open into the same scope view clusters use.
+   */
+  const scopeTarget = (id: string): any | undefined => {
+    if (clusterById.has(id)) return clusterById.get(id)
+    if (!id.startsWith('fam:') || GRAPH === null) return undefined
+    const members = GRAPH.nodes.filter((n: any) => !n.cluster && n.group === id.slice(4))
+    if (members.length === 0) return undefined
+    const catCount = new Map<string, number>()
+    for (const n of members) catCount.set(n.category, (catCount.get(n.category) ?? 0) + 1)
+    const cat = [...catCount.entries()].sort((a, b) => b[1] - a[1])[0][0]
+    return { id, label: id.slice(4), category: cat, members: members.map((n: any) => n.id), seamKeys: [] }
+  }
+
   // ------- layout -------
   const H = 30, PITCH = 38, COLGAP = 96
   const pillW = (label: string): number => Math.min(240, label.length * 7.2 + 46)
@@ -705,7 +721,7 @@ export function mountSchematic(container: HTMLElement): () => void {
   }
 
   function layoutScope() {
-    const c = clusterById.get(state.scope)
+    const c = scopeTarget(state.scope ?? '')
     const members = c.members.map((m: string) => byId.get(m)).filter((n: any) => originOk(n) && matchNode(n))
     const memberIds = new Set(members.map((n: any) => n.id))
     const memberUnits = members.map((n: any) => ({ id: n.id, label: nodeLabel(n), cat: n.category, rank: n.rank, kind: 'node', node: n }))
@@ -840,10 +856,12 @@ export function mountSchematic(container: HTMLElement): () => void {
     <div class="dir">${t('familyTip')}</div>
     <div class="members">${members.map((m: any) =>
       `<div class="m"><b>${esc(nodeLabel(m))}${m.state === 'failed' ? ' ✕' : m.state !== 'active' && m.state ? ' ⏳' : ''}</b>${descOf(m) ? `<span>${esc(descOf(m) as string)}</span>` : ''}</div>`).join('')}
-    </div>`
+    </div>
+    <button class="open-btn">${t('openGroup')}</button>`
+    ;(container.querySelector('.detail .open-btn') as HTMLElement).onclick = () => enterScope('fam:' + famId)
   }
 
-  /** Tooltip + click for a family pill. */
+  /** Tooltip + click + open for a family pill. */
   function bindFamilyHover(g: Element, famId: string, members: any[]): void {
     g.addEventListener('mouseenter', () => {
       showTip(`<div class="t">${esc(famId)} · ${members.length}</div>` +
@@ -858,6 +876,7 @@ export function mountSchematic(container: HTMLElement): () => void {
       renderDetailFamily(famId, members)
       render()
     })
+    g.addEventListener('dblclick', (ev) => { ev.stopPropagation(); enterScope('fam:' + famId) })
   }
 
   // ------- render -------
@@ -1058,7 +1077,7 @@ export function mountSchematic(container: HTMLElement): () => void {
 
   function enterScope(id: string): void {
     state.scope = id; state.sel = null
-    renderDetailCluster(clusterById.get(id))
+    renderDetailCluster(scopeTarget(id))
     render(true)
   }
   function exitScope(): void {
@@ -1188,7 +1207,7 @@ export function mountSchematic(container: HTMLElement): () => void {
         if (members.length > 0) return renderDetailFamily(fam, members)
       }
     }
-    if (state.scope) return renderDetailCluster(clusterById.get(state.scope))
+    if (state.scope) return renderDetailCluster(scopeTarget(state.scope))
     $('.detail').innerHTML = `<p class="empty">${t('emptyDetail')}</p>`
   }
 
@@ -1326,7 +1345,7 @@ export function mountSchematic(container: HTMLElement): () => void {
       moduleIds.get(n.module)!.push(n.id)
     }
     if (first) { state.scope = null; state.sel = null }
-    else if (state.scope !== null && !clusterById.has(state.scope)) { state.scope = null; state.sel = null }
+    else if (state.scope !== null && scopeTarget(state.scope) === undefined) { state.scope = null; state.sel = null }
     else if (state.sel !== null && !byId.has(state.sel) && !clusterById.has(state.sel) && !state.sel.startsWith('fam:')) state.sel = null
     setMeta()
     renderChips()
@@ -1485,6 +1504,10 @@ export function mountSchematic(container: HTMLElement): () => void {
     if (llmMod !== undefined && s.streaming === true) {
       act.lastLlm.set(s.sessionId, llmMod)
       act.active.set(llmMod, { until: Date.now() + LIVE_TTL_MS, strong: true })
+    } else if (llmMod !== undefined && act.active.get(llmMod)?.strong) {
+      // stream settled (assistant/message / turn/end flipped streaming off):
+      // downgrade like a tool-end, or the strong entry never expires
+      act.active.set(llmMod, { until: Date.now() + LIVE_TTL_MS, strong: false })
     }
     for (const m of Array.isArray(s.activeModules) ? s.activeModules : []) {
       if (act.active.has(m)) continue
@@ -1669,9 +1692,10 @@ export function mountSchematic(container: HTMLElement): () => void {
       if (ring.length > 200) ring.splice(0, ring.length - 200)
       act.timelines.set(sessionId, ring)
       if (entry.kind === 'llm') act.lastLlm.set(sessionId, entry.module)
-      // highlight only what the timeline shows; a tool-end downgrades strong
+      // highlight only what the timeline shows; a tool-end or a completed
+      // assistant message downgrades strong (touchModule would keep it strong)
       if (entry.module !== null && entry.kind !== 'user' && shownEntry(sessionId)) {
-        if (entry.kind === 'tool-end') {
+        if (entry.kind === 'tool-end' || entry.kind === 'llm') {
           act.active.set(entry.module, { until: Date.now() + LIVE_TTL_MS, strong: false })
           paintActivity()
         } else {
