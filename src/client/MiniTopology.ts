@@ -15,8 +15,11 @@
  * RPCs (session.list / workspace.list) — enough open tabs and a refresh
  * wedges on the loading page. The panel also rides above the composer seat's
  * sticky stacking context (z 12 > seat 7) so the seat's frost surface neither
- * erases the dots nor eats their double-click. The bottom-right grip scales
- * the whole panel; dots render as hollow rings that fill and glow when lit.
+ * erases the dots nor eats their double-click. Dragging the panel body moves
+ * it anywhere on screen (persisted; dropping it back beside the card
+ * re-docks), the bottom-right grip resizes width and height freely, and the
+ * galaxy layout re-flows to the new aspect. Dots render as hollow rings that
+ * fill and glow when lit.
  */
 
 /**
@@ -34,15 +37,20 @@ const CAT_VAR: Record<string, string> = {
   'web-client': '--mc8',
 }
 
-/** Constellation geometry: viewBox size and dot radius. */
+/** Constellation geometry: viewBox size (width fixed, height follows aspect). */
 const W = 208
 const H = 32
-const DOT_R = 1.6
 /** Panel height on screen; the CSS below reads the same number. */
 const PANEL_H = 30
-/** Resize bounds and persistence key for the corner-grip scale. */
-const MIN_SCALE = 0.7
-const MAX_SCALE = 3
+/** Free-resize bounds (CSS px) and persistence key for the corner grip. */
+const MIN_W = 120
+const MAX_W = 800
+const MIN_H = 24
+const MAX_H = 320
+const SIZE_KEY = 'sch.mini.size'
+/** Persisted free-placement origin; absent while docked to the card. */
+const POS_KEY = 'sch.mini.pos'
+/** v0.2.22 stored one corner-scale factor; migrated on first load. */
 const SCALE_KEY = 'sch.mini.scale'
 /** Gap between the composer card's right edge and the panel. */
 const GAP = 12
@@ -58,7 +66,7 @@ export const MINI_TOPOLOGY_CSS = `
   --mc1: #2a78d6; --mc2: #eb6834; --mc3: #1baf7a; --mc4: #eda100;
   --mc5: #e87ba4; --mc6: #008300; --mc7: #4a3aa7; --mc8: #e34948;
   position: fixed; z-index: 12;
-  cursor: zoom-in; border-radius: 8px; overflow: hidden; user-select: none;
+  cursor: grab; border-radius: 8px; overflow: hidden; user-select: none;
   background: rgba(127, 127, 127, 0.08);
   color: var(--dsw-alias-label-secondary, #888);
   box-shadow: inset 0 0 0 1px rgba(127, 127, 127, 0.25);
@@ -71,6 +79,10 @@ export const MINI_TOPOLOGY_CSS = `
   }
 }
 .schMini svg { display: block; width: 100%; height: 100%; }
+/* The constellation's own layer: render() replaces only this subtree, so the
+   grip sibling never leaves the document (an element removed from the
+   document loses pointer capture, which would strand a resize drag). */
+.schMiniStage { position: absolute; inset: 0; }
 .schMini line { stroke: currentColor; stroke-opacity: 0.16; stroke-width: 0.5; }
 /* Idle dots are hollow rings; lighting fills the ring and blooms a glow. */
 .schMini circle {
@@ -89,6 +101,7 @@ export const MINI_TOPOLOGY_CSS = `
   filter: drop-shadow(0 0 3px var(--c, currentColor)) drop-shadow(0 0 6px var(--c, currentColor));
   animation: schMiniBreath 1.5s ease-in-out infinite;
 }
+.schMini.drag { cursor: grabbing; }
 .schMiniGrip {
   position: absolute; right: 0; bottom: 0; width: 14px; height: 14px;
   cursor: nwse-resize; opacity: 0.35; touch-action: none;
@@ -127,13 +140,20 @@ function findCard(): HTMLElement | null {
 }
 
 /**
- * The dot constellation: rank by unit edge count, pack outward on elliptical
- * rings (center 1 dot, ring r holds 6r), deterministic on ties by node id.
+ * The dot constellation: a deterministic galaxy, not a grid. Units seed on a
+ * golden-angle spiral in degree order (hubs fall toward the center), then a
+ * short force relaxation spreads them — pairwise repulsion keeps dots apart,
+ * edge springs pull wired packages toward each other, a weak centering term
+ * holds the mass inside the box. Dot radius grows with edge count, so hubs
+ * read as bigger rings. Pure function of (graph, vh): re-renders never
+ * reshuffle the sky.
+ * @param vh - viewBox height; the relaxation uses it vertically, so a freely
+ * resized panel fills edge to edge — never letterboxed, never stretched.
  * @returns the SVG markup for the panel (callers index the LIVE circles
  * after insertion — a map built from a detached parse would toggle classes
  * on orphaned nodes).
  */
-function layout(graph: any): string {
+function layout(graph: any, vh: number): string {
   const nodes: any[] = (graph.nodes ?? []).filter((n: any) => typeof n.module === 'string')
   const deg = new Map<string, number>()
   for (const e of graph.edges ?? []) {
@@ -142,48 +162,102 @@ function layout(graph: any): string {
   }
   const units = [...nodes].sort((a, b) =>
     (deg.get(b.id) ?? 0) - (deg.get(a.id) ?? 0) || String(a.id).localeCompare(String(b.id)))
-  // smallest ring count whose 1 + 3R(R+1) capacity holds every unit
-  let rings = 1
-  while (1 + 3 * rings * (rings + 1) < units.length) rings++
-  const stepX = (W / 2 - 6) / rings
-  const stepY = (H / 2 - 2.2) / rings
-  const pos = new Map<string, [number, number]>()
-  let ring = 0
-  let cap = 1
-  let k = 0
-  for (const n of units) {
-    if (k === cap) { ring++; cap = 6 * ring; k = 0 }
-    const a = (k / cap) * Math.PI * 2 + ring * 0.55
-    const rx = ring === 0 ? 0 : 4 + stepX * ring
-    const ry = ring === 0 ? 0 : 1.4 + stepY * ring
-    pos.set(n.id, [W / 2 + rx * Math.cos(a), H / 2 + ry * Math.sin(a)])
-    k++
+  const VH = Math.max(vh, H)
+  let maxDeg = 1
+  for (const n of units) maxDeg = Math.max(maxDeg, deg.get(String(n.id)) ?? 1)
+  /** Deterministic per-module jitter so the spiral never reads as a spiral. */
+  const hash01 = (s: string): number => {
+    let h = 2166136261
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) }
+    return (h >>> 0) % 1024 / 1024
   }
+  const GA = Math.PI * (3 - Math.sqrt(5))
+  const px = new Float64Array(units.length)
+  const py = new Float64Array(units.length)
+  units.forEach((n, i) => {
+    const rr = Math.sqrt((i + 0.4) / units.length)
+    const a = i * GA + hash01(String(n.module)) * 0.6
+    px[i] = W / 2 + rr * (W / 2 - 7) * Math.cos(a)
+    py[i] = VH / 2 + rr * (VH / 2 - 4) * Math.sin(a)
+  })
+  const idx = new Map<string, number>()
+  units.forEach((n, i) => idx.set(String(n.id), i))
+  const springs: [number, number][] = []
+  for (const e of graph.edges ?? []) {
+    const a = idx.get(String(e.from))
+    const b = idx.get(String(e.to))
+    if (a !== undefined && b !== undefined) springs.push([a, b])
+  }
+  const rad = units.map((n) => 1.05 + 1.15 * Math.sqrt(Math.min(1, (deg.get(String(n.id)) ?? 0) / maxDeg)))
+  // Repulsion ramps up with panel height: a 32-tall strip has no vertical room
+  // to absorb it (strong forces jam dots into the wall clamps), while a tall
+  // panel needs them — plus the radius-aware term — to give hubs breathing room.
+  const ramp = Math.min(1, (VH - 32) / 108)
+  const REP = 40 + 40 * ramp
+  const CUT = 1100 + 500 * ramp
+  const RW = 0.5 * ramp
+  const fx = new Float64Array(units.length)
+  const fy = new Float64Array(units.length)
+  for (let t = 0; t < 90; t++) {
+    fx.fill(0)
+    fy.fill(0)
+    for (let i = 0; i < units.length; i++) {
+      for (let j = i + 1; j < units.length; j++) {
+        const dx = px[i] - px[j]
+        const dy = py[i] - py[j]
+        const d2 = dx * dx + dy * dy + 0.02
+        if (d2 > CUT) continue
+        const f = REP * (1 + (rad[i] + rad[j]) * RW) / d2 / Math.sqrt(d2)
+        fx[i] += f * dx; fy[i] += f * dy
+        fx[j] -= f * dx; fy[j] -= f * dy
+      }
+    }
+    for (const [a, b] of springs) {
+      const dx = px[b] - px[a]
+      const dy = py[b] - py[a]
+      const d = Math.sqrt(dx * dx + dy * dy) + 0.01
+      const f = Math.min(d * 0.028, 1.2) / d
+      fx[a] += dx * f; fy[a] += dy * f
+      fx[b] -= dx * f; fy[b] -= dy * f
+    }
+    const cool = 0.9 * (1 - t / 90) + 0.1
+    for (let i = 0; i < units.length; i++) {
+      fx[i] += (W / 2 - px[i]) * 0.008
+      fy[i] += (VH / 2 - py[i]) * 0.008
+      px[i] = Math.max(4, Math.min(W - 4, px[i] + Math.max(-3, Math.min(3, fx[i] * cool))))
+      py[i] = Math.max(3, Math.min(VH - 3, py[i] + Math.max(-3, Math.min(3, fy[i] * cool))))
+    }
+  }
+  const pos = new Map<string, [number, number]>()
+  units.forEach((n, i) => pos.set(String(n.id), [px[i], py[i]]))
   let lines = ''
   for (const e of graph.edges ?? []) {
-    const a = pos.get(e.from)
-    const b = pos.get(e.to)
+    const a = pos.get(String(e.from))
+    const b = pos.get(String(e.to))
     if (a === undefined || b === undefined) continue
     lines += `<line x1="${a[0].toFixed(1)}" y1="${a[1].toFixed(1)}" x2="${b[0].toFixed(1)}" y2="${b[1].toFixed(1)}"/>`
   }
   let circles = ''
-  for (const n of units) {
-    const [x, y] = pos.get(n.id) ?? [W / 2, H / 2]
+  units.forEach((n, i) => {
+    const [x, y] = pos.get(String(n.id)) ?? [W / 2, VH / 2]
     const v = n.spine === true ? '--mc1' : CAT_VAR[n.category as string]
-    circles += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${DOT_R}" data-module="${n.module}"${v === undefined ? '' : ` style="--c: var(${v})"`}/>`
-  }
-  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${lines}${circles}</svg>`
+    circles += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${rad[i].toFixed(2)}" data-module="${n.module}"${v === undefined ? '' : ` style="--c: var(${v})"`}/>`
+  })
+  return `<svg viewBox="0 0 ${W} ${VH.toFixed(1)}" preserveAspectRatio="xMidYMid meet">${lines}${circles}</svg>`
 }
 
 /**
  * Mount the constellation panel beside the composer card. The panel is
  * viewport-fixed and re-anchored to the card's rect on a short poll — the
- * card grows with the draft and its rect is the only placement authority.
- * Hidden while no composer is on screen or the window has no room beside the
- * card. The panel lives directly under document.body, outside the SPA's
- * React tree, so re-renders never churn it. The bottom-right grip scales the
- * panel (persisted per browser); dots are hollow rings that fill and glow
- * when lit.
+ * card grows with the draft and its rect is the only placement authority
+ * while docked. Dragging the body free-places it anywhere (clamped into the
+ * viewport, persisted; dropping beside the card re-docks). Hidden while
+ * docked with no composer on screen or no room beside the card. The panel
+ * lives directly under document.body, outside the SPA's React tree, so
+ * re-renders never churn it. The bottom-right grip resizes the panel freely
+ * (width and height independent, persisted per browser) and the galaxy
+ * re-flows to the new aspect; dots are hollow rings that fill and glow when
+ * lit.
  * @param t locale seat for the tooltip.
  * @returns disposer removing the panel and its feeds.
  */
@@ -201,25 +275,42 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
   document.body.appendChild(host)
 
   /** Field-diagnosis seat: row-kind tail + live counters, read from the console. */
-  const debug = { frames: [] as string[], polls: 0, ok: -1, active: 0, dots: 0, graphAt: 0, scale: 1 }
+  const debug = { frames: [] as string[], polls: 0, ok: -1, active: 0, dots: 0, graphAt: 0, w: W, h: PANEL_H }
   ;(window as unknown as Record<string, unknown>).__schMini = debug
 
-  /** Corner-grip scale, persisted so the panel stays the size the user set. */
-  let scale = 1
+  /** Panel size in CSS px, persisted so the panel stays what the user set. */
+  let panelW = W
+  let panelH = PANEL_H
   try {
-    const raw = localStorage.getItem(SCALE_KEY)
+    const raw = localStorage.getItem(SIZE_KEY)
     if (raw !== null) {
-      // Number(null) is 0, not NaN — an absent key must fall through to 1.
-      const stored = Number(raw)
-      if (Number.isFinite(stored)) scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, stored))
+      const m = /^(\d+)x(\d+)$/.exec(raw)
+      if (m !== null) {
+        panelW = Math.min(MAX_W, Math.max(MIN_W, Number(m[1])))
+        panelH = Math.min(MAX_H, Math.max(MIN_H, Number(m[2])))
+      }
+    } else {
+      // v0.2.22's single-scale store carries over once; Number(null) is 0,
+      // so only a present key with a positive number counts.
+      const legacy = Number(localStorage.getItem(SCALE_KEY))
+      if (Number.isFinite(legacy) && legacy > 0) {
+        panelW = Math.min(MAX_W, Math.max(MIN_W, Math.round(W * legacy)))
+        panelH = Math.min(MAX_H, Math.max(MIN_H, Math.round(PANEL_H * legacy)))
+      }
     }
   } catch { /* an unreadable store just keeps the default size */ }
   const applySize = (): void => {
-    host.style.width = `${Math.round(W * scale)}px`
-    host.style.height = `${Math.round(PANEL_H * scale)}px`
-    debug.scale = scale
+    host.style.width = `${Math.round(panelW)}px`
+    host.style.height = `${Math.round(panelH)}px`
+    debug.w = Math.round(panelW)
+    debug.h = Math.round(panelH)
   }
   applySize()
+
+  /** Constellation layer: render() churns only this subtree, never the grip. */
+  const stage = document.createElement('div')
+  stage.className = 'schMiniStage'
+  host.appendChild(stage)
 
   const grip = document.createElement('div')
   grip.className = 'schMiniGrip'
@@ -229,24 +320,84 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
   grip.addEventListener('pointerdown', (e) => {
     e.stopPropagation()
     e.preventDefault()
-    grip.setPointerCapture(e.pointerId)
     const startX = e.clientX
-    const startScale = scale
+    const startY = e.clientY
+    const startW = panelW
+    const startH = panelH
     const move = (ev: PointerEvent): void => {
-      scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, startScale + (ev.clientX - startX) / W))
+      if (ev.buttons === 0) return
+      // Width stops at the window edge instead of tripping anchor()'s
+      // no-room hide — the user is mid-gesture, not asking to dismiss.
+      const room = window.innerWidth - 8 - host.getBoundingClientRect().left
+      panelW = Math.min(MAX_W, room, Math.max(MIN_W, startW + ev.clientX - startX))
+      panelH = Math.min(MAX_H, Math.max(MIN_H, startH + ev.clientY - startY))
       applySize()
+      if (Math.abs(viewH() - drawnVh) > 2) render()
       anchor()
     }
     const up = (ev: PointerEvent): void => {
-      grip.removeEventListener('pointermove', move)
-      grip.removeEventListener('pointerup', up)
-      grip.removeEventListener('pointercancel', up)
-      try { localStorage.setItem(SCALE_KEY, String(scale)) } catch { /* unwritable store loses the size, not the panel */ }
+      // Window-level capture-phase listeners: the drag keeps flowing even if
+      // the pointer outruns the 14px grip or a rebuild moves it.
+      window.removeEventListener('pointermove', move, true)
+      window.removeEventListener('pointerup', up, true)
+      window.removeEventListener('pointercancel', up, true)
+      try { localStorage.setItem(SIZE_KEY, `${Math.round(panelW)}x${Math.round(panelH)}`) } catch { /* unwritable store loses the size, not the panel */ }
       ev.preventDefault()
     }
-    grip.addEventListener('pointermove', move)
-    grip.addEventListener('pointerup', up)
-    grip.addEventListener('pointercancel', up)
+    window.addEventListener('pointermove', move, true)
+    window.addEventListener('pointerup', up, true)
+    window.addEventListener('pointercancel', up, true)
+  })
+
+  /**
+   * Free placement: null while docked to the composer card; once set, the
+   * panel stays where the user dropped it (clamped into the viewport) until
+   * they drop it back beside the card, which re-docks.
+   */
+  let freePos: { x: number; y: number } | null = null
+  try {
+    const m = /^(-?\d+),(-?\d+)$/.exec(localStorage.getItem(POS_KEY) ?? '')
+    if (m !== null) freePos = { x: Number(m[1]), y: Number(m[2]) }
+  } catch { /* an unreadable store just re-docks the panel */ }
+  host.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    host.classList.add('drag')
+    const sx = e.clientX
+    const sy = e.clientY
+    const r = host.getBoundingClientRect()
+    const ox = r.left
+    const oy = r.top
+    const move = (ev: PointerEvent): void => {
+      if (ev.buttons === 0) return
+      freePos = {
+        x: Math.max(2, Math.min(window.innerWidth - panelW - 2, ox + ev.clientX - sx)),
+        y: Math.max(2, Math.min(window.innerHeight - panelH - 2, oy + ev.clientY - sy)),
+      }
+      anchor()
+    }
+    const up = (): void => {
+      window.removeEventListener('pointermove', move, true)
+      window.removeEventListener('pointerup', up, true)
+      window.removeEventListener('pointercancel', up, true)
+      host.classList.remove('drag')
+      // Dropping beside the composer card re-docks: anchored placement and
+      // the card-follow again, instead of a frozen screen position.
+      const card = findCard()
+      const pr = host.getBoundingClientRect()
+      if (card !== null) {
+        const cr = card.getBoundingClientRect()
+        if (Math.abs(pr.left - (cr.right + GAP)) < 30 && pr.top < cr.bottom && pr.bottom > cr.top) freePos = null
+      }
+      try {
+        if (freePos === null) localStorage.removeItem(POS_KEY)
+        else localStorage.setItem(POS_KEY, `${Math.round(freePos.x)},${Math.round(freePos.y)}`)
+      } catch { /* an unwritable store loses the position, not the panel */ }
+      anchor()
+    }
+    window.addEventListener('pointermove', move, true)
+    window.addEventListener('pointerup', up, true)
+    window.addEventListener('pointercancel', up, true)
   })
 
   const ac = new AbortController()
@@ -304,20 +455,17 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
     else touch(row.m, row.k === 'tool')
   }
 
+  let lastGraph: any = null
   let signature = ''
-  const applyGraph = (graph: any): void => {
-    const next = JSON.stringify([
-      (graph.nodes ?? []).map((n: any) => [n.id, n.module, n.category]),
-      (graph.edges ?? []).map((e: any) => [e.from, e.to]),
-    ])
-    if (next === signature) return
-    signature = next
+  /** viewBox height the last render drew; aspect changes diff against it. */
+  let drawnVh = 0
+  /** viewBox height matching the panel's aspect, floored at the base H. */
+  const viewH = (): number => Math.max((W * panelH) / panelW, H)
+  const render = (): void => {
+    if (lastGraph === null) return
+    drawnVh = viewH()
     debug.graphAt = Date.now()
-    debug.dots = 0
-    host.innerHTML = layout(graph)
-    // innerHTML above replaces every child — move the grip back in so
-    // resizing survives each constellation rebuild.
-    host.appendChild(grip)
+    stage.innerHTML = layout(lastGraph, drawnVh)
     // Index the circles AFTER insertion: the live nodes are the only ones
     // whose classes paint.
     dotsByModule = new Map<string, Element[]>()
@@ -329,7 +477,7 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
     }
     debug.dots = dotsByModule.size
     keyOwners = new Map<string, string[]>()
-    for (const n of graph.nodes ?? []) {
+    for (const n of lastGraph.nodes ?? []) {
       for (const key of n.provides ?? []) {
         const list = keyOwners.get(key) ?? []
         if (typeof n.module === 'string') list.push(n.module)
@@ -337,6 +485,16 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
       }
     }
     paint()
+  }
+  const applyGraph = (graph: any): void => {
+    const next = JSON.stringify([
+      (graph.nodes ?? []).map((n: any) => [n.id, n.module, n.category]),
+      (graph.edges ?? []).map((e: any) => [e.from, e.to]),
+    ])
+    if (next === signature) return
+    signature = next
+    lastGraph = graph
+    render()
   }
   const load = (): void => {
     void fetch('/schematic/graph.json', { signal: ac.signal })
@@ -400,16 +558,22 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
       paint()
       pollMini()
     }
+    if (freePos !== null) {
+      // Free placement: hold the dropped origin, clamped into the viewport —
+      // the card's coming and going no longer moves or hides the panel.
+      host.style.display = ''
+      host.style.left = `${Math.round(Math.max(2, Math.min(window.innerWidth - panelW - 2, freePos.x)))}px`
+      host.style.top = `${Math.round(Math.max(2, Math.min(window.innerHeight - panelH - 2, freePos.y)))}px`
+      return
+    }
     const card = findCard()
     if (card === null) { host.style.display = 'none'; return }
     const r = card.getBoundingClientRect()
     const left = Math.round(r.right + GAP)
-    const w = Math.round(W * scale)
-    const h = Math.round(PANEL_H * scale)
-    if (left + w > window.innerWidth - 8) { host.style.display = 'none'; return }
+    if (left + panelW > window.innerWidth - 8) { host.style.display = 'none'; return }
     host.style.display = ''
     host.style.left = `${left}px`
-    host.style.top = `${Math.round(r.top + (r.height - h) / 2)}px`
+    host.style.top = `${Math.round(r.top + (r.height - panelH) / 2)}px`
   }
   anchor()
   const anchorTimer = window.setInterval(anchor, ANCHOR_MS)
