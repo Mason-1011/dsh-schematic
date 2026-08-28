@@ -110,6 +110,12 @@ const T: Record<string, { en: string; zh: string }> = {
   sessFollow:      { en: '↪ follow chat', zh: '↪ 跟随聊天' },
   actSub:          { en: 'subagents', zh: '含子代理' },
   actSubTitle:     { en: 'also show subagent sessions running in this process', zh: '同时显示本进程里运行的子代理会话' },
+  expandAll:       { en: 'expand all', zh: '全部展开' },
+  collapseAll:     { en: 'collapse all', zh: '全部收起' },
+  expAllTitle:     { en: 'scatter every group card into its member pills and re-pack the mesh (domains overview)', zh: '把所有分组卡打散成成员药丸并重排网状布局(领域总览)' },
+  expTip:          { en: 'scatter this group into the mesh', zh: '把这个分组打散进网状布局' },
+  expInOverview:   { en: 'scatter into overview', zh: '在总览中展开' },
+  collapseGroup:   { en: 'collapse back into one card', zh: '收回为一张卡' },
   actEmpty:        { en: 'no activity yet — send a message in the followed session', zh: '暂无活动——在跟随的会话里发条消息试试' },
   actRunning:      { en: 'running', zh: '运行中' },
   actIdle:         { en: 'idle', zh: '空闲' },
@@ -310,6 +316,13 @@ const CSS = `
   border-radius: 6px; background: var(--surface-1); color: var(--ink-1); cursor: pointer; }
 .sch aside .ask-btn { display: block; margin-top: 10px; font: inherit; font-size: 12px; padding: 4px 10px; border: 1px solid var(--border);
   border-radius: 6px; background: var(--surface-1); color: var(--ink-1); cursor: pointer; }
+.sch aside .btns { display: flex; gap: 6px; margin-top: 2px; }
+.sch .node .xp { opacity: 0; transition: opacity .12s; cursor: pointer; }
+.sch .node:hover .xp { opacity: 1; }
+.sch .node .xp circle { fill: var(--page); stroke: var(--c); stroke-width: 1.5; }
+.sch .node .xp text { fill: var(--c); font-size: 11px; text-anchor: middle; font-weight: 700; pointer-events: none; }
+.sch .node .xp:hover circle { fill: var(--c); }
+.sch .node .xp:hover text { fill: var(--page); }
 .sch .tableView { display: none; flex: 1; overflow: auto; padding: 12px 16px; }
 .sch .tableView table { border-collapse: collapse; width: 100%; font-size: 12px; }
 .sch .tableView th, .sch .tableView td {
@@ -544,6 +557,7 @@ export function mountSchematic(container: HTMLElement): () => void {
   <select class="sessSel" title="${t('actSubTitle')}"></select>
   <button class="chip subBtn" aria-pressed="false" title="${t('actSubTitle')}">${t('actSub')}</button>
   <input type="search" class="search" placeholder="${t('searchPh')}">
+  <button class="chip expBtn" aria-pressed="false" title="${t('expAllTitle')}">${t('expandAll')}</button>
   <button class="langToggle" title="${t('langTitle')}">中</button>
   <button class="themeToggle">◐</button>
 </header>
@@ -622,11 +636,15 @@ export function mountSchematic(container: HTMLElement): () => void {
     other: true, ext: true,
     origins: new Set(['entry', 'runtime']),
     q: '', sel: null as string | null, scope: null as string | null,
+    /** Overview group cards dissolved into member pills (unit ids). */
+    expanded: new Set<string>(),
     tab: bootTab,
   }
   container.querySelectorAll('.tabBtn').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tab === state.tab)))
   /** Node ids that appeared in the latest auto-refresh; they pulse once. */
   const freshIds = new Set<string>()
+  /** Group-card ids the latest overview layout showed collapsed (expand-all's target list). */
+  let lastExpandable: string[] = []
   const matchNode = (n: any): boolean => {
     if (!state.q) return true
     const hay = [n.id, n.dir, n.label ?? '', n.module ?? '', n.state ?? '', ...n.provides, ...n.inject].join(' ').toLowerCase()
@@ -826,10 +844,25 @@ export function mountSchematic(container: HTMLElement): () => void {
 
   function layoutOverview() {
     const units: any[] = []
+    // node id → the unit representing it in this layout (its own pill id when
+    // the group is expanded into the mesh); node id → its group card id
+    // (which card a scattered pill collapses back into)
+    const nodeUnit = new Map<string, string>()
+    const nodeGroup = new Map<string, string>()
+    const pushNode = (n: any): void => {
+      units.push({ id: n.id, label: nodeLabel(n), cat: n.category, rank: n.rank, kind: 'node', node: n })
+      nodeUnit.set(n.id, n.id)
+    }
+    const pushCard = (u: any, members: any[]): void => {
+      units.push(u)
+      for (const m of members) nodeUnit.set(m.id, u.id)
+    }
+    const memberShown = (n: any): boolean => originOk(n) && matchNode(n)
     // Unclustered nodes: the core-spine packages form one card; ≥2 sharing a
     // package family collapse into one family card (llm ×4 …); everything the
     // graph cannot categorize (group 'other') and true singles stay lone
     // pills — a misc bucket would fake a hub out of unrelated packages.
+    // state.expanded dissolves a card into member pills packed into the mesh.
     const byFam = new Map<string, any[]>()
     for (const n of GRAPH.nodes) {
       if (!n.cluster && !n.spine) {
@@ -838,57 +871,61 @@ export function mountSchematic(container: HTMLElement): () => void {
       }
     }
     const spineList = GRAPH.nodes.filter((n: any) => !n.cluster && n.spine)
-    if (spineList.some((n: any) => originOk(n) && matchNode(n))) {
-      units.push({
+    if (spineList.some(memberShown)) {
+      const shown = spineList.filter(memberShown)
+      for (const n of shown) nodeGroup.set(n.id, 'spine')
+      if (state.expanded.has('spine')) shown.forEach(pushNode)
+      else pushCard({
         id: 'spine', label: `core · ${spineList.length}`, cat: 'core-spine',
         rank: Math.min(...spineList.map((n: any) => n.rank)), kind: 'family', family: { members: spineList },
-      })
+      }, spineList)
     }
     for (const [fam, list] of byFam) {
       if (list.length < 2 || fam === 'other') {
-        for (const n of list) if (visibleNode(n))
-          units.push({ id: n.id, label: nodeLabel(n), cat: n.category, rank: n.rank, kind: 'node', node: n })
+        for (const n of list) if (visibleNode(n)) pushNode(n)
         continue
       }
-      const shown = list.filter((n: any) => originOk(n) && matchNode(n))
+      const shown = list.filter(memberShown)
       if (shown.length === 0) continue
+      for (const n of shown) nodeGroup.set(n.id, 'fam:' + fam)
+      if (state.expanded.has('fam:' + fam)) { shown.forEach(pushNode); continue }
       const catCount = new Map<string, number>()
       for (const n of list) catCount.set(n.category, (catCount.get(n.category) ?? 0) + 1)
       const cat = [...catCount.entries()].sort((a, b) => b[1] - a[1])[0][0]
-      units.push({
+      pushCard({
         id: 'fam:' + fam, label: `${fam} · ${list.length}`, cat, rank: Math.min(...list.map((n: any) => n.rank)),
         kind: 'family', family: { members: list },
-      })
+      }, list)
     }
-    const memberShown = (n: any): boolean => originOk(n) && matchNode(n)
     for (const c of GRAPH.clusters) {
       const catOk = state.cats.has(c.category) || (c.category === 'other' && state.other)
       if (!catOk) continue
       const members = c.members.map((m: string) => byId.get(m))
       const labelHit = state.q && c.label.toLowerCase().includes(state.q)
-      if (!(members.some(memberShown) || labelHit)) continue
+      const shown = members.filter(memberShown)
+      if (!(shown.length > 0 || labelHit)) continue
+      for (const n of shown) nodeGroup.set(n.id, c.id)
+      if (state.expanded.has(c.id) && shown.length > 0) { shown.forEach(pushNode); continue }
       const rank = Math.round(members.reduce((s: number, m: any) => s + m.rank, 0) / members.length)
-      units.push({ id: c.id, label: `${c.label} · ${c.members.length}`, cat: c.category, rank, kind: 'cluster', cluster: c })
+      pushCard({ id: c.id, label: `${c.label} · ${c.members.length}`, cat: c.category, rank, kind: 'cluster', cluster: c }, members)
     }
-    const shownIds = new Set(units.map((u) => u.id))
-    const famOf = new Map<string, string>()
-    for (const u of units) if (u.kind === 'family') for (const m of u.family.members) famOf.set(m.id, u.id)
+    lastExpandable = units.filter((u) => u.kind !== 'node').map((u) => u.id)
     const injectedByShown = new Set(
-      GRAPH.nodes.filter((n: any) => shownIds.has(n.cluster ?? famOf.get(n.id) ?? n.id)).flatMap((n: any) => n.inject))
+      GRAPH.nodes.filter((n: any) => nodeUnit.has(n.id)).flatMap((n: any) => n.inject))
     const extList = state.ext ? GRAPH.externalKeys.filter((k: string) => injectedByShown.has(k)) : []
     const extW = extList.length ? Math.max(...extList.map((k: string) => k.length * 6.6 + 38)) : 0
     // the overview body is a radial mesh: link count decides centrality
     // (placeUnits stays for the scope view). placeRadial bisects the ellipse
     // axis ratio for the canvas's fit balance — the seed here just starts the
     // search near the answer.
-    const unitEdges = overviewEdges({ units, famOf })
+    const unitEdges = overviewEdges({ units, nodeUnit })
     const x0 = 24 + (extList.length ? extW + COLGAP : 0)
     const aspect = svg.clientWidth > 0 && svg.clientHeight > 0
       ? Math.min(4, Math.max(0.5, (svg.clientWidth - x0) / svg.clientHeight))
       : 1
     const { pos, width, height } = placeRadial(units, unitEdges, x0, aspect)
     extList.forEach((k: string, i: number) => pos.set('ext:' + k, { x: 24, y: 40 + i * PITCH, w: k.length * 6.6 + 38 }))
-    return { units, extList, pos, height: Math.max(80, height), width: Math.max(width, 24 + extW), famOf }
+    return { units, extList, pos, height: Math.max(80, height), width: Math.max(width, 24 + extW), nodeUnit, nodeGroup }
   }
 
   function layoutScope() {
@@ -940,10 +977,11 @@ export function mountSchematic(container: HTMLElement): () => void {
 
   function overviewEdges(L: any) {
     const ids = new Set(L.units.map((u: any) => u.id))
-    const unitOf = (n: any): string => n.cluster ?? L.famOf?.get(n.id) ?? n.id
     const agg = new Map()
     for (const e of GRAPH.edges) {
-      const ua = unitOf(byId.get(e.from)), ub = unitOf(byId.get(e.to))
+      // nodeUnit already knows each endpoint's unit — its group card, or its
+      // own pill when that group is expanded into the mesh
+      const ua = L.nodeUnit.get(e.from), ub = L.nodeUnit.get(e.to)
       if (ua === ub || !ids.has(ua) || !ids.has(ub)) continue
       const key = ua + '→' + ub
       if (!agg.has(key)) agg.set(key, { from: ua, to: ub, keys: new Set() })
@@ -1095,8 +1133,12 @@ export function mountSchematic(container: HTMLElement): () => void {
     <div class="members">${members.map((m: any) =>
       `<div class="m"><b>${esc(nodeLabel(m))}${m.state === 'failed' ? ' ✕' : m.state !== 'active' && m.state ? ' ⏳' : ''}</b>${descOf(m) ? `<span>${esc(descOf(m) as string)}</span>` : ''}</div>`).join('')}
     </div>
-    <button class="open-btn">${t('openGroup')}</button>`
-    ;(container.querySelector('.detail .open-btn') as HTMLElement).onclick = () => enterScope(unitId)
+    <div class="btns">
+      <button class="open-btn exp">${state.expanded.has(unitId) ? t('collapseGroup') : t('expInOverview')}</button>
+      <button class="open-btn">${t('openGroup')}</button>
+    </div>`
+    ;(container.querySelector('.detail .open-btn.exp') as HTMLElement).onclick = () => toggleExpand(unitId)
+    ;(container.querySelector('.detail .open-btn:not(.exp)') as HTMLElement).onclick = () => enterScope(unitId)
   }
 
   /** Tooltip + click + open for an aggregated pill — a family or the core spine. */
@@ -1115,6 +1157,31 @@ export function mountSchematic(container: HTMLElement): () => void {
       render()
     })
     g.addEventListener('dblclick', (ev) => { ev.stopPropagation(); enterScope(unitId) })
+  }
+
+  /**
+   * Corner ⊕ on every group card: one click dissolves the card into member
+   * pills packed into the radial mesh (layoutOverview reads state.expanded;
+   * the mesh re-ranks by each member's own edge count). Revealed on hover;
+   * click and double-click never leak into the card's own handlers.
+   */
+  function addExpander(g: Element, p: any, unitId: string): void {
+    const xp = el('g', { class: 'xp' }, g)
+    const cx = p.x + p.w, cy = p.y
+    el('circle', { cx, cy, r: '7.5' }, xp)
+    el('text', { x: cx, y: cy + 3.5 }, xp).textContent = '+'
+    el('title', {}, xp).textContent = t('expTip')
+    xp.addEventListener('click', (ev) => { ev.stopPropagation(); toggleExpand(unitId) })
+    xp.addEventListener('dblclick', (ev) => ev.stopPropagation())
+  }
+
+  /** Expand or re-card one group, then re-solve the mesh and the detail panel. */
+  const toggleExpand = (unitId: string): void => {
+    if (state.expanded.has(unitId)) state.expanded.delete(unitId)
+    else state.expanded.add(unitId)
+    updateExpBtn()
+    render(true)
+    refreshDetail()
   }
 
   // ------- render -------
@@ -1284,12 +1351,16 @@ export function mountSchematic(container: HTMLElement): () => void {
             const spine = u.id === 'spine'
             const g = drawPill(gN, u.id, L.pos.get(u.id), u.label, u.cat, 'family' + (freshIds.has(u.id) ? ' pulse' : ''), null)
             bindFamilyHover(g, u.id, spine ? 'core' : u.id.slice(4), spine ? t('spineTip') : t('familyTip'), u.family.members)
+            addExpander(g, L.pos.get(u.id), u.id)
             nodeEls.set(u.id, g)
             continue
           }
           const v = (u.kind === 'cluster' ? 'cluster' : stateVariant(u.node)) + (freshIds.has(u.id) ? ' pulse' : '')
           const g = drawPill(gN, u.id, L.pos.get(u.id), u.label, u.cat, v, u.kind === 'node' ? u.node : null)
-          if (u.kind === 'cluster') bindClusterHover(g, u.cluster)
+          if (u.kind === 'cluster') {
+            bindClusterHover(g, u.cluster)
+            addExpander(g, L.pos.get(u.id), u.id)
+          }
           nodeEls.set(u.id, g)
         }
         if (L.extList.length) el('text', { class: 'zone-h', x: '24', y: '26' }, gN).textContent = t('zoneExt')
@@ -1431,7 +1502,13 @@ export function mountSchematic(container: HTMLElement): () => void {
       <dt title="${t('dtListensTip')}">${t('dtListens')}</dt><dd class="keys">${(typeof n.module === 'string' ? modSubs.get(n.module) ?? [] : []).length ? (modSubs.get(n.module) ?? []).map((k: string) => `<code>${k}</code>`).join(' ') : '<span class="empty">—</span>'}</dd>
       <dt title="${t('dtReadsTip')}">${t('dtReads')}</dt><dd class="keys">${(typeof n.module === 'string' ? modReads.get(n.module) ?? [] : []).length ? (modReads.get(n.module) ?? []).map((r: { key: string; count: number }) => `<code>${r.key} <b>×${r.count}</b></code>`).join(' ') : '<span class="empty">—</span>'}</dd>
     </dl>
+    ${(state.tab === 'domains' && !state.scope && state.expanded.has(lastL?.nodeGroup?.get(n.id) ?? ''))
+      ? `<button class="open-btn grp">${t('collapseGroup')}</button>` : ''}
     <button class="ask-btn" title="${t('askTitle')}">${t('ask')}</button>`
+    const grpBtn = container.querySelector('.detail .open-btn.grp') as HTMLElement | null
+    if (grpBtn !== null) {
+      grpBtn.onclick = () => { const gid = lastL?.nodeGroup?.get(n.id); if (gid !== undefined) toggleExpand(gid) }
+    }
     ;(container.querySelector('.detail .ask-btn') as HTMLElement).onclick = () => {
       // Hand-off to the SPA: its schematic client half turns the params into a
       // fresh ungrouped session with the question prefilled (see src/client/index.ts).
@@ -1456,8 +1533,12 @@ export function mountSchematic(container: HTMLElement): () => void {
     <div class="members">${members.map((m: any) =>
       `<div class="m"><b>${esc(nodeLabel(m))}${m.state === 'failed' ? ' ✕' : m.state !== 'active' && m.state ? ' ⏳' : ''}</b>${descOf(m) ? `<span>${esc(descOf(m) as string)}</span>` : ''}</div>`).join('')}
     </div>
-    <button class="open-btn">${t('openGroup')}</button>`
-    ;(container.querySelector('.detail .open-btn') as HTMLElement).onclick = () => enterScope(c.id)
+    <div class="btns">
+      <button class="open-btn exp">${state.expanded.has(c.id) ? t('collapseGroup') : t('expInOverview')}</button>
+      <button class="open-btn">${t('openGroup')}</button>
+    </div>`
+    ;(container.querySelector('.detail .open-btn.exp') as HTMLElement).onclick = () => toggleExpand(c.id)
+    ;(container.querySelector('.detail .open-btn:not(.exp)') as HTMLElement).onclick = () => enterScope(c.id)
   }
 
   /** Re-localize whichever detail panel is showing (language flip). */
@@ -1736,6 +1817,22 @@ export function mountSchematic(container: HTMLElement): () => void {
   const sessSel = $('.sessSel') as unknown as HTMLSelectElement
   const subBtn = $('.subBtn')
   const svcBtn = $('.svcBtn')
+  const expBtn = $('.expBtn')
+  /** Label the expand-all chip by the state it will move to. */
+  const updateExpBtn = (): void => {
+    const on = state.expanded.size > 0
+    expBtn.textContent = on ? t('collapseAll') : t('expandAll')
+    expBtn.setAttribute('aria-pressed', String(on))
+    expBtn.title = t('expAllTitle')
+  }
+  expBtn.addEventListener('click', () => {
+    if (state.expanded.size > 0) state.expanded.clear()
+    else for (const id of lastExpandable) state.expanded.add(id)
+    updateExpBtn()
+    render(true)
+    refreshDetail()
+  })
+  updateExpBtn()
   const actbar = $('.actbar')
   const actList = $('.actList')
   const runDot = $('.runDot')
@@ -2205,6 +2302,7 @@ export function mountSchematic(container: HTMLElement): () => void {
     svcBtn.textContent = t('actSvc')
     svcBtn.title = t('actSvcTitle')
     $('.legend').textContent = t('actLiveHint')
+    updateExpBtn()
     $('.zoomFit').textContent = t('fit')
     $('.autoBtn').title = t('autoTitle')
     $('.refresh').title = t('refreshTitle')
