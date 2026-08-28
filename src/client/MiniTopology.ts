@@ -10,9 +10,12 @@
  * that same fully-scattered state (?tab=domains&expand=all).
  */
 
-/** Category id → the palette slot the viewer page paints that family with. */
+/**
+ * Category id → the palette slot the viewer page paints that family with.
+ * 'core-spine' is not a graph category: the core trio carries a spine flag
+ * and rides the 'other' bucket — layout() maps those nodes to --mc1 itself.
+ */
 const CAT_VAR: Record<string, string> = {
-  'core-spine': '--mc1',
   'model-layer': '--mc2',
   'execution-seams': '--mc3',
   'extension-seams': '--mc4',
@@ -25,7 +28,7 @@ const CAT_VAR: Record<string, string> = {
 /** Constellation geometry: viewBox size and dot radius. */
 const W = 208
 const H = 32
-const DOT_R = 1.15
+const DOT_R = 1.4
 /** Panel height on screen; the CSS below reads the same number. */
 const PANEL_H = 30
 /** Gap between the composer card's right edge and the panel. */
@@ -42,9 +45,10 @@ export const MINI_TOPOLOGY_CSS = `
   width: ${W}px; height: ${PANEL_H}px;
   position: fixed; z-index: 5;
   cursor: zoom-in; border-radius: 8px; overflow: hidden; user-select: none;
-  background: rgba(127, 127, 127, 0.05);
+  background: rgba(127, 127, 127, 0.08);
   color: var(--dsw-alias-label-secondary, #888);
-  box-shadow: inset 0 0 0 1px rgba(127, 127, 127, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(127, 127, 127, 0.25);
+  animation: schMiniIn 0.8s ease;
 }
 @media (prefers-color-scheme: dark) {
   .schMini {
@@ -53,18 +57,19 @@ export const MINI_TOPOLOGY_CSS = `
   }
 }
 .schMini svg { display: block; width: 100%; height: 100%; }
-.schMini line { stroke: currentColor; stroke-opacity: 0.13; stroke-width: 0.5; }
+.schMini line { stroke: currentColor; stroke-opacity: 0.16; stroke-width: 0.5; }
 .schMini circle {
-  fill: var(--c); opacity: 0.78;
+  fill: var(--c, currentColor); opacity: 0.9;
   transition: opacity 0.3s ease, transform 0.3s ease, filter 0.3s ease;
   transform-box: fill-box; transform-origin: center;
 }
-.schMini circle.on { opacity: 1; transform: scale(1.75); filter: drop-shadow(0 0 2px var(--c)); }
+.schMini circle.on { opacity: 1; transform: scale(1.75); filter: drop-shadow(0 0 2px var(--c, currentColor)); }
 .schMini circle.hot {
-  opacity: 1; filter: drop-shadow(0 0 3px var(--c));
+  opacity: 1; filter: drop-shadow(0 0 3px var(--c, currentColor));
   animation: schMiniBreath 1.5s ease-in-out infinite;
 }
-@keyframes schMiniBreath { 0%, 100% { transform: scale(1.6); } 50% { transform: scale(2.2); } }`
+@keyframes schMiniBreath { 0%, 100% { transform: scale(1.6); } 50% { transform: scale(2.2); } }
+@keyframes schMiniIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }`
 
 /**
  * The conversation the SPA itself is viewing, from its persisted selection
@@ -134,8 +139,8 @@ function layout(graph: any): string {
   let circles = ''
   for (const n of units) {
     const [x, y] = pos.get(n.id) ?? [W / 2, H / 2]
-    const v = CAT_VAR[n.category as string] ?? 'currentColor'
-    circles += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${DOT_R}" data-module="${n.module}" style="--c: var(${v})"/>`
+    const v = n.spine === true ? '--mc1' : CAT_VAR[n.category as string]
+    circles += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${DOT_R}" data-module="${n.module}"${v === undefined ? '' : ` style="--c: var(${v})"`}/>`
   }
   return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${lines}${circles}</svg>`
 }
