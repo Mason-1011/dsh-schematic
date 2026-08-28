@@ -692,73 +692,66 @@ export function mountSchematic(container: HTMLElement): () => void {
   }
 
   /**
-   * Radial mesh placement for the domains overview: the most-linked unit sits
-   * at the center, everything else on BFS rings outward (a unit's ring is its
-   * hop distance from the hub), children keep their parent's sector, and each
-   * ring's radius is the larger of "pills fit the circumference" and "clears
-   * the previous ring". Units with no path to the hub form one trailing ring.
-   * Fully deterministic: degree then label order every choice.
+   * Radial placement for the domains overview: units are ranked by unit-level
+   * edge count and packed outward from the center — the most-linked unit sits
+   * in the middle, each next unit continues along the current circular row
+   * until its pill no longer fits the circumference, then the row moves out
+   * one pitch. There are no dedicated layers: radial position tracks link
+   * count directly, and small pitch steps keep the disc compact. Fully
+   * deterministic (degree desc, then label).
    * @param units - the overview units (clusters, families, lone pills).
-   * @param edges - aggregated unit→unit edges (drives degree and BFS).
+   * @param edges - aggregated unit→unit edges (drives the degree ranking).
    * @param x0 - left edge of the mesh area (right of the ext-key column).
    */
   function placeRadial(units: any[], edges: any[], x0: number) {
-    const byUnit = new Map(units.map((u) => [u.id, u]))
     const deg = new Map<string, number>(units.map((u) => [u.id, 0]))
-    const adj = new Map<string, string[]>(units.map((u) => [u.id, []]))
     for (const e of edges) {
-      adj.get(e.from)?.push(e.to)
-      adj.get(e.to)?.push(e.from)
+      deg.set(e.from, (deg.get(e.from) ?? 0) + 1)
+      deg.set(e.to, (deg.get(e.to) ?? 0) + 1)
     }
-    for (const u of units) deg.set(u.id, adj.get(u.id)?.length ?? 0)
     const byDeg = (a: any, b: any): number => (deg.get(b.id) ?? 0) - (deg.get(a.id) ?? 0) || a.label.localeCompare(b.label)
 
-    const hub = [...units].sort(byDeg)[0]
-    const angle = new Map<string, number>()
-    const parent = new Map<string, string>()
-    const seen = new Set<string>(units.length > 0 ? [hub.id] : [])
-    const rings: any[][] = units.length > 0 ? [[hub]] : []
-    let frontier = units.length > 0 ? [hub.id] : []
-    while (frontier.length > 0) {
-      const next: string[] = []
-      for (const id of frontier) {
-        for (const v of adj.get(id) ?? []) {
-          if (seen.has(v)) continue
-          seen.add(v)
-          parent.set(v, id)
-          next.push(v)
-        }
-      }
-      if (next.length === 0) break
-      const list = next.map((id) => byUnit.get(id)).sort(byDeg)
-      rings.push(list)
-      frontier = list.map((u) => u.id)
-    }
-    const leftover = units.filter((u) => !seen.has(u.id)).sort(byDeg)
-    if (leftover.length > 0) rings.push(leftover)
-
-    // ring 0 is the hub alone; each later ring clears the last and fits its pills
+    // walk the ranking outward: claim the next arc slot on the current row,
+    // skip slots whose pill would touch an already-placed one (circle rows
+    // collide diagonally on the disc's east/west flanks), start a new row one
+    // pitch out when the current one wraps
+    const GAPX = 26
+    const ROW_PITCH = H + 34
     const pos = new Map<string, { x: number; y: number; w: number }>()
-    let R = 0
-    rings.forEach((list, ri) => {
-      if (ri === 0) {
-        const w = pillW(list[0].label)
-        pos.set(list[0].id, { x: -w / 2, y: -H / 2, w })
-        R = Math.max(150, w / 2 + 70)
-        return
+    const clear = (x: number, y: number, w: number): boolean => {
+      for (const p of pos.values()) {
+        if (x < p.x + p.w + 10 && p.x < x + w + 10 && y < p.y + H + 10 && p.y < y + H + 10) return false
       }
-      const wmax = Math.max(...list.map((u) => pillW(u.label)))
-      R = Math.max(R + H + 56, (list.length * (wmax + 40)) / (2 * Math.PI), 150)
-      const keyed = list
-        .map((u) => ({ u, pa: angle.get(parent.get(u.id) ?? '') ?? 0 }))
-        .sort((a: any, b: any) => a.pa - b.pa || byDeg(a.u, b.u))
-      keyed.forEach(({ u }: any, i: number) => {
-        const th = -Math.PI / 2 + (i / keyed.length) * 2 * Math.PI
-        angle.set(u.id, th)
-        const w = pillW(u.label)
-        pos.set(u.id, { x: Math.round(R * Math.cos(th) - w / 2), y: Math.round(R * Math.sin(th) - H / 2), w })
-      })
-    })
+      return true
+    }
+    let r = 0
+    let phi = 0
+    for (const u of [...units].sort(byDeg)) {
+      const w = pillW(u.label)
+      if (pos.size === 0) {
+        pos.set(u.id, { x: -w / 2, y: -H / 2, w })
+        r = w / 2 + H / 2 + 40
+        continue
+      }
+      for (;;) {
+        const th = (w + GAPX) / r
+        if (phi + th > 2 * Math.PI) {
+          r += ROW_PITCH
+          phi = 0
+          continue
+        }
+        const a = -Math.PI / 2 + phi + th / 2
+        const x = Math.round(r * Math.cos(a) - w / 2)
+        const y = Math.round(r * Math.sin(a) - H / 2)
+        if (!clear(x, y, w)) {
+          phi += th
+          continue
+        }
+        pos.set(u.id, { x, y, w })
+        phi += th
+        break
+      }
+    }
 
     // shift the centered mesh into absolute space, clear of the ext column
     if (pos.size === 0) return { pos, width: x0 + 24, height: 80 }
@@ -816,8 +809,8 @@ export function mountSchematic(container: HTMLElement): () => void {
       GRAPH.nodes.filter((n: any) => shownIds.has(n.cluster ?? famOf.get(n.id) ?? n.id)).flatMap((n: any) => n.inject))
     const extList = state.ext ? GRAPH.externalKeys.filter((k: string) => injectedByShown.has(k)) : []
     const extW = extList.length ? Math.max(...extList.map((k: string) => k.length * 6.6 + 38)) : 0
-    // the overview body is a radial mesh: most-linked unit at the center,
-    // everything else on rings outward (placeUnits stays for the scope view)
+    // the overview body is a radial mesh: link count decides centrality
+    // (placeUnits stays for the scope view)
     const unitEdges = overviewEdges({ units, famOf })
     const { pos, width, height } = placeRadial(units, unitEdges, 24 + (extList.length ? extW + COLGAP : 0))
     extList.forEach((k: string, i: number) => pos.set('ext:' + k, { x: 24, y: 40 + i * PITCH, w: k.length * 6.6 + 38 }))
