@@ -971,12 +971,14 @@ export function mountSchematic(container: HTMLElement): () => void {
 
   /**
    * Scale the journey rows so the whole message path fits the visible area
-   * with no scrollbars. `scale()` alone cannot create scrollable extent —
-   * layout size is transform-independent — so the measured natural size also
-   * drives the `.jrZoom` wrapper's explicit width/height; that wrapper is what
-   * `.jr` scrolls when `journeyZoom` > 1 magnifies the block past the viewport.
-   * `reset` re-measures the natural layout (render, viewport change at fit);
-   * zoom buttons reuse the cached size so wrapping stays stable while reading.
+   * with no scrollbars and spans its full width — pills re-wrap at the scaled
+   * width instead of letterboxing a fixed-width block. `scale()` alone cannot
+   * create scrollable extent — layout size is transform-independent — so the
+   * solved layout size also drives the `.jrZoom` wrapper's explicit
+   * width/height; that wrapper is what `.jr` scrolls when `journeyZoom` > 1
+   * magnifies the block past the viewport. `reset` re-solves against the live
+   * viewport (render, viewport change at fit); zoom buttons reuse the cached
+   * size so wrapping stays stable while reading.
    */
   function fitJourney(reset = false): void {
     const jr = $('.jr') as HTMLElement
@@ -987,16 +989,32 @@ export function mountSchematic(container: HTMLElement): () => void {
     const ch = jr.clientHeight
     if (reset || journeyNat === null) {
       // measure against the real viewport: stale explicit sizes on the wrapper
-      // would otherwise cap the natural layout at the previous pass's scale
+      // would otherwise cap the layout at the previous pass's scale
       zoom.style.width = ''
       zoom.style.height = ''
       zoom.style.marginLeft = ''
       zoom.style.marginTop = ''
+      fit.style.transform = ''
       fit.style.width = ''
-      journeyNat = { w: Math.max(fit.offsetWidth, fit.scrollWidth), h: fit.offsetHeight }
+      // The block height depends on its own width (pills wrap inside the
+      // flex-grown cards), so filling the canvas means solving for the scale:
+      // layout at (cw-2)/k must stand k-times shorter than the viewport.
+      // k*H(cw/k) is monotone rising in k, so binary-search between the plain
+      // height-fit floor (always feasible: wider layout is never taller) and 1.
+      const availW = cw - 2
+      const availH = ch - 2
+      let lo = Math.min(1, availH / Math.max(1, fit.offsetHeight))
+      let hi = 1
+      for (let i = 0; i < 9 && hi - lo > 0.002; i++) {
+        const mid = (lo + hi) / 2
+        fit.style.width = `${availW / mid}px`
+        if (mid * fit.offsetHeight <= availH) lo = mid
+        else hi = mid
+      }
+      fit.style.width = `${availW / lo}px`
+      journeyNat = { w: availW / lo, h: fit.offsetHeight }
     }
     const { w, h } = journeyNat
-    fit.style.width = `${w}px`
     const base = Math.min(1, (cw - 2) / Math.max(1, w), (ch - 2) / Math.max(1, h))
     const k = base * journeyZoom
     zoom.style.width = `${w * k}px`
@@ -1004,8 +1022,8 @@ export function mountSchematic(container: HTMLElement): () => void {
     zoom.style.marginLeft = w * k >= cw ? '0px' : `${(cw - w * k) / 2}px`
     zoom.style.marginTop = h * k >= ch ? '0px' : `${(ch - h * k) / 2}px`
     fit.style.transform = `scale(${k})`
-    // applying the fit can itself flip scrollbars on/off (the pre-fit natural
-    // layout overflows), which changes the client box no ResizeObserver sees —
+    // applying the fit can itself flip scrollbars on/off (the pre-fit layout
+    // overflows), which changes the client box no ResizeObserver sees —
     // re-run once when that happened; sizes converge on the second pass
     if (jr.clientWidth !== cw || jr.clientHeight !== ch) fitJourney(reset)
   }
