@@ -445,6 +445,8 @@ const CSS = `
   color: var(--mc, var(--ink-3));
 }
 .sch .actRow .tx { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sch .actRow[data-module] { cursor: pointer; }
+.sch .actRow[data-module]:hover .tx { color: var(--ink-1); }
 .sch .actRow.err .tx { color: var(--s8); }
 .sch .actList .emptyRow { color: var(--ink-3); font-size: 11.5px; }
 `
@@ -1666,7 +1668,7 @@ export function mountSchematic(container: HTMLElement): () => void {
       // names the units that received it (host-domain actions and service
       // reads did not broadcast)
       const tip = e.kind === 'action' || e.kind === 'svc' ? '' : recvTip()
-      return `<div class="actRow${e.isError ? ' err' : ''}"${tip ? ` title="${esc(tip)}"` : ''}><time>${fmtTime(e.time)}</time>${badge}<span class="tx">${label} · ${esc(detailOf(e))}</span></div>`
+      return `<div class="actRow${e.isError ? ' err' : ''}"${e.module ? ` data-module="${esc(e.module)}"` : ''}${tip ? ` title="${esc(tip)}"` : ''}><time>${fmtTime(e.time)}</time>${badge}<span class="tx">${label} · ${esc(detailOf(e))}</span></div>`
     }).join('')
   }
 
@@ -1727,6 +1729,19 @@ export function mountSchematic(container: HTMLElement): () => void {
     act.showSvc = !act.showSvc
     svcBtn.setAttribute('aria-pressed', String(act.showSvc))
     renderActList()
+  })
+  // Clicking a row performs the same selection a pill click performs above:
+  // the module's detail panel opens in whatever tab is showing. Rows whose
+  // module is unmounted or unattributed carry no data-module and stay inert.
+  actList.addEventListener('click', (ev) => {
+    const row = (ev.target as HTMLElement).closest('.actRow') as HTMLElement | null
+    const module = row?.dataset.module
+    if (module === undefined) return
+    const n = byId.get(moduleIds.get(module)?.[0] ?? '')
+    if (n === undefined) return
+    state.sel = n.id
+    renderDetail(n)
+    render()
   })
   $('.actFold').addEventListener('click', () => {
     const folded = actbar.classList.toggle('folded')
