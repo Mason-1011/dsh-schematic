@@ -700,66 +700,119 @@ export function mountSchematic(container: HTMLElement): () => void {
   /**
    * Radial placement for the domains overview: units are ranked by unit-level
    * edge count and packed outward from the center — the most-linked unit sits
-   * in the middle, each next unit continues along the current circular row
-   * until its pill no longer fits the circumference, then the row moves out
-   * one pitch. There are no dedicated layers: radial position tracks link
-   * count directly, and small pitch steps keep the disc compact. Fully
+   * in the middle, each next unit continues along the current elliptical row
+   * until its pill no longer fits the perimeter, then the row moves out one
+   * pitch. There are no dedicated layers: radial position tracks link count
+   * directly, and small pitch steps keep the disc compact. Rows are ellipses
+   * instead of circles, so the fit-scaled mesh fills a wide canvas instead of
+   * letterboxing a circle; aspect 1 is the plain circle. Slots are measured
+   * in arc length (the ellipse's parameter speed varies around it), and the
+   * walk may stop mid-row. The axis ratio is bisected for fit balance — the
+   * point where fit()'s two scale terms cross — which is the widest mesh the
+   * canvas shows without letterboxing; row jumps make the crossing fuzzy, so
+   * every walked candidate keeps the crown on the largest fit scale. Fully
    * deterministic (degree desc, then label).
    * @param units - the overview units (clusters, families, lone pills).
    * @param edges - aggregated unit→unit edges (drives the degree ranking).
    * @param x0 - left edge of the mesh area (right of the ext-key column).
+   * @param aspect - axis-ratio seed for the bisection (near the canvas's).
    */
-  function placeRadial(units: any[], edges: any[], x0: number) {
+  function placeRadial(units: any[], edges: any[], x0: number, aspect = 1) {
     const deg = new Map<string, number>(units.map((u) => [u.id, 0]))
     for (const e of edges) {
       deg.set(e.from, (deg.get(e.from) ?? 0) + 1)
       deg.set(e.to, (deg.get(e.to) ?? 0) + 1)
     }
-    const byDeg = (a: any, b: any): number => (deg.get(b.id) ?? 0) - (deg.get(a.id) ?? 0) || a.label.localeCompare(b.label)
+    const ranked = [...units].sort((a: any, b: any): number =>
+      (deg.get(b.id) ?? 0) - (deg.get(a.id) ?? 0) || a.label.localeCompare(b.label))
 
     // walk the ranking outward: claim the next arc slot on the current row,
-    // skip slots whose pill would touch an already-placed one (circle rows
+    // skip slots whose pill would touch an already-placed one (ellipse rows
     // collide diagonally on the disc's east/west flanks), start a new row one
     // pitch out when the current one wraps
     const GAPX = 26
     const ROW_PITCH = H + 34
-    const pos = new Map<string, { x: number; y: number; w: number }>()
-    const clear = (x: number, y: number, w: number): boolean => {
-      for (const p of pos.values()) {
-        if (x < p.x + p.w + 10 && p.x < x + w + 10 && y < p.y + H + 10 && p.y < y + H + 10) return false
+    const walk = (asp: number): Map<string, { x: number; y: number; w: number }> => {
+      const pos = new Map<string, { x: number; y: number; w: number }>()
+      const clear = (x: number, y: number, w: number): boolean => {
+        for (const p of pos.values()) {
+          if (x < p.x + p.w + 10 && p.x < x + w + 10 && y < p.y + H + 10 && p.y < y + H + 10) return false
+        }
+        return true
       }
-      return true
-    }
-    let r = 0
-    let phi = 0
-    for (const u of [...units].sort(byDeg)) {
-      const w = pillW(u.label)
-      if (pos.size === 0) {
-        pos.set(u.id, { x: -w / 2, y: -H / 2, w })
-        r = w / 2 + H / 2 + 40
-        continue
-      }
-      for (;;) {
-        const th = (w + GAPX) / r
-        if (phi + th > 2 * Math.PI) {
-          r += ROW_PITCH
-          phi = 0
+      let rx = 0
+      let ry = 0
+      let phi = 0
+      for (const u of ranked) {
+        const w = pillW(u.label)
+        if (pos.size === 0) {
+          pos.set(u.id, { x: -w / 2, y: -H / 2, w })
+          ry = w / 2 + H / 2 + 40
+          rx = ry * asp
           continue
         }
-        const a = -Math.PI / 2 + phi + th / 2
-        const x = Math.round(r * Math.cos(a) - w / 2)
-        const y = Math.round(r * Math.sin(a) - H / 2)
-        if (!clear(x, y, w)) {
+        for (;;) {
+          const a = -Math.PI / 2 + phi
+          const speed = Math.hypot(rx * Math.sin(a), ry * Math.cos(a)) || 1
+          const th = (w + GAPX) / speed
+          if (phi + th > 2 * Math.PI) {
+            ry += ROW_PITCH
+            rx = ry * asp
+            phi = 0
+            continue
+          }
+          const mid = -Math.PI / 2 + phi + th / 2
+          const x = Math.round(rx * Math.cos(mid) - w / 2)
+          const y = Math.round(ry * Math.sin(mid) - H / 2)
+          if (!clear(x, y, w)) {
+            phi += th
+            continue
+          }
+          pos.set(u.id, { x, y, w })
           phi += th
-          continue
+          break
         }
-        pos.set(u.id, { x, y, w })
-        phi += th
-        break
       }
+      return pos
+    }
+    // Candidate evaluation mirrors fit() exactly: the scale the canvas gives
+    // each axis (w/h include the west x0, east 24, north 40, south 24 pads the
+    // shift below adds; fit tacks on its own 48/24). kx falls and ky rises as
+    // the ellipse widens, so the fit scale — min(kx, ky, 1) — peaks where they
+    // cross: that crossing is the widest disc the canvas shows without
+    // letterboxing. Bisect toward it; row jumps make the crossing fuzzy, so
+    // every walked candidate keeps the crown on the largest fit scale.
+    const fitTerms = (pos: Map<string, { x: number; y: number; w: number }>): { kx: number; ky: number } => {
+      if (pos.size === 0) return { kx: 1, ky: 1 }
+      let minX = 0, maxX = Number.NEGATIVE_INFINITY, minY = 0, maxY = Number.NEGATIVE_INFINITY
+      for (const p of pos.values()) {
+        minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x + p.w)
+        minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y + H)
+      }
+      const w = maxX - minX + x0 + 24
+      const h = maxY - minY + H + 64
+      return { kx: svg.clientWidth / (w + 48), ky: svg.clientHeight / (h + 24) }
+    }
+    const walkAt = (a: number): { pos: Map<string, { x: number; y: number; w: number }>; k: number; kx: number; ky: number } => {
+      const pos = walk(a)
+      const { kx, ky } = fitTerms(pos)
+      return { pos, k: Math.min(kx, ky, 1), kx, ky }
+    }
+    let best = walkAt(aspect)
+    let lo = 0.25
+    let hi = 16
+    for (let i = 0; i < 10 && best.pos.size > 0; i++) {
+      const mid = (lo + hi) / 2
+      const cand = walkAt(mid)
+      if (cand.k > best.k) best = cand
+      // steer by the mid candidate's own terms: width-limited → narrow,
+      // height-limited → widen
+      if (cand.kx < cand.ky) hi = mid
+      else lo = mid
     }
 
     // shift the centered mesh into absolute space, clear of the ext column
+    const pos = best.pos
     if (pos.size === 0) return { pos, width: x0 + 24, height: 80 }
     const all = [...pos.values()]
     const minX = Math.min(0, ...all.map((p) => p.x))
@@ -825,9 +878,15 @@ export function mountSchematic(container: HTMLElement): () => void {
     const extList = state.ext ? GRAPH.externalKeys.filter((k: string) => injectedByShown.has(k)) : []
     const extW = extList.length ? Math.max(...extList.map((k: string) => k.length * 6.6 + 38)) : 0
     // the overview body is a radial mesh: link count decides centrality
-    // (placeUnits stays for the scope view)
+    // (placeUnits stays for the scope view). placeRadial bisects the ellipse
+    // axis ratio for the canvas's fit balance — the seed here just starts the
+    // search near the answer.
     const unitEdges = overviewEdges({ units, famOf })
-    const { pos, width, height } = placeRadial(units, unitEdges, 24 + (extList.length ? extW + COLGAP : 0))
+    const x0 = 24 + (extList.length ? extW + COLGAP : 0)
+    const aspect = svg.clientWidth > 0 && svg.clientHeight > 0
+      ? Math.min(4, Math.max(0.5, (svg.clientWidth - x0) / svg.clientHeight))
+      : 1
+    const { pos, width, height } = placeRadial(units, unitEdges, x0, aspect)
     extList.forEach((k: string, i: number) => pos.set('ext:' + k, { x: 24, y: 40 + i * PITCH, w: k.length * 6.6 + 38 }))
     return { units, extList, pos, height: Math.max(80, height), width: Math.max(width, 24 + extW), famOf }
   }
@@ -1919,11 +1978,20 @@ export function mountSchematic(container: HTMLElement): () => void {
   // growing as the SSE snapshot arrives or being folded — re-fits the scale.
   // Observing the static .journey container (renderJourney replaces .jr's
   // subtree each render); a transform never resizes it, so this cannot loop.
+  // The domains mesh re-renders instead of re-fitting: its packing ellipse
+  // matches the canvas aspect, so a resize must re-layout to keep filling
+  // (.stage stays static across renders for the same reason).
   if (typeof ResizeObserver !== 'undefined') {
     const journey = $('.journey') as Element | null
     if (journey !== null) {
       const ro = new ResizeObserver(() => { if (state.tab === 'journey') fitJourney(journeyZoom === 1) })
       ro.observe(journey)
+      ac.signal.addEventListener('abort', () => ro.disconnect())
+    }
+    const stage = $('.stage') as Element | null
+    if (stage !== null) {
+      const ro = new ResizeObserver(() => { if (state.tab === 'domains') render(true) })
+      ro.observe(stage)
       ac.signal.addEventListener('abort', () => ro.disconnect())
     }
   }
