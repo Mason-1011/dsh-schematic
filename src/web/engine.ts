@@ -643,7 +643,7 @@ export function mountSchematic(container: HTMLElement): () => void {
   container.querySelectorAll('.tabBtn').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tab === state.tab)))
   /** Node ids that appeared in the latest auto-refresh; they pulse once. */
   const freshIds = new Set<string>()
-  /** Group-card ids the latest overview layout showed collapsed (expand-all's target list). */
+  /** Every scatterable group id in the latest overview layout, carded or dissolved (expand-all's target list and its all/none test). */
   let lastExpandable: string[] = []
   const matchNode = (n: any): boolean => {
     if (!state.q) return true
@@ -844,6 +844,9 @@ export function mountSchematic(container: HTMLElement): () => void {
 
   function layoutOverview() {
     const units: any[] = []
+    // every group that can scatter in this render, carded or already dissolved —
+    // the footer chip's all/none test needs scattered groups listed too
+    const expandable: string[] = []
     // node id → the unit representing it in this layout (its own pill id when
     // the group is expanded into the mesh); node id → its group card id
     // (which card a scattered pill collapses back into)
@@ -872,6 +875,7 @@ export function mountSchematic(container: HTMLElement): () => void {
     }
     const spineList = GRAPH.nodes.filter((n: any) => !n.cluster && n.spine)
     if (spineList.some(memberShown)) {
+      expandable.push('spine')
       const shown = spineList.filter(memberShown)
       for (const n of shown) nodeGroup.set(n.id, 'spine')
       if (state.expanded.has('spine')) shown.forEach(pushNode)
@@ -887,6 +891,7 @@ export function mountSchematic(container: HTMLElement): () => void {
       }
       const shown = list.filter(memberShown)
       if (shown.length === 0) continue
+      expandable.push('fam:' + fam)
       for (const n of shown) nodeGroup.set(n.id, 'fam:' + fam)
       if (state.expanded.has('fam:' + fam)) { shown.forEach(pushNode); continue }
       const catCount = new Map<string, number>()
@@ -905,11 +910,12 @@ export function mountSchematic(container: HTMLElement): () => void {
       const shown = members.filter(memberShown)
       if (!(shown.length > 0 || labelHit)) continue
       for (const n of shown) nodeGroup.set(n.id, c.id)
+      if (shown.length > 0) expandable.push(c.id)
       if (state.expanded.has(c.id) && shown.length > 0) { shown.forEach(pushNode); continue }
       const rank = Math.round(members.reduce((s: number, m: any) => s + m.rank, 0) / members.length)
       pushCard({ id: c.id, label: `${c.label} · ${c.members.length}`, cat: c.category, rank, kind: 'cluster', cluster: c }, members)
     }
-    lastExpandable = units.filter((u) => u.kind !== 'node').map((u) => u.id)
+    lastExpandable = expandable
     const injectedByShown = new Set(
       GRAPH.nodes.filter((n: any) => nodeUnit.has(n.id)).flatMap((n: any) => n.inject))
     const extList = state.ext ? GRAPH.externalKeys.filter((k: string) => injectedByShown.has(k)) : []
@@ -1818,15 +1824,19 @@ export function mountSchematic(container: HTMLElement): () => void {
   const subBtn = $('.subBtn')
   const svcBtn = $('.svcBtn')
   const expBtn = $('.expBtn')
-  /** Label the expand-all chip by the state it will move to. */
+  /** Label the footer chip "collapse all" only when every group is scattered — a partial scatter must not read as all-expanded. */
+  const allExpanded = (): boolean =>
+    lastExpandable.length > 0 && lastExpandable.every((id) => state.expanded.has(id))
   const updateExpBtn = (): void => {
-    const on = state.expanded.size > 0
+    const on = allExpanded()
     expBtn.textContent = on ? t('collapseAll') : t('expandAll')
     expBtn.setAttribute('aria-pressed', String(on))
     expBtn.title = t('expAllTitle')
   }
   expBtn.addEventListener('click', () => {
-    if (state.expanded.size > 0) state.expanded.clear()
+    // Union, not replace: groups already scattered (absent from lastExpandable,
+    // which lists only current cards) must stay scattered when expanding the rest.
+    if (allExpanded()) state.expanded.clear()
     else for (const id of lastExpandable) state.expanded.add(id)
     updateExpBtn()
     render(true)
