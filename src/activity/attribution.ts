@@ -165,6 +165,15 @@ export const LIVE_ACTION: Record<string, string> = {
   'goal/changed': `${DSH}/dsh-goal`,
 }
 
+/**
+ * Service key → the module that provides it, for host-scope signals that ride
+ * a service's own registry callbacks (the jobs onJobsChanged/onJobDone feed)
+ * rather than a session event or an RPC mutation. Keys are ctx service names.
+ */
+export const SERVICE_OWNER: Record<string, string> = {
+  jobs: `${DSH}/dsh-jobs-local`,
+}
+
 /** Provider route key fragments → the adapter package behind them. */
 export function providerModule(provider: string): string {
   if (provider.includes('pi-ai')) return `${DSH}/dsh-llm-pi-ai`

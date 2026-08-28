@@ -59,6 +59,8 @@ export interface TimelineEntry {
     | 'title'
     /** Host-scope operation: an RPC mutation (archive, settings write…) or a live registry change. */
     | 'action'
+    /** Host-scope background-job lifecycle row from the jobs registry's own callbacks. */
+    | 'job'
   module: string | null
   /** Tool name, turn ordinal label, provider id, or RPC/live-event name depending on kind. */
   name?: string
@@ -76,7 +78,7 @@ export type Frame =
     type: 'snapshot'
     sessions: SessionState[]
     timeline: { sessionId: string; entries: TimelineEntry[] }[]
-    /** Host-scope action ring (RPC mutations + live registry changes). */
+    /** Host-scope action ring (RPC mutations, live registry changes, job rows). */
     actions: TimelineEntry[]
   }
   | { type: 'activity'; sessionId: string; entry: TimelineEntry }

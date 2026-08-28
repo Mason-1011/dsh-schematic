@@ -11,7 +11,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionState, TimelineEntry } from './protocol.ts'
-import { attributeEvent, ownerOfTool, knownToolNames, providerModule, LIVE_ACTION } from './attribution.ts'
+import { attributeEvent, ownerOfTool, knownToolNames, providerModule, LIVE_ACTION, SERVICE_OWNER } from './attribution.ts'
 
 /** Structural slice of a Session (out-of-tree: no type import). */
 interface SessionSlice {
@@ -33,6 +33,24 @@ interface AgentSlice {
 /** Structural slice of the agents registry service. */
 interface AgentsServiceSlice {
   list(): AgentSlice[]
+}
+
+/** Structural slice of a JobSnapshot (out-of-tree: no type import). */
+interface JobSlice {
+  id: string
+  label: string
+  status: string
+  detail?: string
+  startedAt: number
+  finishedAt?: number
+}
+
+/** Structural slice of the jobs registry service. */
+interface JobsServiceSlice {
+  /** Visibility is fenced by caller: an agent sees its own + unowned jobs. */
+  list(caller?: unknown): JobSlice[]
+  onJobsChanged(listener: (owner: unknown) => void): () => void
+  onJobDone(listener: (snapshot: JobSlice, owner: unknown) => void | PromiseLike<void>): () => void
 }
 
 /** Per-session fold state; timeline is a ring buffer newest-last. */
@@ -79,6 +97,8 @@ export class ActivityCollector {
   private readonly listeners = new Set<ActivityListener>()
   /** Host-scope action ring (RPC mutations + live registry changes), newest-last. */
   private readonly actions: TimelineEntry[] = []
+  /** Job ids already carrying a start row, so registry re-lists never duplicate them. */
+  private readonly seenJobs = new Set<string>()
   /** Module specifiers currently in the graph, for tool-owner resolution. */
   private mountedModules = new Set<string>()
   private readonly warnedTools = new Set<string>()
@@ -123,6 +143,40 @@ export class ActivityCollector {
     for (const listener of this.listeners) {
       try { listener.onAction(entry) } catch { /* a broken sink never stops the feed */ }
     }
+  }
+
+  /**
+   * Registry-change fold: one start row per job id never seen before. Status
+   * flips of known jobs stay silent here — the settlement row from onJobDone
+   * carries the terminal transition, and re-listing after it must not.
+   */
+  private noteJobStarts(snapshots: JobSlice[]): void {
+    for (const job of snapshots) {
+      if (this.seenJobs.has(job.id)) continue
+      this.seenJobs.add(job.id)
+      this.noteAction({
+        time: job.startedAt,
+        kind: 'job',
+        module: SERVICE_OWNER.jobs,
+        name: job.label,
+        snippet: job.status,
+      })
+    }
+  }
+
+  /** Settlement row: terminal status (+detail), run duration, failed flag. */
+  private noteJobDone(job: JobSlice): void {
+    this.seenJobs.add(job.id)
+    const entry: TimelineEntry = {
+      time: job.finishedAt ?? Date.now(),
+      kind: 'job',
+      module: SERVICE_OWNER.jobs,
+      name: job.label,
+      snippet: job.detail !== undefined ? `${job.status}: ${job.detail}` : job.status,
+    }
+    if (job.finishedAt !== undefined) entry.durationMs = Math.max(0, job.finishedAt - job.startedAt)
+    if (job.status === 'failed') entry.isError = true
+    this.noteAction(entry)
   }
 
   /** Broadcast service-read deltas to the sinks; live-only, no ring keeps them. */
@@ -189,6 +243,27 @@ export class ActivityCollector {
     if (sessions !== undefined) for (const session of sessions.list()) this.adopt(session)
     if (agents !== undefined) {
       for (const agent of agents.list()) this.setRunning(agent.session.id, agent.status === 'running')
+    }
+    // Background jobs are live registry state, not session events: the jobs
+    // service signals its own changes through callbacks and nothing it does
+    // ever reaches a session log, so the firehose above is blind to it. These
+    // listeners hold the same pure-observer status — read via reflect so the
+    // observer grows no topology edge, and nothing is appended or wrapped.
+    const jobs = reflect.get('jobs') as JobsServiceSlice | undefined
+    if (jobs !== undefined) {
+      this.disposers.push(
+        jobs.onJobsChanged((owner) => {
+          // Owner-relative read, same terms apiproxy rides: undefined owner
+          // lists the unowned set only.
+          try { this.noteJobStarts(jobs.list(owner)) } catch { /* a broken registry read never stops the feed */ }
+        }),
+        jobs.onJobDone((snapshot) => { this.noteJobDone(snapshot) }),
+      )
+      // Adopt jobs that predate this mount: owned ones through each live
+      // agent (visibility is fenced by owner), unowned ones through the bare
+      // read. Settlements still arrive through onJobDone either way.
+      if (agents !== undefined) for (const agent of agents.list()) this.noteJobStarts(jobs.list(agent))
+      this.noteJobStarts(jobs.list())
     }
     return () => {
       for (const dispose of this.disposers.splice(0)) dispose()
