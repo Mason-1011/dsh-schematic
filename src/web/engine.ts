@@ -691,6 +691,87 @@ export function mountSchematic(container: HTMLElement): () => void {
     return { pos, width: x - COLGAP + 24 }
   }
 
+  /**
+   * Radial mesh placement for the domains overview: the most-linked unit sits
+   * at the center, everything else on BFS rings outward (a unit's ring is its
+   * hop distance from the hub), children keep their parent's sector, and each
+   * ring's radius is the larger of "pills fit the circumference" and "clears
+   * the previous ring". Units with no path to the hub form one trailing ring.
+   * Fully deterministic: degree then label order every choice.
+   * @param units - the overview units (clusters, families, lone pills).
+   * @param edges - aggregated unit→unit edges (drives degree and BFS).
+   * @param x0 - left edge of the mesh area (right of the ext-key column).
+   */
+  function placeRadial(units: any[], edges: any[], x0: number) {
+    const byUnit = new Map(units.map((u) => [u.id, u]))
+    const deg = new Map<string, number>(units.map((u) => [u.id, 0]))
+    const adj = new Map<string, string[]>(units.map((u) => [u.id, []]))
+    for (const e of edges) {
+      adj.get(e.from)?.push(e.to)
+      adj.get(e.to)?.push(e.from)
+    }
+    for (const u of units) deg.set(u.id, adj.get(u.id)?.length ?? 0)
+    const byDeg = (a: any, b: any): number => (deg.get(b.id) ?? 0) - (deg.get(a.id) ?? 0) || a.label.localeCompare(b.label)
+
+    const hub = [...units].sort(byDeg)[0]
+    const angle = new Map<string, number>()
+    const parent = new Map<string, string>()
+    const seen = new Set<string>(units.length > 0 ? [hub.id] : [])
+    const rings: any[][] = units.length > 0 ? [[hub]] : []
+    let frontier = units.length > 0 ? [hub.id] : []
+    while (frontier.length > 0) {
+      const next: string[] = []
+      for (const id of frontier) {
+        for (const v of adj.get(id) ?? []) {
+          if (seen.has(v)) continue
+          seen.add(v)
+          parent.set(v, id)
+          next.push(v)
+        }
+      }
+      if (next.length === 0) break
+      const list = next.map((id) => byUnit.get(id)).sort(byDeg)
+      rings.push(list)
+      frontier = list.map((u) => u.id)
+    }
+    const leftover = units.filter((u) => !seen.has(u.id)).sort(byDeg)
+    if (leftover.length > 0) rings.push(leftover)
+
+    // ring 0 is the hub alone; each later ring clears the last and fits its pills
+    const pos = new Map<string, { x: number; y: number; w: number }>()
+    let R = 0
+    rings.forEach((list, ri) => {
+      if (ri === 0) {
+        const w = pillW(list[0].label)
+        pos.set(list[0].id, { x: -w / 2, y: -H / 2, w })
+        R = Math.max(150, w / 2 + 70)
+        return
+      }
+      const wmax = Math.max(...list.map((u) => pillW(u.label)))
+      R = Math.max(R + H + 56, (list.length * (wmax + 40)) / (2 * Math.PI), 150)
+      const keyed = list
+        .map((u) => ({ u, pa: angle.get(parent.get(u.id) ?? '') ?? 0 }))
+        .sort((a: any, b: any) => a.pa - b.pa || byDeg(a.u, b.u))
+      keyed.forEach(({ u }: any, i: number) => {
+        const th = -Math.PI / 2 + (i / keyed.length) * 2 * Math.PI
+        angle.set(u.id, th)
+        const w = pillW(u.label)
+        pos.set(u.id, { x: Math.round(R * Math.cos(th) - w / 2), y: Math.round(R * Math.sin(th) - H / 2), w })
+      })
+    })
+
+    // shift the centered mesh into absolute space, clear of the ext column
+    if (pos.size === 0) return { pos, width: x0 + 24, height: 80 }
+    const all = [...pos.values()]
+    const minX = Math.min(0, ...all.map((p) => p.x))
+    const minY = Math.min(0, ...all.map((p) => p.y))
+    const dx = x0 - minX, dy = 40 - minY
+    for (const p of pos.values()) { p.x += dx; p.y += dy }
+    const width = Math.max(...all.map((p) => p.x + p.w)) + 24
+    const height = Math.max(...all.map((p) => p.y + H)) + 24
+    return { pos, width, height }
+  }
+
   function layoutOverview() {
     const units: any[] = []
     // Unclustered nodes: ≥2 sharing a package family collapse into one family
@@ -735,10 +816,12 @@ export function mountSchematic(container: HTMLElement): () => void {
       GRAPH.nodes.filter((n: any) => shownIds.has(n.cluster ?? famOf.get(n.id) ?? n.id)).flatMap((n: any) => n.inject))
     const extList = state.ext ? GRAPH.externalKeys.filter((k: string) => injectedByShown.has(k)) : []
     const extW = extList.length ? Math.max(...extList.map((k: string) => k.length * 6.6 + 38)) : 0
-    const { pos, width } = placeUnits(units, 24 + (extList.length ? extW + COLGAP : 0))
+    // the overview body is a radial mesh: most-linked unit at the center,
+    // everything else on rings outward (placeUnits stays for the scope view)
+    const unitEdges = overviewEdges({ units, famOf })
+    const { pos, width, height } = placeRadial(units, unitEdges, 24 + (extList.length ? extW + COLGAP : 0))
     extList.forEach((k: string, i: number) => pos.set('ext:' + k, { x: 24, y: 40 + i * PITCH, w: k.length * 6.6 + 38 }))
-    const height = Math.max(80, 40 + Math.max(0, ...[...pos.values()].map((p: any) => p.y + H)))
-    return { units, extList, pos, height, width: Math.max(width, 24 + extW), famOf }
+    return { units, extList, pos, height: Math.max(80, height), width: Math.max(width, 24 + extW), famOf }
   }
 
   function layoutScope() {
@@ -987,8 +1070,22 @@ export function mountSchematic(container: HTMLElement): () => void {
     lastL = L
 
     const edgePath = (a: any, b: any): string => {
-      const dx = Math.max(30, (b.x - (a.x + a.w)) * 0.45)
-      return `M ${a.x + a.w} ${a.y + H / 2} C ${a.x + a.w + dx} ${a.y + H / 2}, ${b.x - dx} ${b.y + H / 2}, ${b.x - 3} ${b.y + H / 2}`
+      // anchor where the center-to-center line crosses each rect's border —
+      // the overview mesh is radial, so an edge may leave in any direction
+      const cross = (cx: number, cy: number, hw: number, dx: number, dy: number): [number, number] => {
+        const tx = dx > 0 ? hw / dx : dx < 0 ? -hw / dx : Number.POSITIVE_INFINITY
+        const ty = dy > 0 ? (H / 2) / dy : dy < 0 ? -(H / 2) / dy : Number.POSITIVE_INFINITY
+        const k = Math.min(tx, ty)
+        return [cx + dx * k, cy + dy * k]
+      }
+      const dx = (b.x + b.w / 2) - (a.x + a.w / 2)
+      const dy = (b.y + H / 2) - (a.y + H / 2)
+      const [x1, y1] = cross(a.x + a.w / 2, a.y + H / 2, a.w / 2, dx, dy)
+      const [x2, y2] = cross(b.x + b.w / 2, b.y + H / 2, b.w / 2, -dx, -dy)
+      const len = Math.hypot(dx, dy) || 1
+      // stop 4px short of the target border so the arrowhead tip lands on it
+      const ex = x2 - (4 * dx) / len, ey = y2 - (4 * dy) / len
+      return `M ${x1.toFixed(1)} ${y1.toFixed(1)} L ${ex.toFixed(1)} ${ey.toFixed(1)}`
     }
     const catOfUnit = (id: string): string | null => {
       if (id.startsWith('cluster:')) return clusterById.get(id)?.category
