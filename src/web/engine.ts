@@ -99,9 +99,9 @@ const T: Record<string, { en: string; zh: string }> = {
   stgPersistD:     { en: 'Session log, projections, titles, telemetry.', zh: '会话日志、投影、标题、遥测。' },
   stgSupport:      { en: 'Supporting services', zh: '支撑服务' },
   stgSupportD:     { en: 'Settings, locale, identity, credentials, boot glue.', zh: '设置、语言、身份、凭据、启动粘合。' },
-  edgeUse:         { en: '{a} uses services provided by {b}', zh: '{a} 使用 {b} 提供的服务' },
-  edgeDir:         { en: 'arrow = consumer → provider; keys are ctx service names', zh: '箭头 = 使用者 → 提供者;键为 ctx 服务名' },
-  legendEdge:      { en: 'A → B: A injects ctx services B provides', zh: 'A → B:A 注入 B 提供的 ctx 服务' },
+  edgeUse:         { en: '{a} provides the ctx services {b} injects', zh: '{a} 提供的 ctx 服务,由 {b} 注入' },
+  edgeDir:         { en: 'arrow = provider → consumer; keys are ctx service names', zh: '箭头 = 提供者 → 使用者;键为 ctx 服务名' },
+  legendEdge:      { en: 'A → B: A provides ctx services B injects', zh: 'A → B:A 提供 ctx 服务,B 注入' },
   familyTip:       { en: 'same package family — no capability seam between them', zh: '同包前缀家族——彼此未构成能力接缝' },
   spineTip:        { en: 'core loop packages — they ride only universal keys, so no capability seam claims them', zh: '核心脊柱——只依赖通用键,不构成任何能力接缝' },
   familyMembers:   { en: 'family members', zh: '家族成员' },
@@ -1277,7 +1277,9 @@ export function mountSchematic(container: HTMLElement): () => void {
         const a = L.pos.get(e.from), b = L.pos.get(e.to)
         if (!a || !b) return
         const c = catColor(catOfUnit(e.to) ?? '')
-        const d = edgePath(a, b)
+        // the arrow rides the service flow: drawn provider → consumer, so the
+        // marker lands on the injector (e.from), not on the dependency
+        const d = edgePath(b, a)
         const p = el('path', { class: 'edge', style: c ? `--c: var(${c})` : '--c: var(--ink-3)', d }, gE)
         const hit = el('path', { class: 'edgeHit', d }, gE)
         p.dataset.from = e.from
@@ -1286,8 +1288,8 @@ export function mountSchematic(container: HTMLElement): () => void {
         const fl = unitLabel(e.from), tl = unitLabel(e.to)
         hit.addEventListener('mouseenter', () => {
           p.classList.add('on')
-          showTip(`<div class="t">${esc(fl)} → ${esc(tl)}</div>` +
-            `<div class="d">${t('edgeUse', { a: esc(fl), b: esc(tl) })}</div>` +
+          showTip(`<div class="t">${esc(tl)} → ${esc(fl)}</div>` +
+            `<div class="d">${t('edgeUse', { a: esc(tl), b: esc(fl) })}</div>` +
             `<div class="k">ctx.${e.keys.join(', ctx.')}</div>` +
             `<div class="d">${t('edgeDir')}</div>`)
         })
