@@ -29,7 +29,7 @@ const T: Record<string, { en: string; zh: string }> = {
   loading:         { en: 'loading…', zh: '加载中…' },
   searchPh:        { en: 'filter by name, key, state…', zh: '按名称、键、状态筛选…' },
   table:           { en: 'table', zh: '表格' },
-  langTitle:       { en: '切换到中文', zh: 'Switch to English' },
+  langTitle:       { en: 'switch to Chinese', zh: '切换到英文' },
   trans:           { en: 'translating {d}/{n}…', zh: '翻译中 {d}/{n}…' },
   emptyDetail:     { en: 'Click anything for details (groups included); double-click a group to open it.', zh: '点击任意元素(含分组)查看详情;双击分组进入。' },
   fit:             { en: 'fit', zh: '适配' },
@@ -1147,9 +1147,21 @@ export function mountSchematic(container: HTMLElement): () => void {
     return g
   }
 
+  /**
+   * Scope crumb + header subtitle, in the active language. Every render
+   * path must end here — the journey branch returns early and calls this
+   * itself, or a language toggle on that tab leaves both in the old language.
+   */
+  function updateCrumb(scoped: boolean, label?: string): void {
+    const crumb = $('.crumb')
+    crumb.classList.toggle('on', scoped)
+    crumb.textContent = t('overview')
+    $('.subtitle').textContent = scoped && label !== undefined ? `/ ${label}` : t('subtitle')
+  }
+
   function render(refit = false): void {
     if (GRAPH === null) return
-    if (state.tab === 'journey') { renderJourney(); paintActivity(); return }
+    if (state.tab === 'journey') { renderJourney(); updateCrumb(false); paintActivity(); return }
     const scoped = !!state.scope
     const L = scoped ? layoutScope() : layoutOverview()
     lastL = L
@@ -1310,10 +1322,7 @@ export function mountSchematic(container: HTMLElement): () => void {
     }
 
     renderTable(L)
-    const crumb = $('.crumb')
-    crumb.classList.toggle('on', scoped)
-    crumb.textContent = t('overview')
-    $('.subtitle').textContent = scoped ? '/ ' + L.cluster.label : t('subtitle')
+    updateCrumb(scoped, scoped ? L.cluster.label : undefined)
     paintActivity()
   }
 
@@ -2178,10 +2187,35 @@ export function mountSchematic(container: HTMLElement): () => void {
     langToggle.setAttribute('aria-pressed', String(lang === 'zh'))
     langToggle.title = t('langTitle')
   }
+  /**
+   * Shell chrome the tab renders never rebuild — tab buttons, search
+   * placeholder, activity chips, footer controls — so the toggle re-sets
+   * their strings itself. Without this, chrome stays in the boot language.
+   */
+  const relocalizeShell = (): void => {
+    const tabKeys: Record<string, string> = { journey: 'tabJourney', domains: 'tabDomains', table: 'tabTable' }
+    for (const btn of container.querySelectorAll<HTMLButtonElement>('.tabBtn')) {
+      const key = tabKeys[btn.dataset.tab ?? '']
+      if (key !== undefined) btn.textContent = t(key)
+    }
+    ;($('.search') as HTMLInputElement).placeholder = t('searchPh')
+    subBtn.textContent = t('actSub')
+    subBtn.title = t('actSubTitle')
+    sessSel.title = t('actSubTitle')
+    svcBtn.textContent = t('actSvc')
+    svcBtn.title = t('actSvcTitle')
+    $('.legend').textContent = t('actLiveHint')
+    $('.zoomFit').textContent = t('fit')
+    $('.autoBtn').title = t('autoTitle')
+    $('.refresh').title = t('refreshTitle')
+    // stats is render-owned; only the pre-load "loading…" state needs help
+    if (GRAPH === null) $('.stats').textContent = t('loading')
+  }
   langToggle.addEventListener('click', () => {
     lang = lang === 'zh' ? 'en' : 'zh'
     try { localStorage.setItem('sch.lang', lang) } catch { /* storage unavailable: choice lasts for this page only */ }
     updateLangButton()
+    relocalizeShell()
     setMeta()
     renderChips()
     render()
