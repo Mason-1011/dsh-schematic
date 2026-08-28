@@ -362,6 +362,7 @@ const CSS = `
 .sch .tabs { display: flex; gap: 4px; }
 .sch .tabs button { padding: 3px 10px; }
 .sch[data-tab="journey"] .filters { display: none; }
+.sch:not([data-tab="domains"]) .expBtn { display: none; }
 .sch[data-tab="journey"] .crumb { display: none !important; }
 .sch[data-tab="journey"] .stage, .sch[data-tab="table"] .stage { display: none; }
 .sch[data-tab="table"] svg.graph { display: none; }
@@ -557,7 +558,6 @@ export function mountSchematic(container: HTMLElement): () => void {
   <select class="sessSel" title="${t('actSubTitle')}"></select>
   <button class="chip subBtn" aria-pressed="false" title="${t('actSubTitle')}">${t('actSub')}</button>
   <input type="search" class="search" placeholder="${t('searchPh')}">
-  <button class="chip expBtn" aria-pressed="false" title="${t('expAllTitle')}">${t('expandAll')}</button>
   <button class="langToggle" title="${t('langTitle')}">中</button>
   <button class="themeToggle">◐</button>
 </header>
@@ -581,7 +581,7 @@ export function mountSchematic(container: HTMLElement): () => void {
 <footer>
   <span class="meta"></span>
   <span class="spacer" style="flex:1"></span>
-  <button class="zoomOut">−</button><button class="zoomIn">+</button><button class="zoomFit">${t('fit')}</button>
+  <button class="zoomOut">−</button><button class="zoomIn">+</button><button class="zoomFit">${t('fit')}</button><button class="expBtn" aria-pressed="false" title="${t('expAllTitle')}">${t('expandAll')}</button>
   <button class="autoBtn" aria-pressed="true" title="${t('autoTitle')}">⏸</button>
   <button class="refresh" title="${t('refreshTitle')}">⟳</button>
 </footer>
