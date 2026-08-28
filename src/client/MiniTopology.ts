@@ -200,11 +200,19 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
   })
   document.body.appendChild(host)
 
+  /** Field-diagnosis seat: row-kind tail + live counters, read from the console. */
+  const debug = { frames: [] as string[], polls: 0, ok: -1, active: 0, dots: 0, graphAt: 0, scale: 1 }
+  ;(window as unknown as Record<string, unknown>).__schMini = debug
+
   /** Corner-grip scale, persisted so the panel stays the size the user set. */
   let scale = 1
   try {
-    const stored = Number(localStorage.getItem(SCALE_KEY))
-    if (Number.isFinite(stored)) scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, stored))
+    const raw = localStorage.getItem(SCALE_KEY)
+    if (raw !== null) {
+      // Number(null) is 0, not NaN — an absent key must fall through to 1.
+      const stored = Number(raw)
+      if (Number.isFinite(stored)) scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, stored))
+    }
   } catch { /* an unreadable store just keeps the default size */ }
   const applySize = (): void => {
     host.style.width = `${Math.round(W * scale)}px`
@@ -242,9 +250,6 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
   })
 
   const ac = new AbortController()
-  /** Field-diagnosis seat: row-kind tail + live counters, read from the console. */
-  const debug = { frames: [] as string[], polls: 0, ok: -1, active: 0, dots: 0, graphAt: 0, scale: 1 }
-  ;(window as unknown as Record<string, unknown>).__schMini = debug
   /** module → constellation dots currently drawn for it. */
   let dotsByModule = new Map<string, Element[]>()
   /** ctx key → provider modules, for lighting both ends of a service read. */
@@ -310,6 +315,9 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
     debug.graphAt = Date.now()
     debug.dots = 0
     host.innerHTML = layout(graph)
+    // innerHTML above replaces every child — move the grip back in so
+    // resizing survives each constellation rebuild.
+    host.appendChild(grip)
     // Index the circles AFTER insertion: the live nodes are the only ones
     // whose classes paint.
     dotsByModule = new Map<string, Element[]>()
