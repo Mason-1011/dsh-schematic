@@ -110,6 +110,7 @@ const T: Record<string, { en: string; zh: string }> = {
   sessFollow:      { en: '↪ follow chat', zh: '↪ 跟随聊天' },
   actSub:          { en: 'subagents', zh: '含子代理' },
   actSubTitle:     { en: 'also show subagent sessions running in this process', zh: '同时显示本进程里运行的子代理会话' },
+  sessSelTitle:    { en: 'which session the activity bar shows', zh: '活动条显示哪个会话的活动' },
   expandAll:       { en: 'expand all', zh: '全部展开' },
   collapseAll:     { en: 'collapse all', zh: '全部收起' },
   expAllTitle:     { en: 'scatter every group card into its member pills and re-pack the mesh (domains overview)', zh: '把所有分组卡打散成成员药丸并重排网状布局(领域总览)' },
@@ -133,15 +134,15 @@ const T: Record<string, { en: string; zh: string }> = {
   akSubagent:      { en: 'subagent', zh: '子代理' },
   akTitle:         { en: 'title', zh: '标题' },
   akAction:        { en: 'action', zh: '操作' },
-  akSvc:           { en: 'service read', zh: '服务读取' },
-  actSvc:          { en: 'svc', zh: '服务读' },
-  actSvcTitle:     { en: 'show service-read rows: which package actually read which ctx service key (the provide/inject wiring in use)', zh: '显示服务读取行:哪个包真的读了哪个 ctx 服务键(实际发生作用的提供/注入接线)' },
+  akSvc:           { en: 'service access', zh: '服务访问' },
+  actSvc:          { en: 'service access', zh: '服务访问' },
+  actSvcTitle:     { en: 'show service-access rows: which package actually accessed which ctx service key (the provide/inject wiring in use)', zh: '显示服务访问行:哪个包真的访问了哪个 ctx 服务键(实际发生作用的提供/注入接线)' },
   recvLine:        { en: 'session/event broadcast → {n} in-listeners', zh: 'session/event 广播 → {n} 个插件在听' },
   recvNames:       { en: 'listeners of the session-event broadcast (from the live event bus)', zh: '会话事件广播的接收插件(来自运行中的事件总线)' },
   dtListens:       { en: 'listens to', zh: '监听事件' },
   dtListensTip:    { en: 'broadcast events this package listens to; packages that only provide/inject services register none', zh: '该包监听的广播事件;纯服务接线(只提供/注入服务)的包不注册任何监听' },
-  dtReads:         { en: 'runtime reads', zh: '运行时读取' },
-  dtReadsTip:      { en: 'ctx service keys this package actually read since process start, with counts — the wiring that did work, not just the wiring that exists', zh: '进程启动以来该包真实读取过的 ctx 服务键及次数——是实际发生作用的接线,不只是存在的接线' },
+  dtReads:         { en: 'runtime access', zh: '运行时访问' },
+  dtReadsTip:      { en: 'ctx service keys this package actually accessed since process start, with counts — the wiring that did work, not just the wiring that exists', zh: '进程启动以来该包真实访问过的 ctx 服务键及次数——是实际发生作用的接线,不只是存在的接线' },
 }
 
 const CATS = [
@@ -439,7 +440,6 @@ const CSS = `
   filter: drop-shadow(0 0 4px color-mix(in srgb, var(--c) 80%, transparent));
 }
 .sch header .sessSel { max-width: 260px; }
-.sch header .subBtn { border-radius: 999px; padding: 3px 10px; color: var(--ink-2); }
 .sch .actbar { border-top: 1px solid var(--border); background: var(--surface-1); flex: 0 0 auto; }
 .sch .actHead { display: flex; align-items: center; gap: 8px; padding: 5px 16px; font-size: 12px; }
 .sch .actHead .actSess { font-weight: 600; max-width: 34vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -555,8 +555,7 @@ export function mountSchematic(container: HTMLElement): () => void {
   <span class="stats">${t('loading')}</span>
   <span class="trans"></span>
   <span class="spacer"></span>
-  <select class="sessSel" title="${t('actSubTitle')}"></select>
-  <button class="chip subBtn" aria-pressed="false" title="${t('actSubTitle')}">${t('actSub')}</button>
+  <select class="sessSel" title="${t('sessSelTitle')}"></select>
   <input type="search" class="search" placeholder="${t('searchPh')}">
   <button class="langToggle" title="${t('langTitle')}">中</button>
   <button class="themeToggle">◐</button>
@@ -572,6 +571,7 @@ export function mountSchematic(container: HTMLElement): () => void {
   <div class="actHead">
     <span class="runDot"></span><b class="actSess">—</b><span class="actState"></span><span class="recv"></span>
     <span class="spacer" style="flex:1"></span>
+    <button class="chip subBtn" aria-pressed="false" title="${t('actSubTitle')}">${t('actSub')}</button>
     <button class="chip svcBtn" aria-pressed="true" title="${t('actSvcTitle')}">${t('actSvc')}</button>
     <span class="legend">${t('actLiveHint')}</span>
     <button class="actFold" aria-pressed="true">▾</button>
@@ -2310,7 +2310,7 @@ export function mountSchematic(container: HTMLElement): () => void {
     ;($('.search') as HTMLInputElement).placeholder = t('searchPh')
     subBtn.textContent = t('actSub')
     subBtn.title = t('actSubTitle')
-    sessSel.title = t('actSubTitle')
+    sessSel.title = t('sessSelTitle')
     svcBtn.textContent = t('actSvc')
     svcBtn.title = t('actSvcTitle')
     $('.legend').textContent = t('actLiveHint')
