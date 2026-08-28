@@ -10,7 +10,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { SessionState, TimelineEntry } from './protocol.ts'
+import type { MiniRow, MiniSnapshot, SessionState, TimelineEntry } from './protocol.ts'
 import { attributeEvent, ownerOfTool, knownToolNames, providerModule, LIVE_ACTION, SERVICE_OWNER } from './attribution.ts'
 
 /** Structural slice of a Session (out-of-tree: no type import). */
@@ -81,6 +81,10 @@ const STATE_THROTTLE_MS = 250
 const TIMELINE_CAP = 200
 /** Snapshot serves at most this many recent entries per session. */
 const SNAPSHOT_TAIL = 40
+/** mini.json serves at most this many post-`since` entries across all rings. */
+const MINI_TAIL = 120
+/** Service-read rows stay mini-visible for this window (poll cadence + slack). */
+const MINI_TRAFFIC_MS = 2600
 
 /** The callId a tool/result answers, from the tool message's source. */
 function toolResultCallId(data: unknown): string | undefined {
@@ -97,6 +101,10 @@ export class ActivityCollector {
   private readonly listeners = new Set<ActivityListener>()
   /** Host-scope action ring (RPC mutations + live registry changes), newest-last. */
   private readonly actions: TimelineEntry[] = []
+  /** Monotonic feed sequence; stamped on every emitted entry (mini.json cursor). */
+  private seqCounter = 0
+  /** Recent service-read rows (reader module → ctx key) with arrival time. */
+  private readonly trafficRing: { m: string | null; key: string; at: number }[] = []
   /** Job ids already carrying a start row, so registry re-lists never duplicate them. */
   private readonly seenJobs = new Set<string>()
   /** Module specifiers currently in the graph, for tool-owner resolution. */
@@ -136,8 +144,40 @@ export class ActivityCollector {
     return { sessions, timeline, actions: this.actions.slice(-SNAPSHOT_TAIL) }
   }
 
+  /**
+   * Polling miniature snapshot: live session states (the strong-light source)
+   * plus every entry emitted after `since` (per-session timelines and
+   * host-scope actions merged, sequence-ordered) and the recent service-read
+   * window. Rings are newest-last, so scans run backward and stop at `since`.
+   */
+  miniSnapshot(since: number): MiniSnapshot {
+    const entries: MiniRow[] = []
+    const collect = (rows: TimelineEntry[], sessionId: string | null): void => {
+      for (let i = rows.length - 1; i >= 0 && entries.length < MINI_TAIL; i--) {
+        const row = rows[i]
+        if (row.seq === undefined || row.seq <= since) break
+        entries.push({ i: row.seq, s: sessionId, k: row.kind, m: row.module })
+      }
+    }
+    for (const rec of this.recs.values()) collect(rec.timeline, rec.state.sessionId)
+    collect(this.actions, null)
+    entries.sort((a, b) => a.i - b.i)
+    const cutoff = Date.now() - MINI_TRAFFIC_MS
+    return {
+      cursor: this.seqCounter,
+      sessions: [...this.recs.values()].map((rec) => ({
+        sessionId: rec.state.sessionId,
+        streaming: rec.state.streaming,
+        activeModules: [...rec.state.activeModules],
+      })),
+      entries,
+      traffic: this.trafficRing.filter((row) => row.at >= cutoff).map((row) => ({ m: row.m, key: row.key })),
+    }
+  }
+
   /** Record one host-scope action and broadcast it to the sinks. */
   noteAction(entry: TimelineEntry): void {
+    entry.seq = ++this.seqCounter
     this.actions.push(entry)
     if (this.actions.length > TIMELINE_CAP) this.actions.splice(0, this.actions.length - TIMELINE_CAP)
     for (const listener of this.listeners) {
@@ -179,8 +219,11 @@ export class ActivityCollector {
     this.noteAction(entry)
   }
 
-  /** Broadcast service-read deltas to the sinks; live-only, no ring keeps them. */
+  /** Broadcast service-read deltas to the sinks; the mini ring keeps a short tail. */
   noteTraffic(rows: { module: string | null; key: string; n: number }[]): void {
+    const at = Date.now()
+    for (const row of rows) this.trafficRing.push({ m: row.module, key: row.key, at })
+    if (this.trafficRing.length > TIMELINE_CAP) this.trafficRing.splice(0, this.trafficRing.length - TIMELINE_CAP)
     for (const listener of this.listeners) {
       try { listener.onTraffic(rows) } catch { /* a broken sink never stops the feed */ }
     }
@@ -404,6 +447,7 @@ export class ActivityCollector {
     if (attributed.model !== undefined) entry.model = attributed.model
     if (type === 'tool/call') entry.module = callModule
     if (type === 'tool/result') entry.module = pairedModule
+    entry.seq = ++this.seqCounter
     rec.timeline.push(entry)
     if (rec.timeline.length > TIMELINE_CAP) rec.timeline.splice(0, rec.timeline.length - TIMELINE_CAP)
     for (const listener of this.listeners) listener.onActivity(rec.state.sessionId, entry)

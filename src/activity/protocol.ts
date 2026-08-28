@@ -70,6 +70,36 @@ export interface TimelineEntry {
   durationMs?: number
   provider?: string
   model?: string
+  /**
+   * Monotonic feed sequence stamped by the collector on every emitted entry
+   * (timeline rows and host-scope actions alike). The polling miniature diffs
+   * on it; SSE consumers can ignore it.
+   */
+  seq?: number
+}
+
+/**
+ * One incremental row of /schematic/mini.json — sequence, owning session (null
+ * for host-scope rows), kind, and owner module. Deliberately tiny: the
+ * miniature polls this endpoint instead of holding an SSE connection, because
+ * browsers cap HTTP/1.1 connections per origin and every permanently-held
+ * stream steals one slot from the SPA's own boot RPCs.
+ */
+export interface MiniRow {
+  i: number
+  s: string | null
+  k: TimelineEntry['kind']
+  m: string | null
+}
+
+/** /schematic/mini.json response: full live states plus entries after `since`. */
+export interface MiniSnapshot {
+  /** Current top of the entry sequence; the client's next `since`. */
+  cursor: number
+  sessions: { sessionId: string; streaming: boolean; activeModules: string[] }[]
+  entries: MiniRow[]
+  /** Service reads in the recent window (idempotent to re-see). */
+  traffic: { m: string | null; key: string }[]
 }
 
 export type Frame =

@@ -126,6 +126,13 @@ export function apply(ctx: Context): void {
           noteModules(graph.nodes)
           return send(res, 200, 'application/json', JSON.stringify(graph))
         }
+        if (sub === '/mini.json') {
+          // Polled by the composer-side miniature: holding an SSE stream per
+          // SPA tab would eat one of the browser's per-origin HTTP/1.1
+          // connection slots and starve the SPA's own boot RPCs.
+          const since = Number(new URL(req.url ?? '/', 'http://x').searchParams.get('since') ?? '0')
+          return sendJson(res, 200, activity.collector.miniSnapshot(Number.isFinite(since) ? Math.max(0, since) : 0))
+        }
         return send(res, 404, 'text/plain', 'not found')
       }
       if (req.method === 'POST' && sub.startsWith('/api/')) {

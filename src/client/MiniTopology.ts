@@ -4,10 +4,19 @@
  * (vertically centered on it), riding the same /schematic data the viewer
  * page uses. Dots rank by edge count and pack outward from the center — the
  * expand-all posture, one dot per package — and light with the real runtime
- * activity of the conversation the SPA is viewing (SSE /schematic/events;
- * host-scope actions light regardless of session; the session is read from
- * the SPA's own persisted selection). Double-click opens the viewer page at
- * that same fully-scattered state (?tab=domains&expand=all).
+ * activity of the conversation the SPA is viewing (host-scope actions light
+ * regardless of session; the session is read from the SPA's own persisted
+ * selection). Double-click opens the viewer page at that same
+ * fully-scattered state (?tab=domains&expand=all).
+ *
+ * Transport is a ~1.2s poll of /schematic/mini.json, NOT the viewer's SSE
+ * feed: browsers cap concurrent HTTP/1.1 connections per origin, and one
+ * permanently-held stream per SPA tab steals a slot from the SPA's own boot
+ * RPCs (session.list / workspace.list) — enough open tabs and a refresh
+ * wedges on the loading page. The panel also rides above the composer seat's
+ * sticky stacking context (z 12 > seat 7) so the seat's frost surface neither
+ * erases the dots nor eats their double-click. The bottom-right grip scales
+ * the whole panel; dots render as hollow rings that fill and glow when lit.
  */
 
 /**
@@ -28,22 +37,27 @@ const CAT_VAR: Record<string, string> = {
 /** Constellation geometry: viewBox size and dot radius. */
 const W = 208
 const H = 32
-const DOT_R = 1.4
+const DOT_R = 1.6
 /** Panel height on screen; the CSS below reads the same number. */
 const PANEL_H = 30
+/** Resize bounds and persistence key for the corner-grip scale. */
+const MIN_SCALE = 0.7
+const MAX_SCALE = 3
+const SCALE_KEY = 'sch.mini.scale'
 /** Gap between the composer card's right edge and the panel. */
 const GAP = 12
 /** Weak-light TTL — same breathing-decay window the viewer page uses. */
 const TTL_MS = 4000
 /** Card-anchor and current-session re-measure cadence. */
 const ANCHOR_MS = 800
+/** mini.json poll cadence: strong lights land within one beat of the SSE feed. */
+const POLL_MS = 1200
 
 export const MINI_TOPOLOGY_CSS = `
 .schMini {
   --mc1: #2a78d6; --mc2: #eb6834; --mc3: #1baf7a; --mc4: #eda100;
   --mc5: #e87ba4; --mc6: #008300; --mc7: #4a3aa7; --mc8: #e34948;
-  width: ${W}px; height: ${PANEL_H}px;
-  position: fixed; z-index: 5;
+  position: fixed; z-index: 12;
   cursor: zoom-in; border-radius: 8px; overflow: hidden; user-select: none;
   background: rgba(127, 127, 127, 0.08);
   color: var(--dsw-alias-label-secondary, #888);
@@ -58,17 +72,33 @@ export const MINI_TOPOLOGY_CSS = `
 }
 .schMini svg { display: block; width: 100%; height: 100%; }
 .schMini line { stroke: currentColor; stroke-opacity: 0.16; stroke-width: 0.5; }
+/* Idle dots are hollow rings; lighting fills the ring and blooms a glow. */
 .schMini circle {
-  fill: var(--c, currentColor); opacity: 0.9;
-  transition: opacity 0.3s ease, transform 0.3s ease, filter 0.3s ease;
+  fill: none; stroke: var(--c, currentColor); stroke-opacity: 0.9; stroke-width: 0.5;
+  opacity: 0.9;
+  transition: opacity 0.3s ease, transform 0.3s ease, filter 0.3s ease, fill 0.3s ease;
   transform-box: fill-box; transform-origin: center;
 }
-.schMini circle.on { opacity: 1; transform: scale(1.75); filter: drop-shadow(0 0 2px var(--c, currentColor)); }
+.schMini circle.on {
+  fill: var(--c, currentColor); opacity: 1; stroke-width: 0.8;
+  transform: scale(1.5);
+  filter: drop-shadow(0 0 2.5px var(--c, currentColor));
+}
 .schMini circle.hot {
-  opacity: 1; filter: drop-shadow(0 0 3px var(--c, currentColor));
+  fill: var(--c, currentColor); opacity: 1; stroke-width: 0.8;
+  filter: drop-shadow(0 0 3px var(--c, currentColor)) drop-shadow(0 0 6px var(--c, currentColor));
   animation: schMiniBreath 1.5s ease-in-out infinite;
 }
-@keyframes schMiniBreath { 0%, 100% { transform: scale(1.6); } 50% { transform: scale(2.2); } }
+.schMiniGrip {
+  position: absolute; right: 0; bottom: 0; width: 14px; height: 14px;
+  cursor: nwse-resize; opacity: 0.35; touch-action: none;
+}
+.schMiniGrip:hover { opacity: 0.85; }
+.schMiniGrip::before {
+  content: ''; position: absolute; inset: 3px;
+  background: repeating-linear-gradient(135deg, currentColor 0 1px, transparent 1px 4px);
+}
+@keyframes schMiniBreath { 0%, 100% { transform: scale(1.5); } 50% { transform: scale(2.1); } }
 @keyframes schMiniIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }`
 
 /**
@@ -151,7 +181,9 @@ function layout(graph: any): string {
  * card grows with the draft and its rect is the only placement authority.
  * Hidden while no composer is on screen or the window has no room beside the
  * card. The panel lives directly under document.body, outside the SPA's
- * React tree, so re-renders never churn it.
+ * React tree, so re-renders never churn it. The bottom-right grip scales the
+ * panel (persisted per browser); dots are hollow rings that fill and glow
+ * when lit.
  * @param t locale seat for the tooltip.
  * @returns disposer removing the panel and its feeds.
  */
@@ -168,8 +200,51 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
   })
   document.body.appendChild(host)
 
+  /** Corner-grip scale, persisted so the panel stays the size the user set. */
+  let scale = 1
+  try {
+    const stored = Number(localStorage.getItem(SCALE_KEY))
+    if (Number.isFinite(stored)) scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, stored))
+  } catch { /* an unreadable store just keeps the default size */ }
+  const applySize = (): void => {
+    host.style.width = `${Math.round(W * scale)}px`
+    host.style.height = `${Math.round(PANEL_H * scale)}px`
+    debug.scale = scale
+  }
+  applySize()
+
+  const grip = document.createElement('div')
+  grip.className = 'schMiniGrip'
+  grip.title = `${label} — ⇲`
+  host.appendChild(grip)
+  grip.addEventListener('dblclick', (e) => e.stopPropagation())
+  grip.addEventListener('pointerdown', (e) => {
+    e.stopPropagation()
+    e.preventDefault()
+    grip.setPointerCapture(e.pointerId)
+    const startX = e.clientX
+    const startScale = scale
+    const move = (ev: PointerEvent): void => {
+      scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, startScale + (ev.clientX - startX) / W))
+      applySize()
+      anchor()
+    }
+    const up = (ev: PointerEvent): void => {
+      grip.removeEventListener('pointermove', move)
+      grip.removeEventListener('pointerup', up)
+      grip.removeEventListener('pointercancel', up)
+      try { localStorage.setItem(SCALE_KEY, String(scale)) } catch { /* unwritable store loses the size, not the panel */ }
+      ev.preventDefault()
+    }
+    grip.addEventListener('pointermove', move)
+    grip.addEventListener('pointerup', up)
+    grip.addEventListener('pointercancel', up)
+  })
+
   const ac = new AbortController()
-  let es: EventSource | undefined
+  /** Field-diagnosis seat: row-kind tail + live counters, read from the console. */
+  const debug = { frames: [] as string[], polls: 0, ok: -1, active: 0, dots: 0, graphAt: 0, scale: 1 }
+  ;(window as unknown as Record<string, unknown>).__schMini = debug
   /** module → constellation dots currently drawn for it. */
   let dotsByModule = new Map<string, Element[]>()
   /** ctx key → provider modules, for lighting both ends of a service read. */
@@ -215,27 +290,13 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
     }
     paint()
   }
-  const onFrame = (frame: any): void => {
-    if (frame.type === 'snapshot') {
-      for (const s of frame.sessions ?? []) hydrate(s)
-      return
-    }
-    if (frame.type === 'state') { hydrate(frame.state); return }
-    if (frame.type === 'activity') {
-      if (frame.sessionId !== currentSession) return
-      const entry = frame.entry
-      if (entry.module === null || entry.kind === 'user') return
-      if (entry.kind === 'tool-end' || entry.kind === 'llm') downgrade(entry.module)
-      else touch(entry.module, entry.kind === 'tool')
-      return
-    }
-    if (frame.type === 'action') { touch(frame.entry?.module, false); return }
-    if (frame.type === 'traffic') {
-      for (const r of frame.rows ?? []) {
-        touch(r.module, false)
-        for (const owner of keyOwners.get(r.key) ?? []) touch(owner, false)
-      }
-    }
+  /** One mini row: host-scope rows light unconditionally, session rows only for the viewed chat. */
+  const onRow = (row: { i: number; s: string | null; k: string; m: string | null }): void => {
+    if (row.m === null || row.m === '') return
+    if (row.s === null) { touch(row.m, false); return }
+    if (row.s !== currentSession || row.k === 'user') return
+    if (row.k === 'tool-end' || row.k === 'llm') downgrade(row.m)
+    else touch(row.m, row.k === 'tool')
   }
 
   let signature = ''
@@ -278,24 +339,41 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
   load()
   const poll = window.setInterval(() => { if (!document.hidden) load() }, 30000)
 
-  es = new EventSource('/schematic/events')
-  /** Field-diagnosis seat: frame tail + live counters, read from the console. */
-  const debug = { frames: [] as string[], es: -1, active: 0, dots: 0, graphAt: 0 }
-  ;(window as unknown as Record<string, unknown>).__schMini = debug
-  es.onopen = () => { debug.es = es?.readyState ?? -1 }
-  es.onerror = () => { debug.es = es?.readyState ?? -1 }
-  es.onmessage = (ev) => {
-    try {
-      const frame = JSON.parse(ev.data) as { type?: string }
-      debug.frames.push(String(frame?.type))
-      if (debug.frames.length > 30) debug.frames.shift()
-      debug.es = es?.readyState ?? -1
-      debug.active = active.size
-      debug.dots = dotsByModule.size
-      onFrame(frame)
-      debug.active = active.size
-    } catch { /* malformed frame: skip it */ }
+  /** mini.json poll: states every beat, entries diffed on the sequence cursor. */
+  let since = -1
+  const pollMini = (): void => {
+    if (document.hidden) return
+    void fetch(`/schematic/mini.json?since=${Math.max(0, since)}`, { signal: ac.signal })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((snap: any) => {
+        if (snap === null) { debug.ok = -1; return }
+        debug.ok = 1
+        debug.polls++
+        const cursor = typeof snap.cursor === 'number' ? snap.cursor : 0
+        // First poll only adopts the cursor: the states below light anything
+        // already running, without replaying the whole tail as flashes.
+        if (since >= 0) {
+          for (const row of snap.entries ?? []) {
+            debug.frames.push(String(row.k))
+            if (debug.frames.length > 30) debug.frames.shift()
+            onRow(row)
+          }
+        }
+        since = cursor
+        for (const s of snap.sessions ?? []) hydrate(s)
+        for (const r of snap.traffic ?? []) {
+          if (typeof r.m === 'string' && r.m !== '') touch(r.m, false)
+          for (const owner of keyOwners.get(r.key) ?? []) touch(owner, false)
+        }
+        debug.active = active.size
+        debug.dots = dotsByModule.size
+      })
+      .catch(() => { /* a failed poll keeps the last lights */ })
   }
+  pollMini()
+  const miniTimer = window.setInterval(pollMini, POLL_MS)
+  const wake = (): void => { if (!document.hidden) pollMini() }
+  document.addEventListener('visibilitychange', wake)
   const sweep = window.setInterval(() => {
     const now = Date.now()
     let dirty = false
@@ -312,25 +390,29 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
       currentSession = next
       active.clear()
       paint()
+      pollMini()
     }
     const card = findCard()
     if (card === null) { host.style.display = 'none'; return }
     const r = card.getBoundingClientRect()
     const left = Math.round(r.right + GAP)
-    if (left + W > window.innerWidth - 8) { host.style.display = 'none'; return }
+    const w = Math.round(W * scale)
+    const h = Math.round(PANEL_H * scale)
+    if (left + w > window.innerWidth - 8) { host.style.display = 'none'; return }
     host.style.display = ''
     host.style.left = `${left}px`
-    host.style.top = `${Math.round(r.top + (r.height - PANEL_H) / 2)}px`
+    host.style.top = `${Math.round(r.top + (r.height - h) / 2)}px`
   }
   anchor()
   const anchorTimer = window.setInterval(anchor, ANCHOR_MS)
 
   return () => {
     window.clearInterval(anchorTimer)
+    window.clearInterval(miniTimer)
     window.clearInterval(poll)
     window.clearInterval(sweep)
+    document.removeEventListener('visibilitychange', wake)
     ac.abort()
-    es?.close()
     host.remove()
   }
 }
