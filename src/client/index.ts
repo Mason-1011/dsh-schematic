@@ -2,11 +2,11 @@
  * Browser half of dsh-schematic: one settings section in the dsh web SPA
  * whose single action opens the standalone /schematic page (served by the
  * host half) in a new tab, plus the ask-in-chat hand-off. The viewer page's
- * ask button opens the SPA with ?sch-ask=…; this half turns the params into
- * a fresh ungrouped session (no workspace) with a starter question prefilled
- * in the composer — draft only, sending stays with the user. The question's
- * language follows the SPA's active locale (browser/system-derived until the
- * user overrides it in settings).
+ * ask button opens the SPA with ?sch-ask=…; this half creates an Ungrouped
+ * session and sends the starter question through the RPC gateway — the send
+ * itself unlocks the composer (a workspace-less blank stays inert by
+ * design). The question's language follows the SPA's active locale
+ * (browser/system-derived until the user overrides it in settings).
  *
  * Bundle: scripts/build-client.mjs emits dist/client.js as a lazy-CJS
  * factory artifact — the format packages/client/tsdown.client.ts produces
@@ -107,14 +107,41 @@ function consumeAskParams(): { name: string; id: string } | null {
 const HANDOFF_GUARD_MS = 5000
 
 /**
- * The ask-in-chat hand-off: create a fresh ungrouped session, make it
+ * Fire the question through the SPA's RPC gateway — the same session.prompt
+ * call the composer itself makes. The host queues it as the session's first
+ * user message; that one write flips the session non-blank, which is what
+ * unlocks an Ungrouped composer (a workspace-less blank stays inert until a
+ * workspace is picked — by design, so the create itself can never host the
+ * first message).
+ * @returns true when the gateway accepted the prompt.
+ */
+async function promptRpc(sessionId: string, text: string): Promise<boolean> {
+  const res = await fetch('/api/session.prompt', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      type: 'client-request',
+      rpcId: `sch-ask-${sessionId.slice(0, 8)}`,
+      method: 'session.prompt',
+      payload: { sessionId, mode: 'queue', content: [{ type: 'text', text }] },
+    }),
+  })
+  return res.ok
+}
+
+/**
+ * The ask-in-chat hand-off: create a fresh Ungrouped session, make it
  * current immediately (nothing after the create may block the open), then
- * prefill its composer draft and stand guard. While the session stays
- * blank, any navigation steal inside the guard window is taken back — the
- * SPA restores the persisted selection (dsh.sessions.current, shared
- * across tabs) when its session list lands, which can race this hand-off
- * at boot. Progress lands on console.info prefixed "[dsh-schematic]" for
- * field diagnosis.
+ * send the question through the RPC gateway — the one write that flips the
+ * session non-blank and unlocks its composer. If that send fails (backend
+ * slow or down at hand-off time), prefill the composer draft instead so the
+ * user still has the text; a workspace pick migrates the draft. While the
+ * session stays blank, any navigation steal inside the guard window is
+ * taken back — the SPA restores the persisted selection
+ * (dsh.sessions.current, shared across tabs) and connects its startup
+ * workspace when its baselines land, which can race this hand-off at boot.
+ * Progress lands on console.info prefixed "[dsh-schematic]" for field
+ * diagnosis.
  */
 function askInChat(ctx: SchematicCtx, name: string, id: string): void {
   const sessions = ctx.sessions
@@ -131,19 +158,29 @@ function askInChat(ctx: SchematicCtx, name: string, id: string): void {
     }
     sessions.open(sessionId)
     log('ask hand-off: opened', sessionId)
-    let draft = 'skipped'
+    let sent = false
     try {
-      const actx = sessions.scope(sessionId)
-      const conversation = actx?.get('conversation')
-      if (actx !== undefined && conversation !== undefined) {
-        conversation.input.for(actx).setDraft(question)
-        draft = 'prefilled'
-      }
+      sent = await promptRpc(sessionId, question)
     } catch (err) {
-      // The draft is best-effort: a failed write must not unseat the open.
-      console.warn('[dsh-schematic] ask hand-off: draft write failed:', err)
+      console.warn('[dsh-schematic] ask hand-off: prompt send failed:', err)
     }
-    log('ask hand-off: draft=' + draft)
+    if (sent) {
+      log('ask hand-off: question sent')
+    } else {
+      try {
+        const actx = sessions.scope(sessionId)
+        const conversation = actx?.get('conversation')
+        if (actx !== undefined && conversation !== undefined) {
+          conversation.input.for(actx).setDraft(question)
+          log('ask hand-off: draft prefilled (send failed)')
+        } else {
+          log('ask hand-off: draft skipped (send failed, no conversation scope)')
+        }
+      } catch (err) {
+        // The draft is best-effort: a failed write must not unseat the open.
+        console.warn('[dsh-schematic] ask hand-off: draft write failed:', err)
+      }
+    }
     let lastSeen: string | undefined
     const stop = sessions.list.subscribe(() => {
       const snap = sessions.list.getSnapshot()
