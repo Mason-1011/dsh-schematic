@@ -1,7 +1,8 @@
 /**
  * Browser half of dsh-schematic: one settings section in the dsh web SPA
  * whose single action opens the standalone /schematic page (served by the
- * host half) in a new tab, plus the ask-in-chat hand-off. The viewer page's
+ * host half) in a new tab, a live-topology miniature mounted beside the
+ * composer card, and the ask-in-chat hand-off. The viewer page's
  * ask button opens the SPA with ?sch-ask=…; this half creates an Ungrouped
  * session and sends the starter question through the RPC gateway — the send
  * itself unlocks the composer (a workspace-less blank stays inert by
@@ -14,6 +15,7 @@
  */
 
 import { SchematicSettingsSection, SETTINGS_SECTION_CSS } from './SettingsSection.tsx'
+import { mountMiniTopology, MINI_TOPOLOGY_CSS } from './MiniTopology.ts'
 
 /** Locale dictionary namespace owned by this plugin. */
 const NS = 'settings.schematic'
@@ -23,12 +25,14 @@ const zh = {
   rowTitle: '插件拓扑',
   rowDesc: '在新的浏览器标签页中打开实时插件拓扑查看器',
   open: '打开',
+  miniTitle: '实时插件拓扑缩影 · 双击打开完整视图',
 }
 const en = {
   section: 'Plugin topology',
   rowTitle: 'Plugin topology',
   rowDesc: 'Open the live plugin-topology viewer in a new browser tab',
   open: 'Open',
+  miniTitle: 'Live plugin-topology miniature · double-click to open the full view',
 }
 
 export const inject = ['slots', 'locale', 'sessions']
@@ -215,6 +219,12 @@ export function apply(ctx: SchematicCtx): void {
     tag.textContent = SETTINGS_SECTION_CSS
     document.head.appendChild(tag)
   }
+  if (document.querySelector('style[data-schematic-mini-css]') === null) {
+    const tag = document.createElement('style')
+    tag.dataset.schematicMiniCss = ''
+    tag.textContent = MINI_TOPOLOGY_CSS
+    document.head.appendChild(tag)
+  }
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
     id: 'schematic',
@@ -223,6 +233,11 @@ export function apply(ctx: SchematicCtx): void {
     locale: NS,
     inject: () => ({}),
   }, SchematicSettingsSection))
+  // The composer-side constellation: the fully-expanded domains mesh as live
+  // dots in a viewport-fixed panel beside the composer card (same horizontal
+  // level, vertically centered on it), opening the viewer at that same
+  // scattered state on double-click.
+  ctx.effect(() => mountMiniTopology(t), 'dsh-schematic: composer-side miniature')
   const ask = consumeAskParams()
   if (ask !== null) askInChat(ctx, ask.name, ask.id)
 }

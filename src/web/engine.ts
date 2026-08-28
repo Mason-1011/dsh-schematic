@@ -646,6 +646,8 @@ export function mountSchematic(container: HTMLElement): () => void {
   const freshIds = new Set<string>()
   /** Every scatterable group id in the latest overview layout, carded or dissolved (expand-all's target list and its all/none test). */
   let lastExpandable: string[] = []
+  /** ?expand=all deep link: expand every scatterable group on the first overview layout that names any. */
+  let pendingExpandAll = new URLSearchParams(location.search).get('expand') === 'all'
   const matchNode = (n: any): boolean => {
     if (!state.q) return true
     const hay = [n.id, n.dir, n.label ?? '', n.module ?? '', n.state ?? '', ...n.provides, ...n.inject].join(' ').toLowerCase()
@@ -1394,6 +1396,18 @@ export function mountSchematic(container: HTMLElement): () => void {
       if (state.sel && nodeEls.has(state.sel)) focusNode(state.sel, nodeEls, edgeEls)
       else resetFocus(nodeEls, edgeEls)
       if (refit) fit(L)
+      // The ?expand=all deep link: consumed only once an overview layout has
+      // named scatterable groups (a journey/table landing keeps it pending
+      // until the first domains render). The recursive render already ran the
+      // tail below with the expanded layout, so this call stops here.
+      if (pendingExpandAll && lastExpandable.length > 0) {
+        pendingExpandAll = false
+        for (const id of lastExpandable) state.expanded.add(id)
+        render(true)
+        refreshDetail()
+        updateExpBtn()
+        return
+      }
     } else {
       const failed = GRAPH.nodes.filter((n: any) => n.state === 'failed').length
       $('.stats').textContent =
