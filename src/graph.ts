@@ -31,6 +31,14 @@ const INFRA_KEYS: ReadonlySet<string> = new Set([
   'slots', 'subagents', 'systemPrompt', 'tools', 'webServer', 'settings',
 ])
 
+/**
+ * Loop-shaping core packages (agent-loop, system-prompt, tools): they ride
+ * only universal keys, so seam clustering must leave them loose. Flagged for
+ * the viewer to group as one spine card instead of scattering the spine
+ * into unrelated misc buckets.
+ */
+const SPINE_MODULES: ReadonlySet<string> = new Set(['agent-loop', 'system-prompt', 'tools'])
+
 /** Runtime mirror of the cross-package FiberState const enum (see plugin-inventory). */
 const FIBER_STATE = {
   PENDING: 0 as FiberState.PENDING,
@@ -91,6 +99,8 @@ export interface LiveNode {
   category: string
   group: string
   form: 'service' | 'plugin'
+  /** True for the loop-shaping core packages (SPINE_MODULES). */
+  spine?: boolean
   desc: string | null
   pluginName: string | null
   provides: string[]
@@ -278,6 +288,7 @@ export function buildGraph(ctx: Context): LiveGraph {
       category: categoryOf(module),
       group: categoryOf(module) === 'other' ? 'other' : label.split('-')[0] ?? 'other',
       form: provides.length ? 'service' : 'plugin',
+      spine: SPINE_MODULES.has(label),
       desc: descOf(module),
       pluginName: runtimeName,
       provides,

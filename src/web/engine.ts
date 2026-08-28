@@ -103,6 +103,7 @@ const T: Record<string, { en: string; zh: string }> = {
   edgeDir:         { en: 'arrow = consumer → provider; keys are ctx service names', zh: '箭头 = 使用者 → 提供者;键为 ctx 服务名' },
   legendEdge:      { en: 'A → B: A injects ctx services B provides', zh: 'A → B:A 注入 B 提供的 ctx 服务' },
   familyTip:       { en: 'same package family — no capability seam between them', zh: '同包前缀家族——彼此未构成能力接缝' },
+  spineTip:        { en: 'core loop packages — they ride only universal keys, so no capability seam claims them', zh: '核心脊柱——只依赖通用键,不构成任何能力接缝' },
   familyMembers:   { en: 'family members', zh: '家族成员' },
   changedToast:    { en: 'topology changed: +{a} · −{r}', zh: '拓扑变化:+{a} · −{r}' },
   autoTitle:       { en: 'toggle auto-refresh (every 5s)', zh: '切换自动刷新(每 5 秒)' },
@@ -648,19 +649,24 @@ export function mountSchematic(container: HTMLElement): () => void {
   const nodeLabel = (n: any): string => n.label ?? n.id
 
   /**
-   * The scope target for a cluster id or a family card id (fam:<group>):
-   * a family synthesizes the cluster shape from its unclustered members, so
-   * family cards open into the same scope view clusters use.
+   * The scope target for a cluster id, a family card id (fam:<group>), or the
+   * core-spine card ('spine'): families and the spine synthesize the cluster
+   * shape from their unclustered members, so all three open into the same
+   * scope view.
    */
   const scopeTarget = (id: string): any | undefined => {
     if (clusterById.has(id)) return clusterById.get(id)
-    if (!id.startsWith('fam:') || GRAPH === null) return undefined
-    const members = GRAPH.nodes.filter((n: any) => !n.cluster && n.group === id.slice(4))
+    if (GRAPH === null) return undefined
+    const members = id === 'spine'
+      ? GRAPH.nodes.filter((n: any) => !n.cluster && n.spine)
+      : id.startsWith('fam:')
+        ? GRAPH.nodes.filter((n: any) => !n.cluster && n.group === id.slice(4))
+        : []
     if (members.length === 0) return undefined
     const catCount = new Map<string, number>()
     for (const n of members) catCount.set(n.category, (catCount.get(n.category) ?? 0) + 1)
     const cat = [...catCount.entries()].sort((a, b) => b[1] - a[1])[0][0]
-    return { id, label: id.slice(4), category: cat, members: members.map((n: any) => n.id), seamKeys: [] }
+    return { id, label: id === 'spine' ? 'core' : id.slice(4), category: cat, members: members.map((n: any) => n.id), seamKeys: [] }
   }
 
   // ------- layout -------
@@ -767,17 +773,26 @@ export function mountSchematic(container: HTMLElement): () => void {
 
   function layoutOverview() {
     const units: any[] = []
-    // Unclustered nodes: ≥2 sharing a package family collapse into one family
-    // card (llm ×4, ui ×9 …); true singles stay pills.
+    // Unclustered nodes: the core-spine packages form one card; ≥2 sharing a
+    // package family collapse into one family card (llm ×4 …); everything the
+    // graph cannot categorize (group 'other') and true singles stay lone
+    // pills — a misc bucket would fake a hub out of unrelated packages.
     const byFam = new Map<string, any[]>()
     for (const n of GRAPH.nodes) {
-      if (!n.cluster) {
+      if (!n.cluster && !n.spine) {
         if (!byFam.has(n.group)) byFam.set(n.group, [])
         byFam.get(n.group)!.push(n)
       }
     }
+    const spineList = GRAPH.nodes.filter((n: any) => !n.cluster && n.spine)
+    if (spineList.some((n: any) => originOk(n) && matchNode(n))) {
+      units.push({
+        id: 'spine', label: `core · ${spineList.length}`, cat: 'core-spine',
+        rank: Math.min(...spineList.map((n: any) => n.rank)), kind: 'family', family: { members: spineList },
+      })
+    }
     for (const [fam, list] of byFam) {
-      if (list.length < 2) {
+      if (list.length < 2 || fam === 'other') {
         for (const n of list) if (visibleNode(n))
           units.push({ id: n.id, label: nodeLabel(n), cat: n.category, rank: n.rank, kind: 'node', node: n })
         continue
@@ -789,7 +804,7 @@ export function mountSchematic(container: HTMLElement): () => void {
       const cat = [...catCount.entries()].sort((a, b) => b[1] - a[1])[0][0]
       units.push({
         id: 'fam:' + fam, label: `${fam} · ${list.length}`, cat, rank: Math.min(...list.map((n: any) => n.rank)),
-        kind: 'family', family: { id: fam, members: list },
+        kind: 'family', family: { members: list },
       })
     }
     const memberShown = (n: any): boolean => originOk(n) && matchNode(n)
@@ -995,34 +1010,34 @@ export function mountSchematic(container: HTMLElement): () => void {
     if (jr.clientWidth !== cw || jr.clientHeight !== ch) fitJourney(reset)
   }
 
-  /** Detail panel for a package-family card (domains view). */
-  function renderDetailFamily(famId: string, members: any[]): void {
+  /** Detail panel for an aggregated card — a family or the core spine (domains view). */
+  function renderDetailFamily(unitId: string, title: string, tip: string, members: any[]): void {
     $('.detail').innerHTML = `
-    <h2>${esc(famId)} · ${members.length}</h2>
-    <div class="dir">${t('familyTip')}</div>
+    <h2>${esc(title)} · ${members.length}</h2>
+    <div class="dir">${tip}</div>
     <div class="members">${members.map((m: any) =>
       `<div class="m"><b>${esc(nodeLabel(m))}${m.state === 'failed' ? ' ✕' : m.state !== 'active' && m.state ? ' ⏳' : ''}</b>${descOf(m) ? `<span>${esc(descOf(m) as string)}</span>` : ''}</div>`).join('')}
     </div>
     <button class="open-btn">${t('openGroup')}</button>`
-    ;(container.querySelector('.detail .open-btn') as HTMLElement).onclick = () => enterScope('fam:' + famId)
+    ;(container.querySelector('.detail .open-btn') as HTMLElement).onclick = () => enterScope(unitId)
   }
 
-  /** Tooltip + click + open for a family pill. */
-  function bindFamilyHover(g: Element, famId: string, members: any[]): void {
+  /** Tooltip + click + open for an aggregated pill — a family or the core spine. */
+  function bindFamilyHover(g: Element, unitId: string, title: string, tip: string, members: any[]): void {
     g.addEventListener('mouseenter', () => {
-      showTip(`<div class="t">${esc(famId)} · ${members.length}</div>` +
-        `<div class="d">${t('familyTip')}</div>` +
+      showTip(`<div class="t">${esc(title)} · ${members.length}</div>` +
+        `<div class="d">${tip}</div>` +
         `<div class="k">${members.slice(0, 8).map((m) => nodeLabel(m)).join(', ')}${members.length > 8 ? ' …' : ''}</div>`)
     })
     g.addEventListener('mousemove', moveTip)
     g.addEventListener('mouseleave', hideTip)
     g.addEventListener('click', (ev) => {
       ev.stopPropagation()
-      state.sel = 'fam:' + famId
-      renderDetailFamily(famId, members)
+      state.sel = unitId
+      renderDetailFamily(unitId, title, tip, members)
       render()
     })
-    g.addEventListener('dblclick', (ev) => { ev.stopPropagation(); enterScope('fam:' + famId) })
+    g.addEventListener('dblclick', (ev) => { ev.stopPropagation(); enterScope(unitId) })
   }
 
   // ------- render -------
@@ -1177,8 +1192,9 @@ export function mountSchematic(container: HTMLElement): () => void {
         for (const e of unitEdges) drawEdge(e)
         for (const u of L.units) {
           if (u.kind === 'family') {
+            const spine = u.id === 'spine'
             const g = drawPill(gN, u.id, L.pos.get(u.id), u.label, u.cat, 'family' + (freshIds.has(u.id) ? ' pulse' : ''), null)
-            bindFamilyHover(g, u.family.id, u.family.members)
+            bindFamilyHover(g, u.id, spine ? 'core' : u.id.slice(4), spine ? t('spineTip') : t('familyTip'), u.family.members)
             nodeEls.set(u.id, g)
             continue
           }
@@ -1363,10 +1379,14 @@ export function mountSchematic(container: HTMLElement): () => void {
     if (state.sel) {
       if (byId.has(state.sel)) return renderDetail(byId.get(state.sel))
       if (clusterById.has(state.sel)) return renderDetailCluster(clusterById.get(state.sel))
+      if (state.sel === 'spine') {
+        const members = GRAPH?.nodes.filter((n: any) => !n.cluster && n.spine) ?? []
+        if (members.length > 0) return renderDetailFamily('spine', 'core', t('spineTip'), members)
+      }
       if (state.sel.startsWith('fam:')) {
         const fam = state.sel.slice(4)
         const members = GRAPH?.nodes.filter((n: any) => n.group === fam) ?? []
-        if (members.length > 0) return renderDetailFamily(fam, members)
+        if (members.length > 0) return renderDetailFamily(state.sel, fam, t('familyTip'), members)
       }
     }
     if (state.scope) return renderDetailCluster(scopeTarget(state.scope))
@@ -1524,7 +1544,7 @@ export function mountSchematic(container: HTMLElement): () => void {
     paintRecv()
     if (first) { state.scope = null; state.sel = null }
     else if (state.scope !== null && scopeTarget(state.scope) === undefined) { state.scope = null; state.sel = null }
-    else if (state.sel !== null && !byId.has(state.sel) && !clusterById.has(state.sel) && !state.sel.startsWith('fam:')) state.sel = null
+    else if (state.sel !== null && !byId.has(state.sel) && !clusterById.has(state.sel) && state.sel !== 'spine' && !state.sel.startsWith('fam:')) state.sel = null
     setMeta()
     renderChips()
     render(first)
@@ -1644,7 +1664,7 @@ export function mountSchematic(container: HTMLElement): () => void {
     for (const id of moduleIds.get(module) ?? []) {
       const n = byId.get(id)
       if (n === undefined) continue
-      for (const cand of [typeof n.cluster === 'string' ? n.cluster : null, 'fam:' + n.group, id]) {
+      for (const cand of [typeof n.cluster === 'string' ? n.cluster : null, n.spine ? 'spine' : null, 'fam:' + n.group, id]) {
         if (cand === null) continue
         const els = container.querySelectorAll(`[data-id="${cssEscape(cand)}"]`)
         if (els.length > 0) { out.push(...els); break }
