@@ -10,7 +10,7 @@
 
 ## 状态
 
-🚧 早期开发——但已经能用。**实时拓扑查看器**(v0.2.x)已交付,每天都在真实 harness 实例上使用;组合工作台与市场面板(v0.3/v0.4)是下一步。已发布到 npm:[`dsh-schematic@0.2.27`](https://www.npmjs.com/package/dsh-schematic),一条命令安装(见[安装](#安装))。GitHub 仓库暂未公开。
+🚧 早期开发——但已经能用。**实时拓扑查看器**(v0.2.x)已交付,每天都在真实 harness 实例上使用;组合工作台与市场面板(v0.3/v0.4)是下一步。已发布到 npm:[`dsh-schematic@0.2.28`](https://www.npmjs.com/package/dsh-schematic),一条命令安装(见[安装](#安装))。GitHub 仓库暂未公开。
 
 ## 这是什么
 
@@ -32,8 +32,10 @@ DeepSeek Harness(dsh)用插件拼出整个 agent 产品:每一项能力——模
 - 一键中英整页切换——描述由进程内 LLM 批量翻译,标识符保持英文。
 
 **运行时活动**——看工作往哪流。
-- 每个回合、模型回复、工具调用、注册表变更、宿主动作、后台任务、服务读取都归因到所属插件;工作流经哪个插件,图就点亮哪个(工具执行/模型流式期间强高亮,之后呼吸光衰减);可折叠的活动时间线记下谁、做了什么、何时、耗时多久。
+- 每个回合、模型回复、工具调用、workflow 运行、注册表变更、宿主动作、后台任务、服务读取都归因到所属插件;工作流经哪个插件,图就点亮哪个(工具执行/模型流式期间强高亮,之后呼吸光衰减);可折叠的活动时间线记下谁、做了什么、何时、耗时多久。
 - 会话选择器默认跟随你正在看的聊天,可过滤 subagent/后台任务。
+- **回放**——时间线的"回放"开关经宿主自己的只读历史 RPC 向前翻页读取会话持久日志,每一事件走同一个直播折叠逻辑重新归因,并归并日记里的 live-only 行:查看页开着之前谁干了什么,一样看得见。
+- **统计**——插件级监控表,累计本实例观察窗内的计数:行数、工具调用与失败、工具耗时(总和+最大)、LLM 完成数,以及各插件此刻在飞的任务。
 
 **输入框旁的星图**——全部展开的网状图缩成浮在聊天输入卡旁的实时缩影。
 - 一包一点,确定性力松弛星系排布;随当前会话的真实运行点亮;悬停浮现插件名片,双击打开完整查看页。
@@ -45,7 +47,7 @@ DeepSeek Harness(dsh)用插件拼出整个 agent 产品:每一项能力——模
 
 ### 生而纯旁观
 
-插件绝不写会话日志(不追加自定义事件类型)、绝不包装或拦截服务返回值、也不给自己的观察者加拓扑边。它展示的一切都读自宿主进程自己的信号——会话事件广播、状态变更、注册表回调、框架的服务读取扩展点。
+插件绝不写会话日志(不追加自定义事件类型)、绝不包装或拦截服务返回值、也不给自己的观察者加拓扑边。它展示的一切都读自宿主进程自己的信号——会话事件广播、状态变更、注册表回调、框架的服务读取扩展点。唯一写的东西是自己的观察日记(`~/.dsh/schematic/journal/`):会话日志不记录的 live-only 观察,落在插件自己的文件里,永远不碰宿主的。
 
 ## 为什么没别人守这层
 
@@ -64,7 +66,7 @@ agent 已经有自己的"创造模式"(运行中检查、重挂插件的自改�
 
 - 不做又一个大而全的市场——安装走官方 `dsh plugin` 机制,市场在这里只是图的供给侧面板;
 - 不做 ComfyUI 式数据流画布——dsh 的组合是"插座与电线"的依赖注入,不是数据流,节点画布是错误的隐喻;
-- 不做会话回放 UI——那一层属于 dsh-synapse 和 dsh-flowglass。
+- 不做会话回放画布——时间线的回放是插件归因("谁干了什么"),不是读对话的方式;消息级回放属于 dsh-synapse 和 dsh-flowglass。
 
 ## 环境要求
 
@@ -89,20 +91,21 @@ agent 已经有自己的"创造模式"(运行中检查、重挂插件的自改�
 
 其他 profile 同理(`dsh plugin --profile tui add dsh-schematic`)。升级是 `dsh plugin --profile web update dsh-schematic`,卸载是 `dsh plugin --profile web remove dsh-schematic`(remove 会同时把它从 bundle 层里摘掉)。
 
-**从源码跑**(维护者;GitHub 仓库暂未公开):`npm install && npm run build` 之后,要么把源码目录软链到 profile 的 `node_modules/dsh-schematic`(按名字挂载;用包自带的 bundle 层或手动 insert 二选一,两者同时用会因 loader 条目 id 重复而整树报错),要么用现成示例 [`dev.cordis.yml`](dev.cordis.yml)——端口 3081,从 harness 源码启动(`node --import tsx/esm apps/cli/src/bin.ts --profile web --patch dev.cordis.yml`)。
+**从源码跑**(维护者;GitHub 仓库暂未公开):`npm install && npm run build` 之后,要么把源码目录软链到 profile 的 `node_modules/dsh-schematic`(按名字挂载;用包自带的 bundle 层或手动 insert 二选一,两者同时用会因 loader 条目 id 重复而整树报错),要么用现成示例 [`dev.cordis.yml`](dev.cordis.yml)——端口 3081,从 harness 源码启动(`node --import tsx/esm apps/cli/src/bin.ts --profile web --patch dev.cordis.yml`);开发实例的会话根已隔离到 `~/.dsh-schematic-dev/`,开发实例的重启与被杀都碰不到你的正式会话。
 
 ## 使用
 
 - **查看器**(`/schematic`)——点标签切换,或用 `?tab=journey|domains|table` 深链;`?expand=all` 一次展开全部分组;页头切换中/英。
 - **星图**——拖动面板移到任意位置;拖右下角手柄调大小;面板上滚动滚轮调底色(0 = 全透明);悬停圆点看插件名片;双击打开全部展开的查看器。
 - **设置** → "插件拓扑"——打开查看器;底色滑杆与滚轮双向实时同步。
+- **时间线**——"回放"开关向前翻页所选会话的历史;"统计"开关换成插件级计数表(只在打开时轮询)。
 - **对话中询问**——查看器里包的详情面板可一键把问题发进新会话,第一问代发。
 
 ## 工作原理
 
 一个包,两半:
 
-- **宿主半边**(`src/index.ts`、`src/activity/`、`src/graph.ts`)——一个 Cordis 插件:读 loader 的插件树,进程内订阅会话事件洪流、agent 状态、注册表回调、internal/get 服务读取瀑布,然后在 harness web 服务器上提供 `/schematic`(查看页)、`/schematic/events`(SSE)、`/schematic/mini.json`(轮询的缩影数据)。
+- **宿主半边**(`src/index.ts`、`src/activity/`、`src/graph.ts`)——一个 Cordis 插件:读 loader 的插件树,进程内订阅会话事件洪流、agent 状态、注册表回调、internal/get 服务读取瀑布,然后在 harness web 服务器上提供 `/schematic`(查看页)、`/schematic/events`(SSE)、`/schematic/mini.json`(轮询的缩影数据)、`/schematic/history`(分页回放)、`/schematic/stats.json`(观察窗插件级计数)。
 - **浏览器半边**(`src/client/`,构建为 `dist/client.js`)——加载进 dsh 的 web SPA:贡献设置分区、替换导航图标、挂载输入卡旁的星图、处理"对话中询问"。独立查看页(`dist/engine.js`)自启动,只与上述宿主路由通信。
 
 ## 开发

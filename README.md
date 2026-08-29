@@ -10,7 +10,7 @@
 
 ## Status
 
-🚧 Early development — but already useful. The **live topology viewer** (v0.2.x) is shipped and in daily use against a real harness instance; the composition workbench and market panel (v0.3/v0.4) are next. Published to npm as [`dsh-schematic@0.2.27`](https://www.npmjs.com/package/dsh-schematic) — one-command install (see [Install](#install)). The GitHub repository is not public yet.
+🚧 Early development — but already useful. The **live topology viewer** (v0.2.x) is shipped and in daily use against a real harness instance; the composition workbench and market panel (v0.3/v0.4) are next. Published to npm as [`dsh-schematic@0.2.28`](https://www.npmjs.com/package/dsh-schematic) — one-command install (see [Install](#install)). The GitHub repository is not public yet.
 
 ## What this is
 
@@ -32,8 +32,10 @@ Shipped so far (details per version in the [changelog](CHANGELOG.md)):
 - One-click EN ⇄ 中文 whole-page switch — descriptions machine-translated in-process, identifiers kept in English.
 
 **Runtime activity** — watch the work flow.
-- Every turn, model reply, tool call, registry change, host action, background job, and service read is attributed to its owning plugin; the graph lights up while the work flows through it (strong glow during tool runs and model streaming, breathing decay after) and a collapsible timeline names who did what, when, and how long it took.
+- Every turn, model reply, tool call, workflow run, registry change, host action, background job, and service read is attributed to its owning plugin; the graph lights up while the work flows through it (strong glow during tool runs and model streaming, breathing decay after) and a collapsible timeline names who did what, when, and how long it took.
 - A session selector defaults to following the chat you are looking at; subagent/background filtering included.
+- **Replay** — the timeline's replay toggle pages back through the session's durable log (over the host's own read-only history RPC), re-attributing each event through the same live fold and merging the journal's live-only rows: who did what from before the viewer was ever open.
+- **Stats** — a per-plugin monitoring table over this instance's live window: rows, tool calls and failures, tool time (sum + max), LLM completions, and what each plugin has in flight right now.
 
 **Composer-side star map** — a miniature of the expanded mesh floating beside the chat input.
 - One dot per package in a deterministic force-relaxed galaxy; dots light with the viewed conversation's real activity; hover raises a plugin card, double-click opens the full viewer.
@@ -45,7 +47,7 @@ Shipped so far (details per version in the [changelog](CHANGELOG.md)):
 
 ### Pure observer, by construction
 
-The plugin never writes to session logs (no custom event types), never wraps or intercepts service return values, and adds no topology edges for its own observers. Everything it shows is read from the host process's own signals — session-event broadcasts, status changes, registry callbacks, and the framework's service-read extension point.
+The plugin never writes to session logs (no custom event types), never wraps or intercepts service return values, and adds no topology edges for its own observers. Everything it shows is read from the host process's own signals — session-event broadcasts, status changes, registry callbacks, and the framework's service-read extension point. The one thing it writes is its own observation journal (`~/.dsh/schematic/journal/`): live-only observations no session log records, kept in the plugin's files, never the host's.
 
 ## Why nobody else covers this layer
 
@@ -64,7 +66,7 @@ The agent already has its own "creative mode" (self-modification tools that insp
 
 - Not another generic marketplace — installation rides on the official `dsh plugin` mechanism; the market here is only the supply panel of the graph.
 - Not a ComfyUI-style dataflow canvas — dsh composition is sockets-and-wires dependency injection, not dataflow; a node canvas would be the wrong metaphor.
-- Not a session replay UI — dsh-synapse and dsh-flowglass own that.
+- Not a conversation-replay canvas — the timeline's replay is plugin attribution ("who did what"), not a way to read conversations; message-level replay belongs to dsh-synapse and dsh-flowglass.
 
 ## Requirements
 
@@ -91,20 +93,21 @@ Other profiles work the same way (`dsh plugin --profile tui add dsh-schematic`).
 
 To uninstall cleanly, also drop the `schematic` row from `dsh.profile.bundles` (the reconcile does that automatically on `remove`).
 
-**From source** (maintainers; the GitHub repo is not public yet): build with `npm install && npm run build`, then either symlink the checkout into the profile's `node_modules/dsh-schematic` (mount by name; keep the package's own bundle layer or your manual insert — never both, duplicate loader entry ids fail the tree), or run the worked example [`dev.cordis.yml`](dev.cordis.yml) — port 3081 against a harness checkout (`node --import tsx/esm apps/cli/src/bin.ts --profile web --patch dev.cordis.yml`).
+**From source** (maintainers; the GitHub repo is not public yet): build with `npm install && npm run build`, then either symlink the checkout into the profile's `node_modules/dsh-schematic` (mount by name; keep the package's own bundle layer or your manual insert — never both, duplicate loader entry ids fail the tree), or run the worked example [`dev.cordis.yml`](dev.cordis.yml) — port 3081 against a harness checkout (`node --import tsx/esm apps/cli/src/bin.ts --profile web --patch dev.cordis.yml`); the dev instance's session root is isolated to `~/.dsh-schematic-dev/`, so dev restarts and kills never touch your live sessions.
 
 ## Usage
 
 - **Viewer** (`/schematic`) — switch tabs or deep-link with `?tab=journey|domains|table`; expand every group at once with `?expand=all`; toggle EN/中文 from the header.
 - **Star map** — drag the panel anywhere; drag the bottom-right grip to resize; scroll the mouse wheel over it to tune the backdrop (0 = fully transparent); hover a dot for the plugin's card; double-click to open the viewer fully expanded.
 - **Settings** → *Plugin topology* — opens the viewer; the backdrop slider two-way syncs with the wheel.
+- **Timeline** — the replay toggle pages back through the selected session's history; the stats toggle swaps in the per-plugin count table (polled only while open).
 - **Ask in chat** — in the viewer, a package's panel offers to ask about it in a fresh conversation, question sent for you.
 
 ## How it works
 
 Two halves in one package:
 
-- **Host half** (`src/index.ts`, `src/activity/`, `src/graph.ts`) — a Cordis plugin that reads the loader's plugin tree, subscribes in-process to the session-event firehose, agent status, registry callbacks, and the internal service-read waterfall, then serves `/schematic` (viewer page), `/schematic/events` (SSE), and `/schematic/mini.json` (polled miniature feed) from the harness web server.
+- **Host half** (`src/index.ts`, `src/activity/`, `src/graph.ts`) — a Cordis plugin that reads the loader's plugin tree, subscribes in-process to the session-event firehose, agent status, registry callbacks, and the internal service-read waterfall, then serves `/schematic` (viewer page), `/schematic/events` (SSE), `/schematic/mini.json` (polled miniature feed), `/schematic/history` (paged replay), and `/schematic/stats.json` (live-window per-plugin counters) from the harness web server.
 - **Browser half** (`src/client/`, bundled to `dist/client.js`) — loads inside the dsh web SPA: contributes the Settings section, dresses the nav icon, mounts the composer-side star map, and handles the ask-in-chat hand-off. The standalone viewer (`dist/engine.js`) is self-booting and talks only to the host routes above.
 
 ## Development
