@@ -94,11 +94,11 @@ export const MINI_TOPOLOGY_CSS = `
 .schMini circle.on {
   fill: var(--c, currentColor); opacity: 1; stroke-width: 0.8;
   transform: scale(1.5);
-  filter: drop-shadow(0 0 2.5px var(--c, currentColor));
+  filter: drop-shadow(0 0 2px var(--c, currentColor)) drop-shadow(0 0 5px var(--c, currentColor));
 }
 .schMini circle.hot {
-  fill: var(--c, currentColor); opacity: 1; stroke-width: 0.8;
-  filter: drop-shadow(0 0 3px var(--c, currentColor)) drop-shadow(0 0 6px var(--c, currentColor));
+  fill: var(--c, currentColor); stroke-width: 0.8;
+  filter: drop-shadow(0 0 2px var(--c, currentColor)) drop-shadow(0 0 5px var(--c, currentColor)) drop-shadow(0 0 11px var(--c, currentColor));
   animation: schMiniBreath 1.5s ease-in-out infinite;
 }
 .schMini.drag { cursor: grabbing; }
@@ -111,7 +111,9 @@ export const MINI_TOPOLOGY_CSS = `
   content: ''; position: absolute; inset: 3px;
   background: repeating-linear-gradient(135deg, currentColor 0 1px, transparent 1px 4px);
 }
-@keyframes schMiniBreath { 0%, 100% { transform: scale(1.5); } 50% { transform: scale(2.1); } }
+/* The twinkle breathes brightness as well as size — opacity pulses the whole
+   lit dot + halo, which reads as a flash at any panel scale. */
+@keyframes schMiniBreath { 0%, 100% { transform: scale(1.6); opacity: 0.8; } 50% { transform: scale(2.3); opacity: 1; } }
 @keyframes schMiniIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }`
 
 /**
