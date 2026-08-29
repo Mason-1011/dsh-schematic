@@ -110,6 +110,40 @@ export interface MiniSnapshot {
   traffic: { m: string | null; key: string }[]
 }
 
+/**
+ * Per-module live counters for the monitoring table (/schematic/stats.json).
+ * Watch window: since this plugin loaded in THIS process — live timeline rows
+ * only. Replayed history, boot-adoption folds, and chunk deltas never count
+ * (chunks produce no rows), so the numbers are what the live feed observed.
+ */
+export interface ModuleStat {
+  /** Owning package's module specifier; null buckets unattributed rows. */
+  module: string | null
+  /** Live timeline rows attributed to the module in the window. */
+  rows: number
+  /** kind 'tool' rows — call starts. */
+  toolCalls: number
+  /** kind 'tool-end' rows with isError. */
+  toolErrors: number
+  /** Sum and max of paired call→result durations (kind 'tool-end' only), ms. */
+  toolMs: number
+  toolMaxMs: number
+  /** kind 'llm' rows — completed assistant messages on the serving provider. */
+  llmCalls: number
+  /** Unix ms of the module's newest row; 0 when none. */
+  lastAt: number
+}
+
+/** /schematic/stats.json response: window counters plus the current in-flight gauge. */
+export interface ModuleStatsSnapshot {
+  /** Watch window start (plugin load time in this process). */
+  since: number
+  /** Rows-busiest first. */
+  stats: ModuleStat[]
+  /** In-flight tool calls right now, by owner module. */
+  inflight: { module: string | null; n: number }[]
+}
+
 export type Frame =
   | { type: 'hello'; proto: number; serverTime: number }
   | {

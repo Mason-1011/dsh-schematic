@@ -370,3 +370,13 @@ export function buildGraph(ctx: Context): LiveGraph {
     eventSubs,
   }
 }
+
+/**
+ * Module specifiers of every currently mounted node — the attribution
+ * currency (tool-owner resolution and module coloring both key on this).
+ * One home for the mapping so the boot snapshot, /graph.json, history
+ * replays, and tools/change refreshes all resolve identically.
+ */
+export function graphModuleNames(ctx: Context): Set<string> {
+  return new Set(buildGraph(ctx).nodes.flatMap((node) => node.module ?? []))
+}

@@ -10,12 +10,13 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { MiniRow, MiniSnapshot, SessionState, TimelineEntry } from './protocol.ts'
+import type { MiniRow, MiniSnapshot, ModuleStat, ModuleStatsSnapshot, SessionState, TimelineEntry } from './protocol.ts'
 import {
   attributeEvent, ownerOfTool, knownToolNames, providerModule, LIVE_ACTION, SERVICE_OWNER,
   WORKFLOW_ENGINE, WORKFLOW_RECORDER, WORKFLOW_TOOLS,
 } from './attribution.ts'
 import type { Journal } from './journal.ts'
+import { graphModuleNames } from '../graph.ts'
 
 /** Structural slice of a Session (out-of-tree: no type import). */
 interface SessionSlice {
@@ -170,6 +171,10 @@ export class ActivityCollector {
   /** Module specifiers currently in the graph, for tool-owner resolution. */
   private mountedModules = new Set<string>()
   private readonly warnedTools = new Set<string>()
+  /** Live per-module counters since plugin load (monitoring table); monotonic. */
+  private readonly stats = new Map<string | null, ModuleStat>()
+  /** Watch-window start: plugin load time in this process. */
+  private readonly bootAt = Date.now()
   private readonly disposers: (() => void)[] = []
 
   private readonly ctx: Context
@@ -467,6 +472,12 @@ export class ActivityCollector {
       // tracked one becomes a host-scope action row attributed to its owner.
       ...Object.keys(LIVE_ACTION).map((name) =>
         on(name, (() => {
+          // Tool (un)registration shifts the graph: re-resolve owners against
+          // it now, so live attribution never waits for a viewer's /graph.json
+          // poll (late-mounting tool plugins otherwise attribute to null).
+          if (name === 'tools/change') {
+            try { this.mountedModules = graphModuleNames(ctx) } catch { /* a failed graph build keeps the last set */ }
+          }
           this.noteAction({ time: Date.now(), kind: 'action', module: LIVE_ACTION[name], name })
         }) as (...args: never[]) => void)),
     )
@@ -756,10 +767,53 @@ export class ActivityCollector {
 
   /** Stamp, ring, and broadcast one attributed entry on the session path. */
   private emitEntry(rec: Rec, entry: TimelineEntry): void {
+    this.noteStat(entry)
     entry.seq = ++this.seqCounter
     rec.timeline.push(entry)
     if (rec.timeline.length > TIMELINE_CAP) rec.timeline.splice(0, rec.timeline.length - TIMELINE_CAP)
     for (const listener of this.listeners) listener.onActivity(rec.state.sessionId, entry)
+  }
+
+  /**
+   * Count one live row into its module's monotonic counters. Called only from
+   * emitEntry, so boot-adoption folds and replayRows never accrue — the
+   * monitoring table observes exactly what the live feed emitted.
+   */
+  private noteStat(entry: TimelineEntry): void {
+    let s = this.stats.get(entry.module)
+    if (s === undefined) {
+      s = { module: entry.module, rows: 0, toolCalls: 0, toolErrors: 0, toolMs: 0, toolMaxMs: 0, llmCalls: 0, lastAt: 0 }
+      this.stats.set(entry.module, s)
+    }
+    s.rows++
+    if (entry.kind === 'tool') s.toolCalls++
+    else if (entry.kind === 'tool-end') {
+      if (entry.isError === true) s.toolErrors++
+      if (entry.durationMs !== undefined) {
+        s.toolMs += entry.durationMs
+        s.toolMaxMs = Math.max(s.toolMaxMs, entry.durationMs)
+      }
+    } else if (entry.kind === 'llm') s.llmCalls++
+    s.lastAt = entry.time
+  }
+
+  /**
+   * Monitoring-table snapshot: window counters (rows-busiest first) plus the
+   * in-flight gauge aggregated across all sessions' pending tool calls.
+   */
+  statsSnapshot(): ModuleStatsSnapshot {
+    const inflight = new Map<string | null, number>()
+    for (const rec of this.recs.values()) {
+      for (const pending of rec.inflight.values()) {
+        inflight.set(pending.module, (inflight.get(pending.module) ?? 0) + 1)
+      }
+    }
+    return {
+      since: this.bootAt,
+      stats: [...this.stats.values()].sort((a, b) =>
+        b.rows - a.rows || (a.module ?? '').localeCompare(b.module ?? '')),
+      inflight: [...inflight].map(([module, n]) => ({ module, n })),
+    }
   }
 
   /** Owner module for a tool name, warning once per unknown name. */

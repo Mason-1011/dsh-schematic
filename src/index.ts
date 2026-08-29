@@ -17,7 +17,7 @@ import { join } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
-import { buildGraph } from './graph.ts'
+import { buildGraph, graphModuleNames } from './graph.ts'
 import { translateBatch, HttpError } from './llm.ts'
 import { applyActivity } from './activity/index.ts'
 import { journalRows } from './activity/replay.ts'
@@ -132,7 +132,7 @@ async function handleHistory(
   // the first request after boot with no /graph.json poll in between.
   // Same mapping noteModules applies on the /graph.json path: module strings,
   // never the node objects themselves.
-  activity.noteGraphModules(new Set(buildGraph(ctx).nodes.flatMap((node) => node.module ?? [])))
+  activity.noteGraphModules(graphModuleNames(ctx))
   const events = response.result.value.events.map((entry) => entry.event)
   const rows = activity.collector.replayRows(events)
   if (events.length > 0 && activity.journalDir !== null) {
@@ -213,6 +213,12 @@ export function apply(ctx: Context): void {
         }
         if (sub === '/history') {
           return await handleHistory(ctx, activity, new URL(req.url ?? '/', 'http://x'), res)
+        }
+        if (sub === '/stats.json') {
+          // Counters grow on every live row, so this is its own endpoint the
+          // viewer polls only while the stats view is open — the graph poll's
+          // structural-signature gate would freeze growing counters.
+          return sendJson(res, 200, activity.collector.statsSnapshot())
         }
         return send(res, 404, 'text/plain', 'not found')
       }

@@ -129,6 +129,17 @@ const T: Record<string, { en: string; zh: string }> = {
   actRepOldest:    { en: 'start of log reached', zh: '已到日志开头' },
   actRepLoading:   { en: 'reading history…', zh: '读取历史中…' },
   actRepFail:      { en: 'history read failed', zh: '历史读取失败' },
+  actStats:        { en: 'stats', zh: '统计' },
+  actStatsTitle:   { en: 'per-plugin activity counts of this instance\'s live window (replay excluded)', zh: '本实例观察窗内各插件的活动计数（不含回放）' },
+  actStPlugin:     { en: 'plugin', zh: '插件' },
+  actStRows:       { en: 'rows', zh: '行' },
+  actStTool:       { en: 'tool', zh: '工具' },
+  actStErr:        { en: 'err', zh: '败' },
+  actStMs:         { en: 'tool time', zh: '耗时' },
+  actStLlm:        { en: 'llm', zh: 'LLM' },
+  actStNow:        { en: 'now', zh: '此刻' },
+  actStLast:       { en: 'last', zh: '最近' },
+  actStEmpty:      { en: 'no session activity observed in this window yet', zh: '观察窗内还没有会话活动' },
   akUser:          { en: 'user message', zh: '用户消息' },
   akLlm:           { en: 'model reply', zh: '模型回复' },
   akTool:          { en: 'tool call', zh: '工具调用' },
@@ -479,6 +490,12 @@ const CSS = `
 .sch .actList .actTail.err { color: var(--s8); }
 .sch .actList .actMore { align-self: center; margin: 2px 0; font-size: 11px; color: var(--ink-2); background: none; border: 1px solid var(--border); border-radius: 6px; padding: 1px 10px; cursor: pointer; }
 .sch .actList .actMore:hover { color: var(--ink-1); border-color: var(--ink-3); }
+.sch .actList .actStRow { display: grid; grid-template-columns: minmax(0, 1.7fr) repeat(6, minmax(0, 1fr)); gap: 4px; align-items: center; font-size: 11px; padding: 1px 6px; color: var(--ink-2); }
+.sch .actList .actStRow.hd { color: var(--ink-3); font-size: 10px; border-bottom: 1px solid var(--border); margin-bottom: 2px; }
+.sch .actList .actStRow span:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
+.sch .actList .actStRow .er { color: var(--s8); }
+.sch .actList .actStRow .nw { color: var(--ink-1); font-weight: 600; }
+.sch .actList .actStRow .md.un { opacity: 0.55; }
 `
 
 /** Idempotent stylesheet injection. */
@@ -589,6 +606,7 @@ export function mountSchematic(container: HTMLElement): () => void {
     <button class="chip subBtn" aria-pressed="false" title="${t('actSubTitle')}">${t('actSub')}</button>
     <button class="chip svcBtn" aria-pressed="true" title="${t('actSvcTitle')}">${t('actSvc')}</button>
     <button class="chip repBtn" aria-pressed="false" title="${t('actRepTitle')}">${t('actRep')}</button>
+    <button class="chip statBtn" aria-pressed="false" title="${t('actStatsTitle')}">${t('actStats')}</button>
     <span class="legend">${t('actLiveHint')}</span>
     <button class="actFold" aria-pressed="true">▾</button>
   </div>
@@ -632,6 +650,7 @@ export function mountSchematic(container: HTMLElement): () => void {
   const dispose = (): void => {
     disposed = true
     window.clearInterval(pollTimer)
+    window.clearInterval(statTimer)
     window.clearTimeout(toastTimer)
     disposeExtra?.()
     ac.abort()
@@ -1844,6 +1863,8 @@ export function mountSchematic(container: HTMLElement): () => void {
     replay: false,
     /** one page at a time; older pages append (rows are newest-first). */
     hist: { rows: [] as any[], hasMore: false, nextBeforeSeq: null as number | null, loading: false, failed: false },
+    /** stats toggle: the actList swaps to the per-plugin monitoring table. */
+    stats: false,
     /** module → { until, strong }; strong entries survive the TTL sweeper. */
     active: new Map<string, { until: number; strong: boolean }>(),
     /** last known llm provider module per session (for streaming highlight). */
@@ -2006,6 +2027,7 @@ export function mountSchematic(container: HTMLElement): () => void {
 
   /** Full redraw of the timeline list from the shown sessions' rings + host actions. */
   function renderActList(): void {
+    if (act.stats) { renderStatsTable(); return }
     const rows: any[] = [...act.actions]
     for (const id of shownSessions()) rows.push(...(act.timelines.get(id) ?? []))
     const visible = act.showSvc ? rows : rows.filter((e) => e.kind !== 'svc')
@@ -2064,6 +2086,53 @@ export function mountSchematic(container: HTMLElement): () => void {
     }
     act.hist.loading = false
     renderActList()
+  }
+
+  /** Last /schematic/stats.json snapshot; null until the stats view first loads. */
+  let statSnap: any = null
+  /** stats-view poll handle; runs only while the view is open. */
+  let statTimer = 0
+  /** Compact duration for the stats table (sums run to minutes). */
+  const fmtDur = (ms: number): string =>
+    ms >= 60_000 ? `${Math.floor(ms / 60_000)}m${Math.round((ms % 60_000) / 1000)}s`
+      : ms >= 10_000 ? `${Math.round(ms / 1000)}s`
+        : ms >= 1_000 ? `${(ms / 1000).toFixed(1)}s`
+          : `${ms}ms`
+
+  /** The per-plugin monitoring table: window counters + in-flight gauge. */
+  function renderStatsTable(): void {
+    if (statSnap === null) {
+      actList.innerHTML = `<span class="emptyRow">${t('actRepLoading')}</span>`
+      return
+    }
+    const inflight = new Map<string | null, number>(
+      (statSnap.inflight ?? []).map((x: any) => [x.module as string | null, x.n as number]))
+    const cell = (s: any): string => {
+      const badge = s.module !== null
+        ? `<span class="md"${moduleColorCss(s.module) ? ` style="--mc: ${moduleColorCss(s.module)}"` : ''}>${esc(moduleShort(s.module))}</span>`
+        : `<span class="md un">?</span>`
+      const now = inflight.get(s.module) ?? 0
+      return `<div class="actStRow"${s.module !== null ? ` data-module="${esc(s.module)}"` : ''} title="${esc(s.module ?? '')} · ${t('actStLast')} ${s.lastAt > 0 ? fmtTime(s.lastAt) : '—'}">`
+        + `${badge}<span>${s.rows}</span><span>${s.toolCalls}</span><span${s.toolErrors > 0 ? ' class="er"' : ''}>${s.toolErrors}</span>`
+        + `<span title="${t('actStMs')} max ${fmtDur(s.toolMaxMs)}">${fmtDur(s.toolMs)}</span><span>${s.llmCalls}</span>`
+        + `<span${now > 0 ? ' class="nw"' : ''}>${now}</span></div>`
+    }
+    const stats: any[] = statSnap.stats ?? []
+    actList.innerHTML = stats.length === 0
+      ? `<span class="emptyRow">${t('actStEmpty')}</span>`
+      : `<div class="actStRow hd"><span>${t('actStPlugin')}</span><span>${t('actStRows')}</span><span>${t('actStTool')}</span>`
+        + `<span>${t('actStErr')}</span><span>${t('actStMs')}</span><span>${t('actStLlm')}</span><span>${t('actStNow')}</span></div>`
+        + stats.map(cell).join('')
+  }
+
+  /** Refresh the stats snapshot; a failed fetch keeps the last good one. */
+  const fetchStats = async (): Promise<void> => {
+    try {
+      const r = await fetch('/schematic/stats.json', { cache: 'no-store' })
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      statSnap = await r.json()
+    } catch { /* keep the last good snapshot; next tick retries */ }
+    if (act.stats) renderStatsTable()
   }
 
   /** Header line: followed session title + running state + in-flight tools. */
@@ -2132,6 +2201,19 @@ export function mountSchematic(container: HTMLElement): () => void {
     if (act.replay) void fetchHistory(true)
     else renderActList()
   })
+  const statBtn = $('.statBtn')
+  statBtn.addEventListener('click', () => {
+    act.stats = !act.stats
+    statBtn.setAttribute('aria-pressed', String(act.stats))
+    // Poll only while the table is on; the counters are process-lifetime
+    // monotonic, so a stopped view loses nothing (next open re-fetches).
+    window.clearInterval(statTimer)
+    if (act.stats) {
+      void fetchStats()
+      statTimer = window.setInterval(() => { void fetchStats() }, 2000)
+    }
+    renderActList()
+  })
   // The load-earlier button lives inside actList, which is rebuilt wholesale —
   // delegate. It carries no data-module, so the row-click handler ignores it.
   actList.addEventListener('click', (ev) => {
@@ -2141,8 +2223,9 @@ export function mountSchematic(container: HTMLElement): () => void {
   // Clicking a row performs the same selection a pill click performs above:
   // the module's detail panel opens in whatever tab is showing. Rows whose
   // module is unmounted or unattributed carry no data-module and stay inert.
+  // Stats-table rows share the interaction (closest matches both classes).
   actList.addEventListener('click', (ev) => {
-    const row = (ev.target as HTMLElement).closest('.actRow') as HTMLElement | null
+    const row = (ev.target as HTMLElement).closest('.actRow, .actStRow') as HTMLElement | null
     const module = row?.dataset.module
     if (module === undefined) return
     const n = byId.get(moduleIds.get(module)?.[0] ?? '')
@@ -2419,6 +2502,8 @@ export function mountSchematic(container: HTMLElement): () => void {
     svcBtn.textContent = t('actSvc')
     svcBtn.title = t('actSvcTitle')
     repBtn.textContent = t('actRep')
+    statBtn.textContent = t('actStats')
+    statBtn.title = t('actStatsTitle')
     repBtn.title = t('actRepTitle')
     $('.legend').textContent = t('actLiveHint')
     updateExpBtn()
