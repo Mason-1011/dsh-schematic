@@ -19,7 +19,10 @@
  * it anywhere on screen (persisted; dropping it back beside the card
  * re-docks), the bottom-right grip resizes width and height freely, and the
  * galaxy layout re-flows to the new aspect. Dots render as hollow rings that
- * fill and glow when lit.
+ * fill and glow when lit — uncategorized packages wear star tints at
+ * degree-scaled brightness, a freshly lit dot ripples once, and the panel
+ * wears a deep-space backdrop whose opacity the mouse wheel adjusts (both
+ * themes follow the SPA's color-scheme via light-dark()).
  */
 
 /**
@@ -52,6 +55,8 @@ const SIZE_KEY = 'sch.mini.size'
 const POS_KEY = 'sch.mini.pos'
 /** v0.2.22 stored one corner-scale factor; migrated on first load. */
 const SCALE_KEY = 'sch.mini.scale'
+/** Backdrop opacity (wheel-adjusted, 0–1). */
+const BG_KEY = 'sch.mini.bg'
 /** Gap between the composer card's right edge and the panel. */
 const GAP = 12
 /** Weak-light TTL — same breathing-decay window the viewer page uses. */
@@ -63,20 +68,27 @@ const POLL_MS = 1200
 
 export const MINI_TOPOLOGY_CSS = `
 .schMini {
-  --mc1: #2a78d6; --mc2: #eb6834; --mc3: #1baf7a; --mc4: #eda100;
-  --mc5: #e87ba4; --mc6: #008300; --mc7: #4a3aa7; --mc8: #e34948;
+  /* Family palette: light-dark() follows the SPA's color-scheme on <html>, so
+     the panel matches the app theme even when it disagrees with the OS. */
+  --mc1: light-dark(#2a78d6, #3987e5); --mc2: light-dark(#eb6834, #d95926);
+  --mc3: light-dark(#1baf7a, #199e70); --mc4: light-dark(#eda100, #c98500);
+  --mc5: light-dark(#e87ba4, #d55181); --mc6: light-dark(#008300, #0a930a);
+  --mc7: light-dark(#4a3aa7, #9085e9); --mc8: light-dark(#e34948, #e66767);
+  /* Star tints: a muted color-temperature spread so uncategorized packages
+     read as a starfield instead of a gray dot matrix. */
+  --star1: light-dark(#3b6ea8, #9fc0e8); --star2: light-dark(#5a6474, #aeb8c8);
+  --star3: light-dark(#7a7263, #d8d0c0); --star4: light-dark(#946f2f, #cf9f56);
+  --star5: light-dark(#9c5f57, #d4918a); --star6: light-dark(#6b5a96, #a99bd6);
   position: fixed; z-index: 12;
   cursor: grab; border-radius: 8px; overflow: hidden; user-select: none;
-  background: rgba(127, 127, 127, 0.08);
   color: var(--dsw-alias-label-secondary, #888);
-  box-shadow: inset 0 0 0 1px rgba(127, 127, 127, 0.25);
+  /* Deep-space backdrop: both layers scale with --bgA (the wheel-adjusted
+     opacity), so 0 restores the fully transparent panel. */
+  background-color: color-mix(in srgb, light-dark(#f2f5fa, #0a0f1c) calc(var(--bgA, 0.88) * 100%), transparent);
+  background-image: radial-gradient(130% 110% at 50% 42%, color-mix(in srgb, light-dark(#ffffff, #1c2740) calc(var(--bgA, 0.88) * 60%), transparent), transparent 68%);
+  backdrop-filter: blur(3px) saturate(1.05);
+  box-shadow: inset 0 0 0 1px light-dark(rgba(15, 23, 42, 0.1), rgba(148, 163, 184, 0.22));
   animation: schMiniIn 0.8s ease;
-}
-@media (prefers-color-scheme: dark) {
-  .schMini {
-    --mc1: #3987e5; --mc2: #d95926; --mc3: #199e70; --mc4: #c98500;
-    --mc5: #d55181; --mc6: #0a930a; --mc7: #9085e9; --mc8: #e66767;
-  }
 }
 .schMini svg { display: block; width: 100%; height: 100%; }
 /* The constellation's own layer: render() replaces only this subtree, so the
@@ -84,10 +96,11 @@ export const MINI_TOPOLOGY_CSS = `
    document loses pointer capture, which would strand a resize drag). */
 .schMiniStage { position: absolute; inset: 0; }
 .schMini line { stroke: currentColor; stroke-opacity: 0.16; stroke-width: 0.5; }
-/* Idle dots are hollow rings; lighting fills the ring and blooms a glow. */
+/* Idle dots are hollow rings at a degree-scaled brightness (--m: hubs shine,
+   leaves dim); lighting fills the ring and blooms a glow. */
 .schMini circle {
   fill: none; stroke: var(--c, currentColor); stroke-opacity: 0.9; stroke-width: 0.5;
-  opacity: 0.9;
+  opacity: calc(0.5 + 0.5 * var(--m, 1));
   transition: opacity 0.3s ease, transform 0.3s ease, filter 0.3s ease, fill 0.3s ease;
   transform-box: fill-box; transform-origin: center;
 }
@@ -111,6 +124,19 @@ export const MINI_TOPOLOGY_CSS = `
   content: ''; position: absolute; inset: 3px;
   background: repeating-linear-gradient(135deg, currentColor 0 1px, transparent 1px 4px);
 }
+/* One-shot expanding ring when a dot lights; removed on animationend. */
+.schMiniPing {
+  fill: none; stroke-width: 0.9; pointer-events: none;
+  transform-box: fill-box; transform-origin: center;
+  animation: schMiniPing 0.8s ease-out forwards;
+}
+/* Transient percentage readout while the wheel adjusts the backdrop. */
+.schMiniBg {
+  position: absolute; top: 4px; left: 6px; z-index: 1;
+  font: 500 10px/1.4 ui-monospace, monospace; letter-spacing: 0.5px;
+  opacity: 0; transition: opacity 0.25s ease; pointer-events: none;
+}
+@keyframes schMiniPing { from { transform: scale(1); opacity: 0.85; } to { transform: scale(3); opacity: 0; } }
 /* The twinkle breathes brightness as well as size — opacity pulses the whole
    lit dot + halo, which reads as a flash at any panel scale. */
 @keyframes schMiniBreath { 0%, 100% { transform: scale(1.6); opacity: 0.8; } 50% { transform: scale(2.3); opacity: 1; } }
@@ -243,7 +269,11 @@ function layout(graph: any, vh: number): string {
   units.forEach((n, i) => {
     const [x, y] = pos.get(String(n.id)) ?? [W / 2, VH / 2]
     const v = n.spine === true ? '--mc1' : CAT_VAR[n.category as string]
-    circles += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${rad[i].toFixed(2)}" data-module="${n.module}"${v === undefined ? '' : ` style="--c: var(${v})"`}/>`
+    // Uncategorized packages wear a deterministic star tint instead of the
+    // page ink; every dot carries its magnitude for the brightness ramp.
+    const c = v ?? `--star${1 + Math.floor(hash01(String(n.module)) * 6)}`
+    const m = Math.sqrt(Math.min(1, (deg.get(String(n.id)) ?? 0) / maxDeg)).toFixed(2)
+    circles += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${rad[i].toFixed(2)}" data-module="${n.module}" style="--c: var(${c}); --m: ${m}"/>`
   })
   return `<svg viewBox="0 0 ${W} ${VH.toFixed(1)}" preserveAspectRatio="xMidYMid meet">${lines}${circles}</svg>`
 }
@@ -277,7 +307,7 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
   document.body.appendChild(host)
 
   /** Field-diagnosis seat: row-kind tail + live counters, read from the console. */
-  const debug = { frames: [] as string[], polls: 0, ok: -1, active: 0, dots: 0, graphAt: 0, w: W, h: PANEL_H }
+  const debug = { frames: [] as string[], polls: 0, ok: -1, active: 0, dots: 0, graphAt: 0, w: W, h: PANEL_H, bg: 0.88 }
   ;(window as unknown as Record<string, unknown>).__schMini = debug
 
   /** Panel size in CSS px, persisted so the panel stays what the user set. */
@@ -351,6 +381,38 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
     window.addEventListener('pointercancel', up, true)
   })
 
+  /** Backdrop opacity: wheel over the panel adjusts, persisted per browser. */
+  let bgA = 0.88
+  try {
+    // Number(null) is 0 — only a present key counts, or a never-touched
+    // browser would boot with a fully transparent backdrop.
+    const raw = localStorage.getItem(BG_KEY)
+    if (raw !== null) {
+      const v = Number(raw)
+      if (Number.isFinite(v) && v >= 0 && v <= 1) bgA = v
+    }
+  } catch { /* an unreadable store keeps the default backdrop */ }
+  const bgHint = document.createElement('div')
+  bgHint.className = 'schMiniBg'
+  host.appendChild(bgHint)
+  let bgHintTimer = 0
+  const applyBg = (): void => {
+    host.style.setProperty('--bgA', bgA.toFixed(2))
+    bgHint.textContent = `${Math.round(bgA * 100)}%`
+    bgHint.style.opacity = '1'
+    window.clearTimeout(bgHintTimer)
+    bgHintTimer = window.setTimeout(() => { bgHint.style.opacity = '0' }, 700)
+    try { localStorage.setItem(BG_KEY, bgA.toFixed(2)) } catch { /* an unwritable store loses the setting, not the panel */ }
+    host.title = `${label} · ⌀ ${Math.round(bgA * 100)}%`
+    debug.bg = bgA
+  }
+  applyBg()
+  host.addEventListener('wheel', (e) => {
+    e.preventDefault()
+    bgA = Math.min(1, Math.max(0, bgA - e.deltaY * 0.0012))
+    applyBg()
+  }, { passive: false })
+
   /**
    * Free placement: null while docked to the composer card; once set, the
    * panel stays where the user dropped it (clamped into the viewport) until
@@ -410,11 +472,29 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
   const active = new Map<string, { until: number; strong: boolean }>()
   let currentSession = readCurrentSession()
 
+  /** Modules whose dots are currently lit — dark→lit transitions ripple once. */
+  const litMods = new Set<string>()
+  /** One-shot expanding ring at a freshly lit dot, in its own stroke color. */
+  const ripple = (el: Element): void => {
+    const svg = stage.querySelector('svg')
+    const color = getComputedStyle(el).stroke
+    if (svg === null || color === '' || color === 'none') return
+    const ping = document.createElementNS('http://www.w3.org/2000/svg', 'circle')
+    ping.setAttribute('class', 'schMiniPing')
+    for (const a of ['cx', 'cy', 'r']) ping.setAttribute(a, el.getAttribute(a) ?? '')
+    ping.style.stroke = color
+    ping.addEventListener('animationend', () => ping.remove())
+    svg.appendChild(ping)
+  }
   const paint = (): void => {
     const now = Date.now()
     for (const [module, els] of dotsByModule) {
       const info = active.get(module)
       const lit = info !== undefined && (info.strong || info.until >= now)
+      if (lit && !litMods.has(module)) {
+        litMods.add(module)
+        for (const el of els) ripple(el)
+      } else if (!lit) litMods.delete(module)
       for (const el of els) {
         el.classList.toggle('on', lit && !(info?.strong ?? false))
         el.classList.toggle('hot', lit && (info?.strong ?? false))
