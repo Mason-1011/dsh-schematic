@@ -83,16 +83,18 @@ type SchematicCtx = {
 }
 
 /**
- * 16px three-node mark, per user spec: equal circles, only the rightmost
- * (the chain's end) solid-filled, the other two outlined rings — joined by
- * two rods bending 90°, never one straight line (a straight diagonal reads
- * as one bar; the hollow/solid contrast survives 16px rasterization where
- * graded ring sizes blur into mush). The SPA's SettingsRoot hardcodes nav
+ * 16px three-node mark, per user spec: equal circles whose relative
+ * positions follow the Steam mark — rings high, the solid dot low at the
+ * rod's end, laid out along Steam's ~45° diagonal (mirrored so the solid
+ * stays the chain's rightmost end). The two rods share one gentle knee,
+ * never a 90° corner (reads boxy) and never one straight line (reads as a
+ * single bar); the hollow/solid contrast survives 16px rasterization where
+ * graded ring sizes blur into mush. The SPA's SettingsRoot hardcodes nav
  * icons by section id (unknown ids get the generic gear), so the dresser
  * hides that svg and inserts this one in its place, copying its class for
  * identical spacing.
  */
-const NAV_ICON_SVG = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true"><line x1="3.8" y1="5.8" x2="3.8" y2="10.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><line x1="5.8" y1="12.2" x2="10.2" y2="12.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="3.8" cy="3.8" r="2" stroke="currentColor" stroke-width="1.4"/><circle cx="3.8" cy="12.2" r="2" stroke="currentColor" stroke-width="1.4"/><circle cx="12.2" cy="12.2" r="2" fill="currentColor"/></svg>'
+const NAV_ICON_SVG = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true"><line x1="4.52" y1="4.98" x2="6.08" y2="8.02" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><line x1="8.78" y1="10.72" x2="10.62" y2="11.68" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="3.6" cy="3.2" r="2" stroke="currentColor" stroke-width="1.4"/><circle cx="7" cy="9.8" r="2" stroke="currentColor" stroke-width="1.4"/><circle cx="12.4" cy="12.6" r="2" fill="currentColor"/></svg>'
 
 /**
  * Swap the settings-nav icon for our section. The nav only exists while the
