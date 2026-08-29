@@ -389,11 +389,23 @@ export function mountMiniTopology(t: (key: 'miniTitle' | 'tipLinks') => string, 
       }
     }
   } catch { /* an unreadable store just keeps the default size */ }
+  /** Effective on-screen size: the saved or dragged size re-clamped into the
+   *  space the current placement mode has — the viewport when free, the strip
+   *  beside the card when docked. The viewBox follows it, so a size the window
+   *  can no longer host shrinks into view instead of letterboxing or hiding
+   *  and grows back when room returns; SIZE_KEY keeps what the user chose. */
+  let shownW = panelW
+  let shownH = panelH
+  const paintSize = (): void => {
+    host.style.width = `${Math.round(shownW)}px`
+    host.style.height = `${Math.round(shownH)}px`
+    debug.w = Math.round(shownW)
+    debug.h = Math.round(shownH)
+  }
   const applySize = (): void => {
-    host.style.width = `${Math.round(panelW)}px`
-    host.style.height = `${Math.round(panelH)}px`
-    debug.w = Math.round(panelW)
-    debug.h = Math.round(panelH)
+    shownW = panelW
+    shownH = panelH
+    paintSize()
   }
   applySize()
 
@@ -515,8 +527,8 @@ export function mountMiniTopology(t: (key: 'miniTitle' | 'tipLinks') => string, 
     const move = (ev: PointerEvent): void => {
       if (ev.buttons === 0) return
       freePos = {
-        x: Math.max(2, Math.min(window.innerWidth - panelW - 2, ox + ev.clientX - sx)),
-        y: Math.max(2, Math.min(window.innerHeight - panelH - 2, oy + ev.clientY - sy)),
+        x: Math.max(2, Math.min(window.innerWidth - shownW - 2, ox + ev.clientX - sx)),
+        y: Math.max(2, Math.min(window.innerHeight - shownH - 2, oy + ev.clientY - sy)),
       }
       anchor()
     }
@@ -627,7 +639,7 @@ export function mountMiniTopology(t: (key: 'miniTitle' | 'tipLinks') => string, 
   /** viewBox height the last render drew; aspect changes diff against it. */
   let drawnVh = 0
   /** viewBox height matching the panel's aspect, floored at the base H. */
-  const viewH = (): number => Math.max((W * panelH) / panelW, H)
+  const viewH = (): number => Math.max((W * shownH) / shownW, H)
   const render = (): void => {
     if (lastGraph === null) return
     drawnVh = viewH()
@@ -826,6 +838,17 @@ export function mountMiniTopology(t: (key: 'miniTitle' | 'tipLinks') => string, 
     if (dirty) paint()
   }, 600)
 
+  /** Adopt a placement-clamped size; skipping no-op ticks keeps the 800ms
+   *  anchor steady, and re-solving only when the aspect truly moved keeps the
+   *  constellation edge-to-edge at whatever size is on screen. */
+  const fitShown = (w: number, h: number): void => {
+    if (w === shownW && h === shownH) return
+    shownW = w
+    shownH = h
+    paintSize()
+    if (Math.abs(viewH() - drawnVh) > 2) render()
+  }
+
   /** Follow the composer card's rect and the SPA's current session. */
   const anchor = (): void => {
     const next = readCurrentSession()
@@ -837,22 +860,32 @@ export function mountMiniTopology(t: (key: 'miniTitle' | 'tipLinks') => string, 
     }
     if (freePos !== null) {
       // Free placement: hold the dropped origin, clamped into the viewport —
-      // the card's coming and going no longer moves or hides the panel.
+      // the card's coming and going no longer moves or hides the panel. A
+      // size the window can no longer host shrinks to fit here too.
+      fitShown(Math.max(MIN_W, Math.min(panelW, window.innerWidth - 4)),
+        Math.max(MIN_H, Math.min(panelH, window.innerHeight - 4)))
       host.style.display = ''
-      host.style.left = `${Math.round(Math.max(2, Math.min(window.innerWidth - panelW - 2, freePos.x)))}px`
-      host.style.top = `${Math.round(Math.max(2, Math.min(window.innerHeight - panelH - 2, freePos.y)))}px`
+      host.style.left = `${Math.round(Math.max(2, Math.min(window.innerWidth - shownW - 2, freePos.x)))}px`
+      host.style.top = `${Math.round(Math.max(2, Math.min(window.innerHeight - shownH - 2, freePos.y)))}px`
       return
     }
     const card = findCard()
     if (card === null) { host.style.display = 'none'; hideTip(); return }
     const r = card.getBoundingClientRect()
     const left = Math.round(r.right + GAP)
-    if (left + panelW > window.innerWidth - 8) { host.style.display = 'none'; hideTip(); return }
+    const strip = window.innerWidth - 8 - left
+    // The strip beside the card hosts at least the floor width on any window
+    // this SPA is usable on; narrower than that there is genuinely no room.
+    if (strip < MIN_W) { host.style.display = 'none'; hideTip(); return }
+    // A saved panel wider than the strip shrinks into it instead of
+    // vanishing — the stored size grows back once the window leaves room.
+    fitShown(Math.max(MIN_W, Math.min(panelW, strip)),
+      Math.max(MIN_H, Math.min(panelH, window.innerHeight - 4)))
     host.style.display = ''
     host.style.left = `${left}px`
     // A panel taller than the card centers on it; one taller than the window
     // pins inside the viewport instead of overflowing past its top edge.
-    host.style.top = `${Math.round(Math.max(2, Math.min(window.innerHeight - panelH - 2, r.top + (r.height - panelH) / 2)))}px`
+    host.style.top = `${Math.round(Math.max(2, Math.min(window.innerHeight - shownH - 2, r.top + (r.height - shownH) / 2)))}px`
   }
   anchor()
   const anchorTimer = window.setInterval(anchor, ANCHOR_MS)
