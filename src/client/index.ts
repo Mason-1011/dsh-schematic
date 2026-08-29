@@ -83,12 +83,13 @@ type SchematicCtx = {
 }
 
 /**
- * 16px atom-link-atom: two atoms (ring + nucleus) joined by a bond — the
- * plugin-wiring glyph. The SPA's SettingsRoot hardcodes nav icons by section
- * id (unknown ids get the generic gear), so the dresser hides that svg and
- * inserts this one in its place, copying its class for identical spacing.
+ * 16px three-node chain: three circles (the biggest is the hub) joined by two
+ * round-cap wires on the diagonal — a minimal plugin graph at Steam-mark
+ * weight. The SPA's SettingsRoot hardcodes nav icons by section id (unknown
+ * ids get the generic gear), so the dresser hides that svg and inserts this
+ * one in its place, copying its class for identical spacing.
  */
-const NAV_ICON_SVG = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true"><circle cx="4.25" cy="8" r="2.6" stroke="currentColor" stroke-width="1.4"/><circle cx="11.75" cy="8" r="2.6" stroke="currentColor" stroke-width="1.4"/><circle cx="4.25" cy="8" r="0.8" fill="currentColor"/><circle cx="11.75" cy="8" r="0.8" fill="currentColor"/><line x1="6.9" y1="8" x2="9.1" y2="8" stroke="currentColor" stroke-width="1.4"/></svg>'
+const NAV_ICON_SVG = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true"><line x1="4.56" y1="4.56" x2="6.66" y2="6.66" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><line x1="9.34" y1="9.34" x2="10.59" y2="10.59" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="3.5" cy="3.5" r="1.5" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="8" r="1.9" stroke="currentColor" stroke-width="1.4"/><circle cx="12" cy="12" r="2" stroke="currentColor" stroke-width="1.4"/></svg>'
 
 /**
  * Swap the settings-nav icon for our section. The nav only exists while the
