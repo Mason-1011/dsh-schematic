@@ -43,7 +43,7 @@ export function applyActivity(ctx: Context): ActivitySetup {
   const flush = setInterval(() => {
     const rows = traffic.drain()
     if (rows.length > 0) collector.noteTraffic(rows)
-  }, TRAFFIC_FLUSH_MS) as unknown as { unref(): void }
+  }, TRAFFIC_FLUSH_MS)
   flush.unref()
   ctx.effect(() => {
     const stop = collector.start()

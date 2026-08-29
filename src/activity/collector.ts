@@ -11,7 +11,10 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { MiniRow, MiniSnapshot, SessionState, TimelineEntry } from './protocol.ts'
-import { attributeEvent, ownerOfTool, knownToolNames, providerModule, LIVE_ACTION, SERVICE_OWNER } from './attribution.ts'
+import {
+  attributeEvent, ownerOfTool, knownToolNames, providerModule, LIVE_ACTION, SERVICE_OWNER,
+  WORKFLOW_ENGINE, WORKFLOW_RECORDER, WORKFLOW_TOOLS,
+} from './attribution.ts'
 
 /** Structural slice of a Session (out-of-tree: no type import). */
 interface SessionSlice {
@@ -53,12 +56,38 @@ interface JobsServiceSlice {
   onJobDone(listener: (snapshot: JobSlice, owner: unknown) => void | PromiseLike<void>): () => void
 }
 
+/** Structural slice of a workflow/* live event's run payload. */
+interface WfRunSlice {
+  id: string
+  meta: { name: string }
+}
+
+/** Structural slice of a workflow/agent-* live event payload (end adds outcome). */
+interface WfAgentSlice {
+  seq: number
+  label: string
+  phase?: string
+  outcome?: string
+}
+
+/** Structural slice of a workflow/end result payload. */
+interface WfResultSlice {
+  stopReason: string
+  error?: string
+}
+
 /** Per-session fold state; timeline is a ring buffer newest-last. */
 interface Rec {
   state: SessionState
   timeline: TimelineEntry[]
   /** callId → tool name + start envelope time + owner module, popped by tool/result. */
   inflight: Map<string, { name: string; startAt: number; module: string | null }>
+  /** Open workflow run ids (recorded or live) — keeps the engine lit while any is open. */
+  wfRuns: Set<string>
+  /** Run id → run-start time, for run-end durations (replays compute the same answer). */
+  wfRunAt: Map<string, number>
+  /** `${runId}:${agentSeq}` → agent-start time, for agent-end durations. */
+  wfAgentAt: Map<string, number>
   /** Provider route module of the current/last model request, for streaming highlight. */
   lastLlmModule: string | null
   dirty: boolean
@@ -96,6 +125,20 @@ function toolResultCallId(data: unknown): string | undefined {
   return undefined
 }
 
+/** Whitespace-flatten and truncate a live workflow message for a row snippet. */
+function clip(text: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim()
+  return flat.length > 80 ? `${flat.slice(0, 80)}…` : flat
+}
+
+/** Evict the oldest entries when a live-only map outgrows its cap. */
+function capMap<K, V>(map: Map<K, V>, max: number): void {
+  while (map.size > max) map.delete(map.keys().next().value as K)
+}
+
+/** Cap for live-only workflow bookkeeping (runs end and self-delete; this bounds crash leftovers). */
+const WF_CAP = 128
+
 export class ActivityCollector {
   private readonly recs = new Map<string, Rec>()
   private readonly listeners = new Set<ActivityListener>()
@@ -107,6 +150,12 @@ export class ActivityCollector {
   private readonly trafficRing: { m: string | null; key: string; at: number }[] = []
   /** Job ids already carrying a start row, so registry re-lists never duplicate them. */
   private readonly seenJobs = new Set<string>()
+  /** Workflow run id → owning session ('' once orphaned); resolved once at the run's first live event. */
+  private readonly wfOwner = new Map<string, string>()
+  /** Run ids the workflow tool records durably — their live event twins are suppressed. */
+  private readonly wfRecorded = new Set<string>()
+  /** Run id → live start arrival time, for live settlement durations. */
+  private readonly wfLiveAt = new Map<string, number>()
   /** Module specifiers currently in the graph, for tool-owner resolution. */
   private mountedModules = new Set<string>()
   private readonly warnedTools = new Set<string>()
@@ -219,6 +268,100 @@ export class ActivityCollector {
     this.noteAction(entry)
   }
 
+  /**
+   * The session with the most recent in-flight workflow-tool call (LIFO).
+   * Workflow events carry no session id; the tool call that started the run
+   * spans its whole lifetime, so it is a reliable association anchor.
+   */
+  private scanWorkflowOwner(): { rec: Rec; module: string } | null {
+    let best: { rec: Rec; module: string; at: number } | null = null
+    for (const rec of this.recs.values()) {
+      for (const call of rec.inflight.values()) {
+        if (!WORKFLOW_TOOLS.has(call.module ?? '')) continue
+        if (best === null || call.startAt > best.at) best = { rec, module: call.module ?? '', at: call.startAt }
+      }
+    }
+    return best === null ? null : { rec: best.rec, module: best.module }
+  }
+
+  /**
+   * Resolve a run's owning session, sticky per run id: the first live event
+   * scans, everything after reuses the answer ('' marks an orphan — never
+   * re-adopted, because a later unrelated workflow call would mis-own it).
+   * A scan that finds the recording tool also marks the run as durably
+   * recorded, suppressing its live twins.
+   */
+  private wfResolve(runId: string): Rec | null {
+    const owner = this.wfOwner.get(runId)
+    if (owner !== undefined) {
+      const rec = owner === '' ? undefined : this.recs.get(owner)
+      return rec ?? null
+    }
+    const found = this.scanWorkflowOwner()
+    this.wfOwner.set(runId, found?.rec.state.sessionId ?? '')
+    capMap(this.wfOwner, WF_CAP)
+    if (found?.module === WORKFLOW_RECORDER) this.wfRecorded.add(runId)
+    return found?.rec ?? null
+  }
+
+  /** Live run start: adopt the run's lighting, and row it only if unrecorded. */
+  private noteWorkflowStart(run: WfRunSlice): void {
+    const rec = this.wfResolve(run.id)
+    this.wfLiveAt.set(run.id, Date.now())
+    capMap(this.wfLiveAt, WF_CAP)
+    if (rec === null) return
+    rec.wfRuns.add(run.id)
+    if (!this.wfRecorded.has(run.id)) {
+      this.emitEntry(rec, { time: Date.now(), kind: 'workflow', module: WORKFLOW_ENGINE, name: run.meta.name })
+    }
+    this.touch(rec)
+  }
+
+  /** Live progress row (phase / log) — no durable twin exists, so always emitted. */
+  private noteWorkflowRow(run: WfRunSlice, detail: string): void {
+    const rec = this.wfResolve(run.id)
+    const entry: TimelineEntry = { time: Date.now(), kind: 'workflow', module: WORKFLOW_ENGINE, name: run.meta.name, snippet: detail }
+    if (rec === null) {
+      this.noteAction(entry)
+      return
+    }
+    this.emitEntry(rec, entry)
+  }
+
+  /** Live agent fan-out row — suppressed for recorded runs (their durable twin lands via the firehose). */
+  private noteWorkflowAgentRow(run: WfRunSlice, name: string, snippet?: string, isError = false): void {
+    if (this.wfRecorded.has(run.id)) return
+    const rec = this.wfResolve(run.id)
+    const entry: TimelineEntry = { time: Date.now(), kind: 'workflow', module: WORKFLOW_ENGINE, name }
+    if (snippet !== undefined && snippet !== '') entry.snippet = snippet
+    if (isError) entry.isError = true
+    if (rec === null) {
+      this.noteAction(entry)
+      return
+    }
+    this.emitEntry(rec, entry)
+  }
+
+  /** Live settlement: close the run's lighting; row it only if unrecorded. */
+  private noteWorkflowEnd(run: WfRunSlice, result: WfResultSlice): void {
+    const rec = this.wfResolve(run.id)
+    const startedAt = this.wfLiveAt.get(run.id)
+    this.wfLiveAt.delete(run.id)
+    const entry: TimelineEntry = { time: Date.now(), kind: 'workflow-end', module: WORKFLOW_ENGINE, name: run.meta.name }
+    entry.snippet = result.error !== undefined ? `${result.stopReason}: ${clip(result.error)}` : result.stopReason
+    if (startedAt !== undefined) entry.durationMs = Math.max(0, entry.time - startedAt)
+    if (result.stopReason === 'error') entry.isError = true
+    const recorded = this.wfRecorded.has(run.id)
+    if (rec === null) {
+      // Orphaned AND unrecorded: the actions ring keeps the run visible.
+      if (!recorded) this.noteAction(entry)
+      return
+    }
+    rec.wfRuns.delete(run.id)
+    if (!recorded) this.emitEntry(rec, entry)
+    this.touch(rec)
+  }
+
   /** Broadcast service-read deltas to the sinks; the mini ring keeps a short tail. */
   noteTraffic(rows: { module: string | null; key: string; n: number }[]): void {
     const at = Date.now()
@@ -308,6 +451,30 @@ export class ActivityCollector {
       if (agents !== undefined) for (const agent of agents.list()) this.noteJobStarts(jobs.list(agent))
       this.noteJobStarts(jobs.list())
     }
+    // Workflow runs are live engine events with no session id in the payload:
+    // rows associate through the in-flight workflow-tool call, attribute to
+    // the engine provider, and never duplicate — runs the workflow tool
+    // records land through the session firehose as tool-workflow/* events
+    // (folded below), so their live twins stay silent; phase/log progress has
+    // no durable twin and always rides this feed.
+    this.disposers.push(
+      on('workflow/start', ((run: WfRunSlice) => { this.noteWorkflowStart(run) }) as (...args: never[]) => void),
+      on('workflow/phase', ((run: WfRunSlice, title: string) => {
+        this.noteWorkflowRow(run, title)
+      }) as (...args: never[]) => void),
+      on('workflow/log', ((run: WfRunSlice, message: string) => {
+        this.noteWorkflowRow(run, clip(message))
+      }) as (...args: never[]) => void),
+      on('workflow/agent-start', ((run: WfRunSlice, agent: WfAgentSlice) => {
+        this.noteWorkflowAgentRow(run, `#${agent.seq} ${agent.label}`, agent.phase)
+      }) as (...args: never[]) => void),
+      on('workflow/agent-end', ((run: WfRunSlice, agent: WfAgentSlice) => {
+        this.noteWorkflowAgentRow(run, `#${agent.seq} ${agent.label}`, agent.outcome, agent.outcome === 'failed')
+      }) as (...args: never[]) => void),
+      on('workflow/end', ((run: WfRunSlice, result: WfResultSlice) => {
+        this.noteWorkflowEnd(run, result)
+      }) as (...args: never[]) => void),
+    )
     return () => {
       for (const dispose of this.disposers.splice(0)) dispose()
       for (const rec of this.recs.values()) {
@@ -332,6 +499,9 @@ export class ActivityCollector {
       },
       timeline: [],
       inflight: new Map(),
+      wfRuns: new Set(),
+      wfRunAt: new Map(),
+      wfAgentAt: new Map(),
       lastLlmModule: null,
       dirty: true,
       timer: undefined,
@@ -372,6 +542,9 @@ export class ActivityCollector {
     let pairedModule: string | null = null
     let pairedDuration: number | undefined
     let callModule: string | null = null
+    // For tool-workflow/agent-end and run-end: the paired start's duration.
+    let wfAgentDuration: number | undefined
+    let wfRunDuration: number | undefined
     switch (type) {
       case 'session/title': {
         const title = (data as { title?: unknown } | null)?.title
@@ -425,6 +598,40 @@ export class ActivityCollector {
         }
         break
       }
+      // Durable workflow records the workflow tool appends to this session's
+      // log; the engine's live twins of these are suppressed (see start()).
+      case 'tool-workflow/run-start': {
+        const d = (data ?? {}) as { runId?: unknown }
+        if (typeof d.runId === 'string') {
+          rec.wfRuns.add(d.runId)
+          rec.wfRunAt.set(d.runId, time)
+        }
+        break
+      }
+      case 'tool-workflow/agent-start': {
+        const d = (data ?? {}) as { runId?: unknown; seq?: unknown }
+        if (typeof d.runId === 'string' && typeof d.seq === 'number') rec.wfAgentAt.set(`${d.runId}:${d.seq}`, time)
+        break
+      }
+      case 'tool-workflow/agent-end': {
+        const d = (data ?? {}) as { runId?: unknown; seq?: unknown }
+        if (typeof d.runId === 'string' && typeof d.seq === 'number') {
+          const startedAt = rec.wfAgentAt.get(`${d.runId}:${d.seq}`)
+          if (startedAt !== undefined) wfAgentDuration = Math.max(0, time - startedAt)
+          rec.wfAgentAt.delete(`${d.runId}:${d.seq}`)
+        }
+        break
+      }
+      case 'tool-workflow/run-end': {
+        const d = (data ?? {}) as { runId?: unknown }
+        if (typeof d.runId === 'string') {
+          const startedAt = rec.wfRunAt.get(d.runId)
+          if (startedAt !== undefined) wfRunDuration = Math.max(0, time - startedAt)
+          rec.wfRunAt.delete(d.runId)
+          rec.wfRuns.delete(d.runId)
+        }
+        break
+      }
       default:
         break
     }
@@ -447,6 +654,13 @@ export class ActivityCollector {
     if (attributed.model !== undefined) entry.model = attributed.model
     if (type === 'tool/call') entry.module = callModule
     if (type === 'tool/result') entry.module = pairedModule
+    if (wfAgentDuration !== undefined) entry.durationMs = wfAgentDuration
+    if (wfRunDuration !== undefined) entry.durationMs = wfRunDuration
+    this.emitEntry(rec, entry)
+  }
+
+  /** Stamp, ring, and broadcast one attributed entry on the session path. */
+  private emitEntry(rec: Rec, entry: TimelineEntry): void {
     entry.seq = ++this.seqCounter
     rec.timeline.push(entry)
     if (rec.timeline.length > TIMELINE_CAP) rec.timeline.splice(0, rec.timeline.length - TIMELINE_CAP)
@@ -477,6 +691,7 @@ export class ActivityCollector {
     rec.state.activeModules = [
       ...new Set([
         ...[...rec.inflight.values()].flatMap((call) => (call.module !== null ? [call.module] : [])),
+        ...(rec.wfRuns.size > 0 ? [WORKFLOW_ENGINE] : []),
         ...(rec.state.streaming && rec.lastLlmModule !== null ? [rec.lastLlmModule] : []),
       ]),
     ]

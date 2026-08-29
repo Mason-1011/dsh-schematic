@@ -182,6 +182,27 @@ export function providerModule(provider: string): string {
 }
 
 /**
+ * The workflow engine provider that dispatches workflow/* live events. Rows
+ * sourced from those events attribute here; runs the workflow tool records
+ * attribute to that tool instead (EVENT_OWNER_PREFIX 'tool-workflow/').
+ */
+export const WORKFLOW_ENGINE = `${DSH}/dsh-workflow-worker-thread`
+
+/** The tool that projects its runs into the owning session's log as tool-workflow/* events. */
+export const WORKFLOW_RECORDER = `${DSH}/dsh-tool-workflow`
+
+/**
+ * Tool modules whose in-flight calls may own a workflow run: the live
+ * workflow/* events carry no session id, so association scans for the most
+ * recent of these. A run owned by the recorder is durably recorded — its
+ * live event twins are suppressed so every transition lands as one row.
+ */
+export const WORKFLOW_TOOLS: ReadonlySet<string> = new Set([
+  WORKFLOW_RECORDER,
+  `${DSH}/dsh-tool-ralph`,
+])
+
+/**
  * Attribute one session event to a module. Returns the owner module for
  * highlight purposes, or null when the type is unknown — never throws.
  */
@@ -223,6 +244,14 @@ function textSnippet(content: unknown): string {
   }
   const joined = parts.join(' ').replace(/\s+/g, ' ').trim()
   return joined.length > 80 ? `${joined.slice(0, 80)}…` : joined
+}
+
+/** `#seq label` display name for a workflow-agent record's identity fields. */
+function wfAgentLabel(d: { seq?: unknown; label?: unknown }): string | undefined {
+  const seq = typeof d.seq === 'number' ? `#${d.seq}` : ''
+  const label = typeof d.label === 'string' ? d.label : ''
+  const joined = `${seq} ${label}`.trim()
+  return joined !== '' ? joined : undefined
 }
 
 export interface AttributedEvent {
@@ -293,6 +322,33 @@ export function attributeEvent(type: string, data: unknown): AttributedEvent | n
       return { kind: 'subagent', module: ownerOfEvent(type) }
     case 'session/title':
       return { kind: 'title', module: ownerOfEvent(type) }
+    // Workflow runs the workflow tool records into the owning session's log.
+    // The engine's live workflow/* twins of start/agent/end are suppressed
+    // for these runs; phase/log have no durable twin and stay live-only.
+    case 'tool-workflow/run-start':
+      return { kind: 'workflow', module: ownerOfEvent(type), name: typeof d.name === 'string' ? d.name : undefined }
+    case 'tool-workflow/agent-start':
+      return {
+        kind: 'workflow',
+        module: ownerOfEvent(type),
+        name: wfAgentLabel(d),
+        snippet: typeof d.phase === 'string' ? d.phase : undefined,
+      }
+    case 'tool-workflow/agent-end':
+      return {
+        kind: 'workflow',
+        module: ownerOfEvent(type),
+        name: wfAgentLabel(d),
+        snippet: typeof d.outcome === 'string' ? d.outcome : undefined,
+        isError: d.outcome === 'failed',
+      }
+    case 'tool-workflow/run-end':
+      return {
+        kind: 'workflow-end',
+        module: ownerOfEvent(type),
+        snippet: typeof d.stopReason === 'string' ? d.stopReason : undefined,
+        isError: d.stopReason === 'error',
+      }
     default:
       if (type.startsWith('compaction/')) return { kind: 'compaction', module: ownerOfEvent(type) }
       return null

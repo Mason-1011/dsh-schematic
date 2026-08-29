@@ -25,8 +25,9 @@ export interface SessionState {
   streaming: boolean
   inflightTools: string[]
   /**
-   * Modules with work in flight right now (in-flight tool owners, plus the
-   * streaming provider while chunks flow). The page re-hydrates its
+   * Modules with work in flight right now (in-flight tool owners, the
+   * streaming provider while chunks flow, and the workflow engine while one
+   * of the session's workflow runs is open). The page re-hydrates its
    * highlight map from this on (re)connect, so a page opened mid-run lights
    * up immediately instead of waiting for the next event.
    */
@@ -61,8 +62,15 @@ export interface TimelineEntry {
     | 'action'
     /** Host-scope background-job lifecycle row from the jobs registry's own callbacks. */
     | 'job'
+    /**
+     * Workflow-run progress row (start / phase / log / agent fan-out): durable
+     * tool-workflow records, or live workflow/* events for unrecorded runs.
+     */
+    | 'workflow'
+    /** Workflow-run settlement row; downgrades the run's strong glow like a tool-end. */
+    | 'workflow-end'
   module: string | null
-  /** Tool name, turn ordinal label, provider id, or RPC/live-event name depending on kind. */
+  /** Tool name, turn ordinal label, provider id, RPC/live-event name, or workflow run/agent label depending on kind. */
   name?: string
   /** Short user-text snippet for kind 'user'. */
   snippet?: string

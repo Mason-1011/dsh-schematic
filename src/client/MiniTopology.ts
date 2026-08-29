@@ -611,12 +611,20 @@ export function mountMiniTopology(t: (key: 'miniTitle' | 'tipLinks') => string, 
     if (prev !== undefined && prev.strong) active.set(module, { until: Date.now() + TTL_MS, strong: false })
     paint()
   }
+  /** Modules whose strong glow a state frame granted; a frame that drops them downgrades them. */
+  const stateHeld = new Set<string>()
   /** Rebuild the highlight map from one session's full state (connect, or a state frame). */
   const hydrate = (s: any): void => {
     if (s.sessionId !== currentSession) return
     const mods: string[] = Array.isArray(s.activeModules) ? s.activeModules : []
     for (const m of mods) {
+      stateHeld.add(m)
       if (!active.has(m)) active.set(m, { until: Number.POSITIVE_INFINITY, strong: true })
+    }
+    for (const m of stateHeld) {
+      if (mods.includes(m)) continue
+      stateHeld.delete(m)
+      if (active.get(m)?.strong === true) active.set(m, { until: Date.now() + TTL_MS, strong: false })
     }
     const llm = mods.find((m) => m.includes('/dsh-llm'))
     if (llm !== undefined && s.streaming === true) active.set(llm, { until: Number.POSITIVE_INFINITY, strong: true })
@@ -630,7 +638,7 @@ export function mountMiniTopology(t: (key: 'miniTitle' | 'tipLinks') => string, 
     if (row.m === null || row.m === '') return
     if (row.s === null) { touch(row.m, false); return }
     if (row.s !== currentSession || row.k === 'user') return
-    if (row.k === 'tool-end' || row.k === 'llm') downgrade(row.m)
+    if (row.k === 'tool-end' || row.k === 'llm' || row.k === 'workflow-end') downgrade(row.m)
     else touch(row.m, row.k === 'tool')
   }
 

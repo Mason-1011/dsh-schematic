@@ -135,6 +135,8 @@ const T: Record<string, { en: string; zh: string }> = {
   akTitle:         { en: 'title', zh: '标题' },
   akAction:        { en: 'action', zh: '操作' },
   akJob:           { en: 'background job', zh: '后台任务' },
+  akWorkflow:      { en: 'workflow', zh: '工作流' },
+  akWorkflowEnd:   { en: 'workflow done', zh: '工作流完成' },
   akSvc:           { en: 'service access', zh: '服务访问' },
   actSvc:          { en: 'service access', zh: '服务访问' },
   actSvcTitle:     { en: 'show service-access rows: which package actually accessed which ctx service key (the provide/inject wiring in use)', zh: '显示服务访问行:哪个包真的访问了哪个 ctx 服务键(实际发生作用的提供/注入接线)' },
@@ -1835,7 +1837,8 @@ export function mountSchematic(container: HTMLElement): () => void {
   const AK: Record<string, string> = {
     user: 'akUser', llm: 'akLlm', tool: 'akTool', 'tool-end': 'akToolEnd', turn: 'akTurn',
     approval: 'akApproval', todo: 'akTodo', compaction: 'akCompaction', retry: 'akRetry',
-    subagent: 'akSubagent', title: 'akTitle', action: 'akAction', job: 'akJob', svc: 'akSvc',
+    subagent: 'akSubagent', title: 'akTitle', action: 'akAction', job: 'akJob',
+    workflow: 'akWorkflow', 'workflow-end': 'akWorkflowEnd', svc: 'akSvc',
   }
   const sessSel = $('.sessSel') as unknown as HTMLSelectElement
   const subBtn = $('.subBtn')
@@ -1905,6 +1908,12 @@ export function mountSchematic(container: HTMLElement): () => void {
   }
 
   /**
+   * Modules whose strong glow a state frame granted; the next frame that
+   * drops them (a workflow run ended, a tool call settled) downgrades them,
+   * since no per-row event necessarily will.
+   */
+  const stateHeld = new Set<string>()
+  /**
    * Hydrate in-flight highlights from a session state: in-flight tool owners
    * light up strong (a page opened mid-run, or a missed activity frame), and
    * the streaming provider lights while chunks flow. The has() guard means a
@@ -1922,9 +1931,16 @@ export function mountSchematic(container: HTMLElement): () => void {
       // downgrade like a tool-end, or the strong entry never expires
       act.active.set(llmMod, { until: Date.now() + LIVE_TTL_MS, strong: false })
     }
-    for (const m of Array.isArray(s.activeModules) ? s.activeModules : []) {
+    const mods: string[] = Array.isArray(s.activeModules) ? s.activeModules : []
+    for (const m of mods) {
+      stateHeld.add(m)
       if (act.active.has(m)) continue
       act.active.set(m, { until: Number.POSITIVE_INFINITY, strong: true })
+    }
+    for (const m of stateHeld) {
+      if (mods.includes(m)) continue
+      stateHeld.delete(m)
+      if (act.active.get(m)?.strong) act.active.set(m, { until: Date.now() + LIVE_TTL_MS, strong: false })
     }
   }
 
@@ -1963,6 +1979,8 @@ export function mountSchematic(container: HTMLElement): () => void {
       case 'turn': return '#' + (e.name ?? '')
       case 'action': return (e.name ?? '') + (e.durationMs !== undefined ? ` · ${e.durationMs}ms` : '') + (e.isError ? ' ✕' : '')
       case 'job': return (e.name ?? '') + (e.snippet !== undefined ? ` · ${e.snippet}` : '') + (e.durationMs !== undefined ? ` · ${e.durationMs}ms` : '') + (e.isError ? ' ✕' : '')
+      case 'workflow': return [e.name, e.snippet].filter(Boolean).join(' · ') + (e.durationMs !== undefined ? ` · ${e.durationMs}ms` : '') + (e.isError ? ' ✕' : '')
+      case 'workflow-end': return (e.snippet ?? '') + (e.durationMs !== undefined ? ` · ${e.durationMs}ms` : '') + (e.isError ? ' ✕' : '')
       case 'svc': return e.name ?? ''
       default: return e.name ?? ''
     }
@@ -1986,9 +2004,9 @@ export function mountSchematic(container: HTMLElement): () => void {
         : ''
       const label = t(AK[e.kind] ?? AK.turn)
       // every non-action row arrived as one session/event broadcast — hover
-      // names the units that received it (host-domain actions, job rows, and
-      // service reads did not broadcast)
-      const tip = e.kind === 'action' || e.kind === 'job' || e.kind === 'svc' ? '' : recvTip()
+      // names the units that received it (host-domain actions, job rows,
+      // service reads, and live workflow rows did not broadcast)
+      const tip = e.kind === 'action' || e.kind === 'job' || e.kind === 'svc' || e.kind === 'workflow' || e.kind === 'workflow-end' ? '' : recvTip()
       return `<div class="actRow${e.isError ? ' err' : ''}"${e.module ? ` data-module="${esc(e.module)}"` : ''}${tip ? ` title="${esc(tip)}"` : ''}><time>${fmtTime(e.time)}</time>${badge}<span class="tx">${label} · ${esc(detailOf(e))}</span></div>`
     }).join('')
   }
@@ -2188,10 +2206,11 @@ export function mountSchematic(container: HTMLElement): () => void {
       if (ring.length > 200) ring.splice(0, ring.length - 200)
       act.timelines.set(sessionId, ring)
       if (entry.kind === 'llm') act.lastLlm.set(sessionId, entry.module)
-      // highlight only what the timeline shows; a tool-end or a completed
-      // assistant message downgrades strong (touchModule would keep it strong)
+      // highlight only what the timeline shows; a tool-end, a completed
+      // assistant message, or a settled workflow run downgrades strong
+      // (touchModule would keep it strong)
       if (entry.module !== null && entry.kind !== 'user' && shownEntry(sessionId)) {
-        if (entry.kind === 'tool-end' || entry.kind === 'llm') {
+        if (entry.kind === 'tool-end' || entry.kind === 'llm' || entry.kind === 'workflow-end') {
           act.active.set(entry.module, { until: Date.now() + LIVE_TTL_MS, strong: false })
           paintActivity()
         } else {
