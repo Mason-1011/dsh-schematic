@@ -122,6 +122,13 @@ const T: Record<string, { en: string; zh: string }> = {
   actIdle:         { en: 'idle', zh: '空闲' },
   actLiveHint:     { en: 'glow = active now', zh: '发光 = 正在活动' },
   actReconnected:  { en: 'activity stream reconnected', zh: '活动流已重连' },
+  actRep:          { en: 'replay', zh: '回放' },
+  actRepTitle:     { en: 'replay this session\'s log history below the live rows', zh: '在实时行下方回放该会话的日志历史' },
+  actRepDivider:   { en: 'live above · replayed below', zh: '以上实时 · 以下回放' },
+  actRepMore:      { en: 'load earlier', zh: '加载更早' },
+  actRepOldest:    { en: 'start of log reached', zh: '已到日志开头' },
+  actRepLoading:   { en: 'reading history…', zh: '读取历史中…' },
+  actRepFail:      { en: 'history read failed', zh: '历史读取失败' },
   akUser:          { en: 'user message', zh: '用户消息' },
   akLlm:           { en: 'model reply', zh: '模型回复' },
   akTool:          { en: 'tool call', zh: '工具调用' },
@@ -467,6 +474,11 @@ const CSS = `
 .sch .actRow[data-module]:hover .tx { color: var(--ink-1); }
 .sch .actRow.err .tx { color: var(--s8); }
 .sch .actList .emptyRow { color: var(--ink-3); font-size: 11.5px; }
+.sch .actList .actDiv { color: var(--ink-3); font-size: 10.5px; text-align: center; margin: 4px 0 2px; letter-spacing: 0.04em; }
+.sch .actList .actTail { color: var(--ink-3); font-size: 11px; text-align: center; padding: 2px 0; }
+.sch .actList .actTail.err { color: var(--s8); }
+.sch .actList .actMore { align-self: center; margin: 2px 0; font-size: 11px; color: var(--ink-2); background: none; border: 1px solid var(--border); border-radius: 6px; padding: 1px 10px; cursor: pointer; }
+.sch .actList .actMore:hover { color: var(--ink-1); border-color: var(--ink-3); }
 `
 
 /** Idempotent stylesheet injection. */
@@ -576,6 +588,7 @@ export function mountSchematic(container: HTMLElement): () => void {
     <span class="spacer" style="flex:1"></span>
     <button class="chip subBtn" aria-pressed="false" title="${t('actSubTitle')}">${t('actSub')}</button>
     <button class="chip svcBtn" aria-pressed="true" title="${t('actSvcTitle')}">${t('actSvc')}</button>
+    <button class="chip repBtn" aria-pressed="false" title="${t('actRepTitle')}">${t('actRep')}</button>
     <span class="legend">${t('actLiveHint')}</span>
     <button class="actFold" aria-pressed="true">▾</button>
   </div>
@@ -1827,6 +1840,10 @@ export function mountSchematic(container: HTMLElement): () => void {
     includeSub: false,
     /** service-read rows visible in the timeline (toggle on the activity bar). */
     showSvc: true,
+    /** replay toggle: history pages of the shown session render below the live rows. */
+    replay: false,
+    /** one page at a time; older pages append (rows are newest-first). */
+    hist: { rows: [] as any[], hasMore: false, nextBeforeSeq: null as number | null, loading: false, failed: false },
     /** module → { until, strong }; strong entries survive the TTL sweeper. */
     active: new Map<string, { until: number; strong: boolean }>(),
     /** last known llm provider module per session (for streaming highlight). */
@@ -1994,11 +2011,7 @@ export function mountSchematic(container: HTMLElement): () => void {
     const visible = act.showSvc ? rows : rows.filter((e) => e.kind !== 'svc')
     visible.sort((a, b) => b.time - a.time)
     const shown = visible.slice(0, 60)
-    if (shown.length === 0) {
-      actList.innerHTML = `<span class="emptyRow">${t('actEmpty')}</span>`
-      return
-    }
-    actList.innerHTML = shown.map((e) => {
+    const rowHtml = (e: any): string => {
       const badge = e.module !== null
         ? `<span class="md"${moduleColorCss(e.module) ? ` style="--mc: ${moduleColorCss(e.module)}"` : ''}>${esc(moduleShort(e.module))}</span>`
         : ''
@@ -2008,7 +2021,49 @@ export function mountSchematic(container: HTMLElement): () => void {
       // service reads, and live workflow rows did not broadcast)
       const tip = e.kind === 'action' || e.kind === 'job' || e.kind === 'svc' || e.kind === 'workflow' || e.kind === 'workflow-end' ? '' : recvTip()
       return `<div class="actRow${e.isError ? ' err' : ''}"${e.module ? ` data-module="${esc(e.module)}"` : ''}${tip ? ` title="${esc(tip)}"` : ''}><time>${fmtTime(e.time)}</time>${badge}<span class="tx">${label} · ${esc(detailOf(e))}</span></div>`
-    }).join('')
+    }
+    let html = ''
+    if (shown.length > 0) html = shown.map(rowHtml).join('')
+    else html = `<span class="emptyRow">${t('actEmpty')}</span>`
+    // Replay section: history pages of the followed session below the live rows.
+    if (act.replay) {
+      const h = act.hist
+      const tail = h.loading
+        ? `<div class="actTail">${t('actRepLoading')}</div>`
+        : h.failed
+          ? `<div class="actTail err">${t('actRepFail')}</div>`
+          : h.hasMore
+            ? `<button class="actMore">${t('actRepMore')}</button>`
+            : `<div class="actTail">${t('actRepOldest')}</div>`
+      html += `<div class="actDiv">${t('actRepDivider')}</div>` + h.rows.map(rowHtml).join('') + tail
+    }
+    actList.innerHTML = html
+  }
+
+  /** Fetch one history page of the shown session (reset=true restarts at the tail). */
+  const fetchHistory = async (reset: boolean): Promise<void> => {
+    const sid = act.pinned ?? act.followId
+    if (sid === '') return
+    if (reset) {
+      act.hist = { rows: [], hasMore: false, nextBeforeSeq: null, loading: true, failed: false }
+    } else {
+      act.hist.loading = true
+      act.hist.failed = false
+    }
+    renderActList()
+    try {
+      const before = reset || act.hist.nextBeforeSeq === null ? '' : `&beforeSeq=${act.hist.nextBeforeSeq}`
+      const r = await fetch(`/schematic/history?session=${encodeURIComponent(sid)}${before}`)
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      const page = await r.json() as { rows: any[]; hasMore: boolean; nextBeforeSeq: number | null }
+      act.hist.rows = reset ? page.rows : act.hist.rows.concat(page.rows)
+      act.hist.hasMore = page.hasMore
+      act.hist.nextBeforeSeq = page.nextBeforeSeq
+    } catch {
+      act.hist.failed = true
+    }
+    act.hist.loading = false
+    renderActList()
   }
 
   /** Header line: followed session title + running state + in-flight tools. */
@@ -2058,6 +2113,7 @@ export function mountSchematic(container: HTMLElement): () => void {
     renderActHead()
     renderActList()
     paintActivity()
+    if (act.replay) void fetchHistory(true)
   })
   subBtn.addEventListener('click', () => {
     act.includeSub = !act.includeSub
@@ -2068,6 +2124,19 @@ export function mountSchematic(container: HTMLElement): () => void {
     act.showSvc = !act.showSvc
     svcBtn.setAttribute('aria-pressed', String(act.showSvc))
     renderActList()
+  })
+  const repBtn = $('.repBtn')
+  repBtn.addEventListener('click', () => {
+    act.replay = !act.replay
+    repBtn.setAttribute('aria-pressed', String(act.replay))
+    if (act.replay) void fetchHistory(true)
+    else renderActList()
+  })
+  // The load-earlier button lives inside actList, which is rebuilt wholesale —
+  // delegate. It carries no data-module, so the row-click handler ignores it.
+  actList.addEventListener('click', (ev) => {
+    if ((ev.target as HTMLElement).closest('.actMore') === null) return
+    if (!act.hist.loading) void fetchHistory(false)
   })
   // Clicking a row performs the same selection a pill click performs above:
   // the module's detail panel opens in whatever tab is showing. Rows whose
@@ -2109,6 +2178,7 @@ export function mountSchematic(container: HTMLElement): () => void {
       renderSessSel()
       renderActHead()
       renderActList()
+      if (act.replay) void fetchHistory(true)
     }
   }
 
@@ -2348,6 +2418,8 @@ export function mountSchematic(container: HTMLElement): () => void {
     sessSel.title = t('sessSelTitle')
     svcBtn.textContent = t('actSvc')
     svcBtn.title = t('actSvcTitle')
+    repBtn.textContent = t('actRep')
+    repBtn.title = t('actRepTitle')
     $('.legend').textContent = t('actLiveHint')
     updateExpBtn()
     $('.zoomFit').textContent = t('fit')

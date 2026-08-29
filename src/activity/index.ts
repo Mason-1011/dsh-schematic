@@ -23,6 +23,8 @@ export interface ActivitySetup {
   events: EventsLayer
   /** Cumulative service-read counts, merged into graph.json. */
   traffic: TrafficTap
+  /** The journal directory, or null when journaling is disabled (history then serves log rows only). */
+  journalDir: string | null
   /** Refresh the graph-module set after every graph rebuild. */
   noteGraphModules: (modules: Iterable<string>) => void
 }
@@ -69,6 +71,7 @@ export function applyActivity(ctx: Context): ActivitySetup {
     collector,
     events,
     traffic,
+    journalDir: journal === null ? null : journal.dir,
     noteGraphModules: (modules) => {
       collector.noteGraphModules(modules)
       rpc.ensure()

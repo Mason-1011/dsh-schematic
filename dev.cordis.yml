@@ -4,10 +4,19 @@
 # profile directory, where the dev checkout is symlinked:
 #   ln -sfn ~/Projects/dsh-schematic ~/.dsh/profiles/web/node_modules/dsh-schematic
 # Do NOT also insert it here — duplicate loader entry ids fail the whole tree.
-# This patch only overrides the port: 3081 dev vs the long-lived 3080.
 # Usage, from the harness checkout:
 #   node --import tsx/esm apps/cli/src/bin.ts --profile web --patch <this file>
+#
+# Port 3081 dev vs the long-lived 3080. The session root is ALSO redirected:
+# without this, the dev instance reads and — on kill, via its shutdown flush —
+# REWRITES the shared ~/.dsh/sessions store the 3080 instance is actively
+# appending to (one kill misframed a live session's log: everything packed
+# into a single zstd frame, which every later boot rejects). With a private
+# root the dev instance only ever touches sessions it created itself.
 - id: webserver
   config:
     host: 127.0.0.1
     port: 3081
+- id: session-persistence-jsonl
+  config:
+    root: /Users/mason_yu/.dsh-schematic-dev/sessions

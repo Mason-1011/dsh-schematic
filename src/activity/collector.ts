@@ -140,6 +140,16 @@ function capMap<K, V>(map: Map<K, V>, max: number): void {
 /** Cap for live-only workflow bookkeeping (runs end and self-delete; this bounds crash leftovers). */
 const WF_CAP = 128
 
+/** Pairing values applyEvent extracts from its event switch; rowFor assembles them into rows. */
+interface Pairing {
+  pairedName?: string
+  pairedModule: string | null
+  pairedDuration?: number
+  callModule: string | null
+  wfAgentDuration?: number
+  wfRunDuration?: number
+}
+
 export class ActivityCollector {
   private readonly recs = new Map<string, Rec>()
   private readonly listeners = new Set<ActivityListener>()
@@ -571,6 +581,47 @@ export class ActivityCollector {
    * adoption's history (states settle, no per-event frames).
    */
   private fold(rec: Rec, type: string, time: number, data: unknown, emit: boolean): void {
+    if (!emit) {
+      this.applyEvent(rec, type, time, data)
+      return
+    }
+    const entry = this.rowFor(rec, type, time, data)
+    if (entry !== null) this.emitEntry(rec, entry)
+  }
+
+  /**
+   * Fold a raw event window into attributed timeline rows on scratch state —
+   * the replay twin of the live fold: same pairing, same attribution, no ring,
+   * no broadcast, no collector state touched. History pages run through here
+   * so a replayed row is byte-identical to the row the live feed would have
+   * emitted for the same event.
+   */
+  replayRows(events: readonly { type: string; time: number; data: unknown }[]): TimelineEntry[] {
+    const rec: Rec = {
+      state: { sessionId: '', title: '', kind: 'main', running: false, streaming: false, inflightTools: [], activeModules: [], lastEventAt: 0 },
+      timeline: [],
+      inflight: new Map(),
+      wfRuns: new Set(),
+      wfRunAt: new Map(),
+      wfAgentAt: new Map(),
+      lastLlmModule: null,
+      dirty: false,
+      timer: undefined,
+      lastFlush: 0,
+    }
+    const rows: TimelineEntry[] = []
+    for (const event of events) {
+      const entry = this.rowFor(rec, event.type, event.time, event.data)
+      if (entry !== null) rows.push(entry)
+    }
+    // Same one-row-per-burst rule the live fold applies against its ring: on
+    // scratch state nothing pushes, so collapse identical adjacent user rows here.
+    return rows.filter((row, i) =>
+      i === 0 || row.kind !== 'user' || rows[i - 1].kind !== 'user' || rows[i - 1].snippet !== row.snippet)
+  }
+
+  /** Apply one event's state/pairing mutations to rec (fold's switch). */
+  private applyEvent(rec: Rec, type: string, time: number, data: unknown): Pairing {
     // For tool/result: the paired call's name, owner module, and duration,
     // captured while the inflight entry is still on the map.
     let pairedName: string | undefined
@@ -591,7 +642,7 @@ export class ActivityCollector {
         break
       case 'assistant/chunk':
         rec.state.streaming = true
-        return
+        return { pairedName, pairedModule, pairedDuration, callModule, wfAgentDuration, wfRunDuration }
       case 'assistant/message': {
         rec.state.streaming = false
         // Remember the serving provider so the streaming bit (and snapshot
@@ -670,28 +721,37 @@ export class ActivityCollector {
       default:
         break
     }
-    if (!emit) return
+    return { pairedName, pairedModule, pairedDuration, callModule, wfAgentDuration, wfRunDuration }
+  }
+
+  /**
+   * Attribute one event into its timeline row against rec's pairing state:
+   * applyEvent's mutations plus the same assembly the live fold always used.
+   * Returns null for the noise floor and burst-duplicated user rows.
+   */
+  private rowFor(rec: Rec, type: string, time: number, data: unknown): TimelineEntry | null {
+    const p = this.applyEvent(rec, type, time, data)
     const attributed = attributeEvent(type, data)
-    if (attributed === null) return
+    if (attributed === null) return null
     // One queued prompt logs several identical user/message events (queue
     // insert + drive splices); the timeline keeps one row per burst.
     if (attributed.kind === 'user') {
       const prev = rec.timeline.at(-1)
-      if (prev !== undefined && prev.kind === 'user' && prev.snippet === attributed.snippet) return
+      if (prev !== undefined && prev.kind === 'user' && prev.snippet === attributed.snippet) return null
     }
     const entry: TimelineEntry = { time, kind: attributed.kind, module: attributed.module }
     if (attributed.name !== undefined) entry.name = attributed.name
-    if (pairedName !== undefined) entry.name = pairedName
+    if (p.pairedName !== undefined) entry.name = p.pairedName
     if (attributed.snippet !== undefined) entry.snippet = attributed.snippet
     if (attributed.isError !== undefined) entry.isError = attributed.isError
-    if (pairedDuration !== undefined) entry.durationMs = pairedDuration
+    if (p.pairedDuration !== undefined) entry.durationMs = p.pairedDuration
     if (attributed.provider !== undefined) entry.provider = attributed.provider
     if (attributed.model !== undefined) entry.model = attributed.model
-    if (type === 'tool/call') entry.module = callModule
-    if (type === 'tool/result') entry.module = pairedModule
-    if (wfAgentDuration !== undefined) entry.durationMs = wfAgentDuration
-    if (wfRunDuration !== undefined) entry.durationMs = wfRunDuration
-    this.emitEntry(rec, entry)
+    if (type === 'tool/call') entry.module = p.callModule
+    if (type === 'tool/result') entry.module = p.pairedModule
+    if (p.wfAgentDuration !== undefined) entry.durationMs = p.wfAgentDuration
+    if (p.wfRunDuration !== undefined) entry.durationMs = p.wfRunDuration
+    return entry
   }
 
   /** Stamp, ring, and broadcast one attributed entry on the session path. */

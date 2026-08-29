@@ -53,7 +53,8 @@ export class Journal {
   private closedFor = ''
 
   constructor(
-    private readonly dir: string = join(homedir(), '.dsh', 'schematic', 'journal'),
+    /** The journal directory; replay reads day-files from here. */
+    readonly dir: string = join(homedir(), '.dsh', 'schematic', 'journal'),
     private readonly warn: (message: string) => void = () => {},
     private readonly now: () => number = Date.now,
   ) {
