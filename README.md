@@ -2,7 +2,15 @@
 
 > Read — and rewrite — the wiring of your DeepSeek Harness.
 
-🚧 Early development. This package currently reserves the name; the first functional release (v0.1) is in progress.
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Stage](https://img.shields.io/badge/stage-early%20development-orange)](#status)
+[![Built for](https://img.shields.io/badge/built%20for-DeepSeek%20Harness-4f46e5)](https://github.com/deepseek-ai/deepseek-harness)
+
+**English** | [简体中文](README.zh.md)
+
+## Status
+
+🚧 Early development — but already useful. The **live topology viewer** (v0.2.x) is shipped and in daily use against a real harness instance; the composition workbench and market panel (v0.3/v0.4) are next. The npm package currently holds only a `0.0.1` name reservation — install from a checkout for now (see [Install](#install)).
 
 ## What this is
 
@@ -10,9 +18,34 @@ DeepSeek Harness (dsh) composes an entire agent product from plugins: every capa
 
 That wiring only exists inside the running process. `dsh-schematic` draws it.
 
-- **Topology view** — an interactive wiring diagram of the mounted plugins: who provides `ctx.fs`, who injects it, which events flow between them, where each capability seam sits. Read-only, zero-risk, rendered from the loader's own plugin tree.
-- **Composition workbench** — edit the wiring: swap providers (local → sandbox → remote), toggle plugins, compose presets. Changes are previewed and validated before anything is applied.
-- **Seam-aware market** — click an empty seam and see the plugins that can fill it; install them straight onto the graph. Conflicts (double-registered keys, missing providers) surface before install, not after a crash.
+- **Topology view** — an interactive wiring diagram of the mounted plugins: who provides `ctx.fs`, who injects it, which events flow between them, where each capability seam sits. Read-only, rendered from the loader's own plugin tree.
+- **Composition workbench** *(planned, v0.3)* — edit the wiring: swap providers (local → sandbox → remote), toggle plugins, compose presets. Changes are previewed and validated before anything is applied.
+- **Seam-aware market** *(planned, v0.4)* — click an empty seam and see the plugins that can fill it; install them straight onto the graph. Conflicts (double-registered keys, missing providers) surface before install, not after a crash.
+
+## Features
+
+Shipped so far (details per version in the [changelog](CHANGELOG.md)):
+
+**Topology viewer** — served at `/schematic` once mounted.
+- Three tabs: **journey** (one message's path through the runtime as stage cards with the ctx keys exchanged), **domains** (radial mesh; family/cluster/core-spine cards open into scope views; group scatter with ⊕ and expand-all; edges drawn provider → consumer with hover cards), **table**.
+- Live refresh every 5 s with a change toast; new plugins pulse; `?tab=` and `?expand=all` deep links.
+- One-click EN ⇄ 中文 whole-page switch — descriptions machine-translated in-process, identifiers kept in English.
+
+**Runtime activity** — watch the work flow.
+- Every turn, model reply, tool call, registry change, host action, background job, and service read is attributed to its owning plugin; the graph lights up while the work flows through it (strong glow during tool runs and model streaming, breathing decay after) and a collapsible timeline names who did what, when, and how long it took.
+- A session selector defaults to following the chat you are looking at; subagent/background filtering included.
+
+**Composer-side star map** — a miniature of the expanded mesh floating beside the chat input.
+- One dot per package in a deterministic force-relaxed galaxy; dots light with the viewed conversation's real activity; hover raises a plugin card, double-click opens the full viewer.
+- Free placement (drag anywhere, re-docks beside the card), free resizing (viewport is the only ceiling), starfield tints by module hash, deep-space backdrop with a live opacity dial (mouse wheel or Settings).
+
+**dsh integration**
+- A Settings → *Plugin topology* section (custom Steam-style three-node nav icon) that opens the viewer in a new tab and exposes the backdrop slider.
+- *Ask in chat* hand-off: from the viewer, send "explain this plugin" into a fresh Ungrouped conversation — the first question is sent for you through the RPC gateway.
+
+### Pure observer, by construction
+
+The plugin never writes to session logs (no custom event types), never wraps or intercepts service return values, and adds no topology edges for its own observers. Everything it shows is read from the host process's own signals — session-event broadcasts, status changes, registry callbacks, and the framework's service-read extension point.
 
 ## Why nobody else covers this layer
 
@@ -33,38 +66,67 @@ The agent already has its own "creative mode" (self-modification tools that insp
 - Not a ComfyUI-style dataflow canvas — dsh composition is sockets-and-wires dependency injection, not dataflow; a node canvas would be the wrong metaphor.
 - Not a session replay UI — dsh-synapse and dsh-flowglass own that.
 
-## Roadmap
+## Requirements
 
-- v0.0.x — name reserved, positioning docs
-- v0.1 — static topology: scan a harness checkout, render the plugin dependency graph from `inject` declarations
-- v0.2 — live topology (shipped): mounts as a plugin, merges the Cordis runtime × loader streams, serves the viewer at `/schematic` with a one-click EN⇄中文 whole-page switch (descriptions batch-translated by the in-process LLM, identifiers kept in English), a dsh settings section that opens the viewer in a new tab, and an ask-in-chat hand-off that prefills a fresh ungrouped conversation
-- v0.2.5 — readable topology (shipped): three tabs — journey (one message's path through the runtime as eight stage cards with the ctx keys exchanged between stages), domains (family cards group same-prefix packages without a capability seam; every edge is an arrow with a hover card naming consumer, provider, and the injected ctx keys), table; live refresh every 5s with a change toast, new plugins pulse, `?tab=` deep links
-- v0.2.8 — runtime activity (shipped): an SSE feed (`/schematic/events`) observes the session-event firehose in-process and attributes every turn, model reply, and tool call to its owning plugin; the viewer lights the plugin the work is currently flowing through (strong while a tool runs or the model streams, breathing-glow decay after), plus a collapsible activity timeline bar and a session selector that defaults to following the SPA's current chat (pure observer — nothing is appended to session logs)
-- v0.2.9 — all-actions observability (shipped): an RPC-gateway observer wraps every apiProxy mutation method as a behavior-neutral pass-through, and live registry events (tools/change, system-prompt/change…) join the same feed — so UI actions that never touch any session log (archiving a session, renaming a workspace, changing settings) light their owning plugin and land in the timeline as action rows with duration; still a pure observer of the host process
-- v0.2.10 — openable family cards + streaming-highlight fix (shipped): domains-view family cards (llm, client — same-prefix packages without a capability seam) now open like clusters, via double-click or the detail panel's open button, into the same scope view; the strong highlight after a model stream used to never decay (the llm card stayed lit forever) and now downgrades when the message completes and expires on the TTL
-- v0.2.11 — journey auto-fit (shipped): the journey tab scales its stage cards so the whole message path is on screen with zero scrollbars at any window size; the +/−/fit buttons magnify past the fit scale for reading (drag-pan and scrollbars take over), and fit restores the overview
-- v0.2.12 — broadcast reception (shipped): the live event bus keeps every listener record (ctx.events._hooks, attributed through the registering fiber), so the viewer can answer "who receives this broadcast" — the activity bar names the session/event listeners, each non-action timeline row carries the receiver list on hover, and every package's detail panel lists the events it listens to; a receiver's reaction still shows as its own attributed row
-- v0.2.13 — service-access observability (shipped): pure-wiring packages (provide/inject only, no broadcast listeners) get their first live signal — one internal/get waterfall listener (the framework's own "a service is being read" extension point) counts every ctx.<service-key> access as (reader package, key), behavior-neutral (count-and-delegate only, values never wrapped); the timeline gains a toggleable service-access row type, both ends light up (reader and the key's provider), and each package's detail panel lists the keys it actually accessed with counts; one turn traces agent-loop → ctx.llm, tool-bash → ctx.shell ×3 + sandbox/shellEnv/subprocess
-- v0.2.14 — radial mesh overview (shipped): the domains overview drops its column arrangement for a radial mesh — units are ranked by unit-level edge count and packed outward from the center, so centrality tracks link count directly (no explicit layers); collision-aware circular-row packing keeps the disc compact and overlap-free, edges become border-anchored straight lines (arrowheads at the consumer), and the layout is fully deterministic. The scope view inside a cluster/family keeps its semantic columns
-- v0.2.15 — core-spine card (shipped): agent-loop, system-prompt, and tools ride only universal ctx keys, so no capability seam claims them — the domains overview groups them into one openable "core" card (double-click or the detail panel's open button) that sits at the mesh center as the most-connected unit; the catch-all "other" family is dissolved, leaving one-off packages as lone pills
-- v0.2.16 — fill fit + Ungrouped auto-send (shipped): the journey tab's Fit now solves for a width that fills the canvas instead of scaling to height only (pills re-wrap at the solved width, so no letterboxing at any window shape), and the ask-in-chat hand-off now lands in a fresh Ungrouped session with the question sent for you through the RPC gateway — the send itself unlocks the composer (a workspace-less blank stays inert by harness design), and a failed send falls back to a prefilled draft
-- v0.2.17 — domains fill fit (shipped): the radial mesh fills the canvas at any window shape too — pills pack along elliptical rows whose axis ratio is bisected for fit balance (the crossing of the fit scale's width/height terms), the widest mesh the canvas shows without letterboxing, and a resize re-solves the layout automatically
-- v0.2.18 — one-click group expansion (shipped): every group card in the overview (core spine, family, cluster) gains a hover-revealed corner ⊕ that scatters it into member pills and re-packs the whole mesh — members rank by their own edge count, and edges that lived inside the card become visible; the group's detail panel offers scatter/collapse, a member's detail panel collapses its group, and a footer chip next to Fit expands or collapses all groups (expand-all unions with what is already scattered and only reads "collapse all" once every scatterable group is dissolved)
-- v0.2.19 — edge direction = service flow (shipped): every edge is drawn provider → consumer with the arrowhead on the injector — the service flows from its provider to its user (the old arrow rode the depends-on convention and pointed the opposite way, contradicting what the v0.2.14 notes promised); legend, hover title, and direction note reworded to match
-- v0.2.20 — background jobs observable (shipped): the jobs registry is live state — it reports its own changes through callbacks (onJobsChanged/onJobDone) and writes nothing any session log carries, so a background bash run was visible only as the tool call that started it; the collector now subscribes as a pure listener (no topology edge, nothing appended or wrapped) and lands start/settlement rows — label, terminal status, run duration — attributed to the jobs provider, lighting its pill; the in-page renderer (client-ui-jobs) stays dark by design: it lives in the browser process and has no host footprint to observe
-- v0.2.21 — composer-side live miniature (shipped): the domains expand-all mesh shrunk to a constellation strip beside the composer card — 12px past the card's right edge, vertically centered on the whole card (viewport-fixed, re-anchored to the card's rect every 0.8s so it tracks draft growth; auto-hidden when the window has no room); one dot per package ranked by edge count packing outward (dots wear the viewer's family palette; uncategorized packages stay neutral gray), edges as faint lines; lights with the viewed conversation's real runtime activity (strong breathing glow while a tool runs; soft glow decaying by TTL after model streaming, service reads, host actions), following the SPA's own persisted current session; double-click opens the viewer's domains tab already fully expanded (new ?expand=all deep link in the same viewer version)
-- v0.2.22 — miniature hardened + resizable (shipped): transport is now a ~1.2s poll of a new /schematic/mini.json (sequence-cursored rows + live states + recent traffic) — the per-tab SSE connection held by v0.2.21 ate one of the browser's six per-origin HTTP/1.1 slots and, with a few tabs open, starved the SPA's own boot RPCs until refreshes wedged on the loading page; the panel also rides above the composer seat's sticky stacking context (z 12 > seat 7) so its dots neither vanish nor lose clicks to the seat's frost surface; idle dots are now hollow rings that fill and bloom a double glow when lit, and a bottom-right grip resizes the panel freely (independent width/height within bounds, persisted per browser; the constellation re-packs its rings to the new aspect instead of letterboxing)
-- v0.2.23 — free placement + galaxy layout (shipped): dragging the panel body moves it anywhere on screen (clamped into the viewport, persisted per browser; dropping it back beside the composer card re-docks it to the card-follow), and the constellation dropped its even ring packing for a deterministic force-relaxed galaxy — units seed on a golden-angle spiral in edge-count order, then repulsion/springs/centering spread them into clusters with breathing room, hubs drawn as larger rings (pure function of graph + aspect, so re-renders never reshuffle); resize drags stop at the window edge instead of hiding the panel, and stray no-button pointer moves can no longer contaminate a drag
-- v0.2.24 — starfield dressing (shipped): uncategorized packages no longer render as a field of neutral gray — each picks one of six muted star tints by module hash, and dot brightness layers by edge count (hubs shine, leaves dim); a freshly lit dot ripples one expanding ring before its glow settles; the panel wears a deep-space backdrop whose opacity the mouse wheel adjusts live (0–100%, persisted per browser, 0 restores the fully transparent panel); every panel color now resolves through light-dark() following the page's color-scheme — the dark variants used to key off the OS preference, which mismatched whenever the app theme disagreed with the system
-- v0.2.25 — backdrop dial in settings + atom-bond icon (shipped): the backdrop's blur rides the same dial as its color — the backdrop-filter radius scales with --bgA, so 0% leaves the page untouched (a fixed 3px blur used to keep frosting the content behind a "transparent" panel); Settings → Plugin topology gains a "constellation backdrop" slider, two-way live-synced with the wheel over the panel through one custom event (wheel moves the open slider too); the section's default gear in the settings nav is replaced by a hand-drawn atom-bond-atom glyph — two atoms joined by one bond, the plugin-wiring motif (the SPA assigns nav icons by section id, so a plugin-side observer dresses the row on each overlay mount without touching host code)
-- v0.2.26 — dot hover cards (shipped): pausing on any dot in the constellation raises that package's card — the star-colored swatch, short name, package id, one-line description, and link count; Chinese descriptions reuse the viewer page's shared translation cache, and a miss is translated on the spot (one batched line into the same sch.zhmap store the viewer reads — both faces warm the same cache); the card follows the cursor with window-edge flipping, hides while dragging or resizing the panel, and the panel's native tooltip never stacks with it
-- v0.2.27 — size caps removed + fill fix (shipped): the resize grip no longer has a fixed max width/height — the viewport itself is the only ceiling (dragging clamps at the window edges, saved sizes re-clamp into the current window on load); this also fixed the galaxy layout's fill defect at extreme aspect ratios — the force phase has only local repulsion and a centering pull, which left ~15% empty bands at both ends of the long axis (most visible in tall thin panels), so the solver now rescales the solved bounds back onto the padded frame after iterating (each axis only stretches — pairwise gaps grow or hold, so no new overlap is possible): zero overlaps and ceiling-level fill across the full 32–1560 aspect range; follow-up fix: a docked panel whose saved width exceeds the strip beside the composer card now shrinks into that strip instead of hiding entirely (the viewBox follows the shrunk size, the stored size survives and grows back when room returns; free placement clamps into the viewport the same way, and only a window too narrow for even the floor width hides the panel); the settings-nav icon, after five user review rounds, follows the Steam mark's circle arrangement: equal circles laid along Steam's ~45° diagonal (mirrored so the filled node stays the chain's rightmost end) — two outlined rings high, the solid dot low at the rod's end, joined by two round-cap rods sharing one gentle knee (never a 90° corner, never one straight line; a minimal plugin graph whose flow ends on the filled node)
-- v0.3 — composition edits with patch preview
-- v0.4 — seam-aware market panel
+- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) with the web profile (developed against rc.8).
+- A current Chromium / Firefox / Safari (uses `light-dark()`, `EventSource`).
+- Node ≥ 20 with npm — only to build the browser bundle.
 
 ## Install
 
-Not yet on npm as a plugin. To run from a checkout against a harness dev instance, see `dev.cordis.yml` (mount by name; symlink the checkout into the profile's `node_modules` so the browser half is found).
+Not yet on npm as an installable plugin. To run from a checkout against a harness web profile:
+
+1. Clone and build the browser bundle:
+   ```sh
+   git clone https://github.com/Mason-1011/dsh-schematic.git
+   cd dsh-schematic
+   npm install && npm run build    # -> dist/engine.js, dist/client.js
+   ```
+2. Mount it by name: symlink the checkout into the profile's `node_modules` so the loader's name resolution — and the browser-half scanner — find it:
+   ```sh
+   ln -sfn "$PWD" ~/.dsh/profiles/web/node_modules/dsh-schematic
+   ```
+3. Register the plugin in that profile's patch (`~/.dsh/profiles/web/cordis.patch.yml`):
+   ```yaml
+   - id: schematic
+     name: dsh-schematic
+   ```
+4. Restart the web profile and open `http://127.0.0.1:3080/schematic`.
+
+The repo's own [`dev.cordis.yml`](dev.cordis.yml) is a worked example: it overrides the port to 3081 for a dev instance launched from a harness checkout (`node --import tsx/esm apps/cli/src/bin.ts --profile web --patch dev.cordis.yml`).
+
+## Usage
+
+- **Viewer** (`/schematic`) — switch tabs or deep-link with `?tab=journey|domains|table`; expand every group at once with `?expand=all`; toggle EN/中文 from the header.
+- **Star map** — drag the panel anywhere; drag the bottom-right grip to resize; scroll the mouse wheel over it to tune the backdrop (0 = fully transparent); hover a dot for the plugin's card; double-click to open the viewer fully expanded.
+- **Settings** → *Plugin topology* — opens the viewer; the backdrop slider two-way syncs with the wheel.
+- **Ask in chat** — in the viewer, a package's panel offers to ask about it in a fresh conversation, question sent for you.
+
+## How it works
+
+Two halves in one package:
+
+- **Host half** (`src/index.ts`, `src/activity/`, `src/graph.ts`) — a Cordis plugin that reads the loader's plugin tree, subscribes in-process to the session-event firehose, agent status, registry callbacks, and the internal service-read waterfall, then serves `/schematic` (viewer page), `/schematic/events` (SSE), and `/schematic/mini.json` (polled miniature feed) from the harness web server.
+- **Browser half** (`src/client/`, bundled to `dist/client.js`) — loads inside the dsh web SPA: contributes the Settings section, dresses the nav icon, mounts the composer-side star map, and handles the ask-in-chat hand-off. The standalone viewer (`dist/engine.js`) is self-booting and talks only to the host routes above.
+
+## Development
+
+```sh
+npm run build    # esbuild bundles both browser artifacts
+```
+
+`tools/scan.mjs` renders a static graph from a harness checkout (the pre-live v0.1 approach; still handy without a running instance). Internal positioning and naming decisions live in [`DECISIONS.md`](DECISIONS.md).
+
+## Roadmap
+
+- v0.3 — composition edits with patch preview
+- v0.4 — seam-aware market panel
+
+Shipped history, version by version, is in the [changelog](CHANGELOG.md).
+
+## Acknowledgments
+
+Built on [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) and [Cordis](https://github.com/cordiverse/cordis); the resting-state theorem from the Cordis [paper](https://github.com/cordiverse/paper) is why a live wiring diagram can be read as a stable schematic at all.
 
 ## License
 
