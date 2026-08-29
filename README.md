@@ -10,7 +10,7 @@
 
 ## Status
 
-🚧 Early development — but already useful. The **live topology viewer** (v0.2.x) is shipped and in daily use against a real harness instance; the composition workbench and market panel (v0.3/v0.4) are next. The npm package currently holds only a `0.0.1` name reservation — install from a checkout for now (see [Install](#install)).
+🚧 Early development — but already useful. The **live topology viewer** (v0.2.x) is shipped and in daily use against a real harness instance; the composition workbench and market panel (v0.3/v0.4) are next. Published to npm as [`dsh-schematic@0.2.27`](https://www.npmjs.com/package/dsh-schematic) — one-command install (see [Install](#install)). The GitHub repository is not public yet.
 
 ## What this is
 
@@ -74,26 +74,24 @@ The agent already has its own "creative mode" (self-modification tools that insp
 
 ## Install
 
-Not yet on npm as an installable plugin. To run from a checkout against a harness web profile:
+Published on npm. The package declares itself as a dsh bundle, so installing it also registers the plugin — no hand-editing of profile configs.
 
-1. Clone and build the browser bundle:
+1. Install into your web profile (needs [`dsh`](https://www.npmjs.com/package/@deepseek-ai/dsh) and `pnpm` on PATH):
    ```sh
-   git clone https://github.com/Mason-1011/dsh-schematic.git
-   cd dsh-schematic
-   npm install && npm run build    # -> dist/engine.js, dist/client.js
+   dsh plugin --profile web add dsh-schematic
    ```
-2. Mount it by name: symlink the checkout into the profile's `node_modules` so the loader's name resolution — and the browser-half scanner — find it:
+   That runs `pnpm add dsh-schematic` inside the profile (`~/.dsh/profiles/web`) and adds the package to the profile's bundle layers.
+2. (Re)start the web profile and open the viewer:
    ```sh
-   ln -sfn "$PWD" ~/.dsh/profiles/web/node_modules/dsh-schematic
+   dsh web    # then visit http://127.0.0.1:3080/schematic
    ```
-3. Register the plugin in that profile's patch (`~/.dsh/profiles/web/cordis.patch.yml`):
-   ```yaml
-   - id: schematic
-     name: dsh-schematic
-   ```
-4. Restart the web profile and open `http://127.0.0.1:3080/schematic`.
+3. That's it. You get the viewer at `/schematic`, a **Plugin topology** section in the SPA's Settings, and the composer-side star map — the browser bundle ships inside the package.
 
-The repo's own [`dev.cordis.yml`](dev.cordis.yml) is a worked example: it overrides the port to 3081 for a dev instance launched from a harness checkout (`node --import tsx/esm apps/cli/src/bin.ts --profile web --patch dev.cordis.yml`).
+Other profiles work the same way (`dsh plugin --profile tui add dsh-schematic`). Upgrading is `dsh plugin --profile web update dsh-schematic`; removing is `dsh plugin --profile web remove dsh-schematic`.
+
+To uninstall cleanly, also drop the `schematic` row from `dsh.profile.bundles` (the reconcile does that automatically on `remove`).
+
+**From source** (maintainers; the GitHub repo is not public yet): build with `npm install && npm run build`, then either symlink the checkout into the profile's `node_modules/dsh-schematic` (mount by name; keep the package's own bundle layer or your manual insert — never both, duplicate loader entry ids fail the tree), or run the worked example [`dev.cordis.yml`](dev.cordis.yml) — port 3081 against a harness checkout (`node --import tsx/esm apps/cli/src/bin.ts --profile web --patch dev.cordis.yml`).
 
 ## Usage
 

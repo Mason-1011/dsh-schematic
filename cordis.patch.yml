@@ -1,0 +1,7 @@
+# dsh.bundle layer for dsh-schematic: `dsh plugin --profile web add
+# dsh-schematic` installs the package and this layer registers the plugin
+# (name resolution anchors at the profile's node_modules, where pnpm put it).
+# Users override or disable the row by id in their own profile patch.
+- insert:
+    - id: schematic
+      name: dsh-schematic

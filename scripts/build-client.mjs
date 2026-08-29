@@ -1,5 +1,5 @@
 /**
- * Build both browser artifacts:
+ * Build all three artifacts:
  *
  *   dist/engine.js  — IIFE for the standalone /schematic page (self-booting)
  *   dist/client.js  — lazy-CJS factory artifact for the dsh client module
@@ -8,10 +8,18 @@
  *                     in-repo. React, react/jsx-runtime, and the ui
  *                     primitives stay require() calls answered by the
  *                     shell's module table.
+ *   dist/index.js   — ESM bundle of the host-half plugin (the package's "."
+ *                     export, so an npm install loads plain JS, not TS
+ *                     source). Runtime imports are node builtins only (the
+ *                     cordis import is type-only), so nothing is bundled in.
+ *
+ * dist/web/index.html is copied beside the host bundle because the host
+ * resolves ./web/index.html against its own import.meta.url at runtime.
  *
  * Run: node scripts/build-client.mjs   (esbuild must be installed)
  */
 import { build } from 'esbuild'
+import { copyFileSync, mkdirSync } from 'node:fs'
 
 const pkg = { id: 'dsh-schematic' }
 
@@ -46,8 +54,22 @@ const results = await Promise.all([
     footer: { js: 'return module.exports; } });' },
     logLevel: 'info',
   }),
+  build({
+    entryPoints: ['src/index.ts'],
+    bundle: true,
+    format: 'esm',
+    platform: 'node',
+    target: 'node22',
+    packages: 'external',
+    outfile: 'dist/index.js',
+    sourcemap: true,
+    logLevel: 'info',
+  }),
 ])
+
+mkdirSync('dist/web', { recursive: true })
+copyFileSync('src/web/index.html', 'dist/web/index.html')
 
 const failures = results.filter((r) => r.errors > 0)
 if (failures.length > 0) process.exit(1)
-console.log('built dist/engine.js (standalone page) and dist/client.js (dsh client bundle)')
+console.log('built dist/engine.js (page), dist/client.js (SPA bundle), dist/index.js (host plugin)')

@@ -1,7 +1,7 @@
 {
   "name": "dsh-schematic",
-  "version": "0.0.1",
-  "description": "Read — and rewrite — the wiring of your DeepSeek Harness: interactive plugin topology, composition workbench, seam-aware installer. (Early development; name reserved.)",
+  "version": "0.2.27",
+  "description": "Live plugin-topology viewer for DeepSeek Harness: the wiring diagram of every mounted plugin, its runtime activity, and a composer-side star map — pure observer, zero writes to session logs.",
   "keywords": [
     "dsh",
     "deepseek-harness",
@@ -17,21 +17,30 @@
   "license": "MIT",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
+    ".": "./dist/index.js",
     "./client": "./dist/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "*"
+    "@deepseek-ai/cordis": "^4.0.1"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Mason-1011/dsh-schematic.git"
   },
   "files": [
-    "LICENSE"
+    "dist",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md",
+    "CHANGELOG.md",
+    "CHANGELOG.zh.md"
   ],
   "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "platform": "web"
     }
@@ -41,5 +50,8 @@
   },
   "scripts": {
     "build": "node scripts/build-client.mjs"
+  },
+  "engines": {
+    "node": ">=22.19"
   }
 }

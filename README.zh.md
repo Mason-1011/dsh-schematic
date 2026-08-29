@@ -10,7 +10,7 @@
 
 ## 状态
 
-🚧 早期开发——但已经能用。**实时拓扑查看器**(v0.2.x)已交付,每天都在真实 harness 实例上使用;组合工作台与市场面板(v0.3/v0.4)是下一步。npm 上的包目前只是 `0.0.1` 占位——暂时请从源码安装(见[安装](#安装))。
+🚧 早期开发——但已经能用。**实时拓扑查看器**(v0.2.x)已交付,每天都在真实 harness 实例上使用;组合工作台与市场面板(v0.3/v0.4)是下一步。已发布到 npm:[`dsh-schematic@0.2.27`](https://www.npmjs.com/package/dsh-schematic),一条命令安装(见[安装](#安装))。GitHub 仓库暂未公开。
 
 ## 这是什么
 
@@ -74,26 +74,22 @@ agent 已经有自己的"创造模式"(运行中检查、重挂插件的自改�
 
 ## 安装
 
-尚未以可安装插件的形式发布到 npm。从源码目录对 harness 的 web profile 跑通:
+已发布到 npm。包自带 dsh bundle 声明,装完即自动注册——不用手改任何 profile 配置。
 
-1. 克隆并构建浏览器产物:
+1. 装进你的 web profile(需要 [`dsh`](https://www.npmjs.com/package/@deepseek-ai/dsh) 和 `pnpm` 在 PATH 上):
    ```sh
-   git clone https://github.com/Mason-1011/dsh-schematic.git
-   cd dsh-schematic
-   npm install && npm run build    # -> dist/engine.js, dist/client.js
+   dsh plugin --profile web add dsh-schematic
    ```
-2. 按名字挂载:把源码目录软链进 profile 的 `node_modules`,loader 的名字解析和浏览器半边扫描才能找到它:
+   这条命令会在 profile 目录(`~/.dsh/profiles/web`)里执行 `pnpm add dsh-schematic`,并把包加进 profile 的 bundle 层。
+2. (重)启动 web profile,打开查看器:
    ```sh
-   ln -sfn "$PWD" ~/.dsh/profiles/web/node_modules/dsh-schematic
+   dsh web    # 然后访问 http://127.0.0.1:3080/schematic
    ```
-3. 在该 profile 的补丁(`~/.dsh/profiles/web/cordis.patch.yml`)里注册:
-   ```yaml
-   - id: schematic
-     name: dsh-schematic
-   ```
-4. 重启 web profile,打开 `http://127.0.0.1:3080/schematic`。
+3. 完成。你会得到:`/schematic` 的查看器、SPA 设置里的"插件拓扑"分区、输入卡旁的星图——浏览器产物都在包里。
 
-仓库里的 [`dev.cordis.yml`](dev.cordis.yml) 是一份现成示例:把端口改成 3081,配一个从 harness 源码启动的开发实例(`node --import tsx/esm apps/cli/src/bin.ts --profile web --patch dev.cordis.yml`)。
+其他 profile 同理(`dsh plugin --profile tui add dsh-schematic`)。升级是 `dsh plugin --profile web update dsh-schematic`,卸载是 `dsh plugin --profile web remove dsh-schematic`(remove 会同时把它从 bundle 层里摘掉)。
+
+**从源码跑**(维护者;GitHub 仓库暂未公开):`npm install && npm run build` 之后,要么把源码目录软链到 profile 的 `node_modules/dsh-schematic`(按名字挂载;用包自带的 bundle 层或手动 insert 二选一,两者同时用会因 loader 条目 id 重复而整树报错),要么用现成示例 [`dev.cordis.yml`](dev.cordis.yml)——端口 3081,从 harness 源码启动(`node --import tsx/esm apps/cli/src/bin.ts --profile web --patch dev.cordis.yml`)。
 
 ## 使用
 
