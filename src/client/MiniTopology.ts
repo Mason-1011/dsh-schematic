@@ -86,7 +86,10 @@ export const MINI_TOPOLOGY_CSS = `
      opacity), so 0 restores the fully transparent panel. */
   background-color: color-mix(in srgb, light-dark(#f2f5fa, #0a0f1c) calc(var(--bgA, 0.88) * 100%), transparent);
   background-image: radial-gradient(130% 110% at 50% 42%, color-mix(in srgb, light-dark(#ffffff, #1c2740) calc(var(--bgA, 0.88) * 60%), transparent), transparent 68%);
-  backdrop-filter: blur(3px) saturate(1.05);
+  /* Blur rides the same dial: at --bgA 0 the panel must be fully inert — a
+     fixed backdrop-filter would keep frosting the page behind a "transparent"
+     panel. */
+  backdrop-filter: blur(calc(3px * var(--bgA, 0.88)));
   box-shadow: inset 0 0 0 1px light-dark(rgba(15, 23, 42, 0.1), rgba(148, 163, 184, 0.22));
   animation: schMiniIn 0.8s ease;
 }
@@ -396,7 +399,9 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
   bgHint.className = 'schMiniBg'
   host.appendChild(bgHint)
   let bgHintTimer = 0
-  const applyBg = (): void => {
+  /** silent skips the sync event — mount and event-driven applications never
+     re-broadcast, so the panel ↔ settings slider loop can't self-echo. */
+  const applyBg = (silent = false): void => {
     host.style.setProperty('--bgA', bgA.toFixed(2))
     bgHint.textContent = `${Math.round(bgA * 100)}%`
     bgHint.style.opacity = '1'
@@ -405,8 +410,18 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
     try { localStorage.setItem(BG_KEY, bgA.toFixed(2)) } catch { /* an unwritable store loses the setting, not the panel */ }
     host.title = `${label} · ⌀ ${Math.round(bgA * 100)}%`
     debug.bg = bgA
+    if (!silent) window.dispatchEvent(new CustomEvent('sch-mini-bg', { detail: bgA }))
   }
-  applyBg()
+  applyBg(true)
+  /** The settings slider drives the same dial through this event. */
+  const onBgEvent = (e: Event): void => {
+    const v = (e as CustomEvent<number>).detail
+    if (typeof v === 'number' && v >= 0 && v <= 1 && Math.abs(v - bgA) > 1e-3) {
+      bgA = v
+      applyBg(true)
+    }
+  }
+  window.addEventListener('sch-mini-bg', onBgEvent)
   host.addEventListener('wheel', (e) => {
     e.preventDefault()
     bgA = Math.min(1, Math.max(0, bgA - e.deltaY * 0.0012))
@@ -666,6 +681,7 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
     window.clearInterval(poll)
     window.clearInterval(sweep)
     document.removeEventListener('visibilitychange', wake)
+    window.removeEventListener('sch-mini-bg', onBgEvent)
     ac.abort()
     host.remove()
   }

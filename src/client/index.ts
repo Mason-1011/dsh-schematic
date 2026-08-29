@@ -26,6 +26,8 @@ const zh = {
   rowDesc: '在新的浏览器标签页中打开实时插件拓扑查看器',
   open: '打开',
   miniTitle: '实时插件拓扑缩影 · 双击打开完整视图',
+  bgTitle: '星座面板底色',
+  bgHint: '输入框旁星图的深空底色浓淡；鼠标悬停面板滚动滚轮也可随调',
 }
 const en = {
   section: 'Plugin topology',
@@ -33,6 +35,8 @@ const en = {
   rowDesc: 'Open the live plugin-topology viewer in a new browser tab',
   open: 'Open',
   miniTitle: 'Live plugin-topology miniature · double-click to open the full view',
+  bgTitle: 'Constellation backdrop',
+  bgHint: 'Opacity of the deep-space backdrop behind the composer-side star map; the mouse wheel over the panel adjusts it too',
 }
 
 export const inject = ['slots', 'locale', 'sessions']
@@ -74,6 +78,52 @@ type SchematicCtx = {
   locale: LocaleSlice
   sessions: SessionsSlice
   effect(dispose: () => unknown, label?: string): unknown
+}
+
+/**
+ * 16px atom-link-atom: two atoms (ring + nucleus) joined by a bond — the
+ * plugin-wiring glyph. The SPA's SettingsRoot hardcodes nav icons by section
+ * id (unknown ids get the generic gear), so the dresser hides that svg and
+ * inserts this one in its place, copying its class for identical spacing.
+ */
+const NAV_ICON_SVG = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true"><circle cx="4.25" cy="8" r="2.6" stroke="currentColor" stroke-width="1.4"/><circle cx="11.75" cy="8" r="2.6" stroke="currentColor" stroke-width="1.4"/><circle cx="4.25" cy="8" r="0.8" fill="currentColor"/><circle cx="11.75" cy="8" r="0.8" fill="currentColor"/><line x1="6.9" y1="8" x2="9.1" y2="8" stroke="currentColor" stroke-width="1.4"/></svg>'
+
+/**
+ * Swap the settings-nav icon for our section. The nav only exists while the
+ * settings overlay is open, and React owns its tree — the gear svg is hidden
+ * (not removed, so React reconciliation never misses it) and our glyph rides
+ * in front of it. A body-level observer on a 120ms debounce re-dresses each
+ * time the overlay mounts; the scan itself is a handful of buttons.
+ * @param label - the section's current label (locale-aware); the nav row is
+ * found by its label text, the only stable handle from outside the tree.
+ * @returns disposer disconnecting the observer.
+ */
+function dressNavIcon(label: () => string): () => void {
+  const dress = (): void => {
+    const want = label()
+    for (const btn of document.querySelectorAll<HTMLButtonElement>('nav button')) {
+      const span = btn.querySelector('span')
+      const old = btn.querySelector('svg')
+      if (span === null || old === null || span.textContent !== want || btn.dataset.schIcon === '1') continue
+      btn.dataset.schIcon = '1'
+      old.style.display = 'none'
+      const holder = document.createElement('span')
+      holder.innerHTML = NAV_ICON_SVG
+      const icon = holder.firstElementChild
+      if (icon !== null) {
+        icon.setAttribute('class', old.getAttribute('class') ?? '')
+        btn.insertBefore(icon, old)
+      }
+    }
+  }
+  dress()
+  let timer = 0
+  const mo = new MutationObserver(() => {
+    window.clearTimeout(timer)
+    timer = window.setTimeout(dress, 120)
+  })
+  mo.observe(document.body, { childList: true, subtree: true })
+  return () => { mo.disconnect(); window.clearTimeout(timer) }
 }
 
 /** Starter question for the ask-in-chat hand-off, in the SPA's active locale. */
@@ -233,6 +283,9 @@ export function apply(ctx: SchematicCtx): void {
     locale: NS,
     inject: () => ({}),
   }, SchematicSettingsSection))
+  // The settings nav's icon for this section rides outside React's tree
+  // knowledge; the dresser re-applies whenever the overlay mounts.
+  ctx.effect(() => dressNavIcon(() => t('section')), 'dsh-schematic: settings nav icon')
   // The composer-side constellation: the fully-expanded domains mesh as live
   // dots in a viewport-fixed panel beside the composer card (same horizontal
   // level, vertically centered on it), opening the viewer at that same
