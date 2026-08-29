@@ -15,6 +15,7 @@ import {
   attributeEvent, ownerOfTool, knownToolNames, providerModule, LIVE_ACTION, SERVICE_OWNER,
   WORKFLOW_ENGINE, WORKFLOW_RECORDER, WORKFLOW_TOOLS,
 } from './attribution.ts'
+import type { Journal } from './journal.ts'
 
 /** Structural slice of a Session (out-of-tree: no type import). */
 interface SessionSlice {
@@ -125,10 +126,10 @@ function toolResultCallId(data: unknown): string | undefined {
   return undefined
 }
 
-/** Whitespace-flatten and truncate a live workflow message for a row snippet. */
-function clip(text: string): string {
+/** Whitespace-flatten and truncate a live workflow message (rows 80, journal 500). */
+function clip(text: string, max = 80): string {
   const flat = text.replace(/\s+/g, ' ').trim()
-  return flat.length > 80 ? `${flat.slice(0, 80)}…` : flat
+  return flat.length > max ? `${flat.slice(0, max)}…` : flat
 }
 
 /** Evict the oldest entries when a live-only map outgrows its cap. */
@@ -162,9 +163,12 @@ export class ActivityCollector {
   private readonly disposers: (() => void)[] = []
 
   private readonly ctx: Context
+  /** The live-only observation journal; null when disabled — every hook guards on it. */
+  private readonly journal: Journal | null
 
-  constructor(ctx: Context) {
+  constructor(ctx: Context, journal: Journal | null = null) {
     this.ctx = ctx
+    this.journal = journal
   }
 
   /**
@@ -243,6 +247,7 @@ export class ActivityCollector {
     for (const job of snapshots) {
       if (this.seenJobs.has(job.id)) continue
       this.seenJobs.add(job.id)
+      this.journal?.write({ ev: 'job', id: job.id, label: job.label, status: job.status, startedAt: job.startedAt })
       this.noteAction({
         time: job.startedAt,
         kind: 'job',
@@ -256,6 +261,12 @@ export class ActivityCollector {
   /** Settlement row: terminal status (+detail), run duration, failed flag. */
   private noteJobDone(job: JobSlice): void {
     this.seenJobs.add(job.id)
+    this.journal?.write({
+      ev: 'job-done', id: job.id, label: job.label, status: job.status,
+      ...(job.detail !== undefined ? { detail: job.detail } : {}),
+      startedAt: job.startedAt,
+      ...(job.finishedAt !== undefined ? { finishedAt: job.finishedAt } : {}),
+    })
     const entry: TimelineEntry = {
       time: job.finishedAt ?? Date.now(),
       kind: 'job',
@@ -289,24 +300,30 @@ export class ActivityCollector {
    * scans, everything after reuses the answer ('' marks an orphan — never
    * re-adopted, because a later unrelated workflow call would mis-own it).
    * A scan that finds the recording tool also marks the run as durably
-   * recorded, suppressing its live twins.
+   * recorded, suppressing its live twins. The first-seen moment journals the
+   * wf-owner record replay needs to attribute this run's phase/log rows.
    */
-  private wfResolve(runId: string): Rec | null {
-    const owner = this.wfOwner.get(runId)
+  private wfResolve(run: WfRunSlice): Rec | null {
+    const owner = this.wfOwner.get(run.id)
     if (owner !== undefined) {
       const rec = owner === '' ? undefined : this.recs.get(owner)
       return rec ?? null
     }
     const found = this.scanWorkflowOwner()
-    this.wfOwner.set(runId, found?.rec.state.sessionId ?? '')
+    this.wfOwner.set(run.id, found?.rec.state.sessionId ?? '')
     capMap(this.wfOwner, WF_CAP)
-    if (found?.module === WORKFLOW_RECORDER) this.wfRecorded.add(runId)
+    const recorded = found?.module === WORKFLOW_RECORDER
+    if (recorded) this.wfRecorded.add(run.id)
+    this.journal?.write({
+      ev: 'wf-owner', run: run.id, name: run.meta.name,
+      session: found?.rec.state.sessionId ?? null, recorded,
+    })
     return found?.rec ?? null
   }
 
   /** Live run start: adopt the run's lighting, and row it only if unrecorded. */
   private noteWorkflowStart(run: WfRunSlice): void {
-    const rec = this.wfResolve(run.id)
+    const rec = this.wfResolve(run)
     this.wfLiveAt.set(run.id, Date.now())
     capMap(this.wfLiveAt, WF_CAP)
     if (rec === null) return
@@ -318,8 +335,13 @@ export class ActivityCollector {
   }
 
   /** Live progress row (phase / log) — no durable twin exists, so always emitted. */
-  private noteWorkflowRow(run: WfRunSlice, detail: string): void {
-    const rec = this.wfResolve(run.id)
+  private noteWorkflowRow(run: WfRunSlice, ev: 'wf-phase' | 'wf-log', detail: string): void {
+    const rec = this.wfResolve(run)
+    if (this.journal !== null) {
+      this.journal.write(ev === 'wf-phase'
+        ? { ev, run: run.id, title: clip(detail, 500) }
+        : { ev, run: run.id, message: clip(detail, 500) })
+    }
     const entry: TimelineEntry = { time: Date.now(), kind: 'workflow', module: WORKFLOW_ENGINE, name: run.meta.name, snippet: detail }
     if (rec === null) {
       this.noteAction(entry)
@@ -329,10 +351,17 @@ export class ActivityCollector {
   }
 
   /** Live agent fan-out row — suppressed for recorded runs (their durable twin lands via the firehose). */
-  private noteWorkflowAgentRow(run: WfRunSlice, name: string, snippet?: string, isError = false): void {
+  private noteWorkflowAgentRow(run: WfRunSlice, ev: 'wf-agent' | 'wf-agent-end', agent: WfAgentSlice): void {
     if (this.wfRecorded.has(run.id)) return
-    const rec = this.wfResolve(run.id)
-    const entry: TimelineEntry = { time: Date.now(), kind: 'workflow', module: WORKFLOW_ENGINE, name }
+    const rec = this.wfResolve(run)
+    const isError = agent.outcome === 'failed'
+    if (this.journal !== null) {
+      this.journal.write(ev === 'wf-agent'
+        ? { ev, run: run.id, seq: agent.seq, label: clip(agent.label, 500), ...(agent.phase !== undefined ? { phase: agent.phase } : {}) }
+        : { ev, run: run.id, seq: agent.seq, outcome: agent.outcome ?? '' })
+    }
+    const entry: TimelineEntry = { time: Date.now(), kind: 'workflow', module: WORKFLOW_ENGINE, name: `#${agent.seq} ${agent.label}` }
+    const snippet = ev === 'wf-agent' ? agent.phase : agent.outcome
     if (snippet !== undefined && snippet !== '') entry.snippet = snippet
     if (isError) entry.isError = true
     if (rec === null) {
@@ -344,7 +373,7 @@ export class ActivityCollector {
 
   /** Live settlement: close the run's lighting; row it only if unrecorded. */
   private noteWorkflowEnd(run: WfRunSlice, result: WfResultSlice): void {
-    const rec = this.wfResolve(run.id)
+    const rec = this.wfResolve(run)
     const startedAt = this.wfLiveAt.get(run.id)
     this.wfLiveAt.delete(run.id)
     const entry: TimelineEntry = { time: Date.now(), kind: 'workflow-end', module: WORKFLOW_ENGINE, name: run.meta.name }
@@ -352,6 +381,12 @@ export class ActivityCollector {
     if (startedAt !== undefined) entry.durationMs = Math.max(0, entry.time - startedAt)
     if (result.stopReason === 'error') entry.isError = true
     const recorded = this.wfRecorded.has(run.id)
+    if (!recorded) {
+      this.journal?.write({
+        ev: 'wf-end', run: run.id, stopReason: result.stopReason,
+        ...(result.error !== undefined ? { error: clip(result.error, 500) } : {}),
+      })
+    }
     if (rec === null) {
       // Orphaned AND unrecorded: the actions ring keeps the run visible.
       if (!recorded) this.noteAction(entry)
@@ -460,16 +495,16 @@ export class ActivityCollector {
     this.disposers.push(
       on('workflow/start', ((run: WfRunSlice) => { this.noteWorkflowStart(run) }) as (...args: never[]) => void),
       on('workflow/phase', ((run: WfRunSlice, title: string) => {
-        this.noteWorkflowRow(run, title)
+        this.noteWorkflowRow(run, 'wf-phase', title)
       }) as (...args: never[]) => void),
       on('workflow/log', ((run: WfRunSlice, message: string) => {
-        this.noteWorkflowRow(run, clip(message))
+        this.noteWorkflowRow(run, 'wf-log', clip(message))
       }) as (...args: never[]) => void),
       on('workflow/agent-start', ((run: WfRunSlice, agent: WfAgentSlice) => {
-        this.noteWorkflowAgentRow(run, `#${agent.seq} ${agent.label}`, agent.phase)
+        this.noteWorkflowAgentRow(run, 'wf-agent', agent)
       }) as (...args: never[]) => void),
       on('workflow/agent-end', ((run: WfRunSlice, agent: WfAgentSlice) => {
-        this.noteWorkflowAgentRow(run, `#${agent.seq} ${agent.label}`, agent.outcome, agent.outcome === 'failed')
+        this.noteWorkflowAgentRow(run, 'wf-agent-end', agent)
       }) as (...args: never[]) => void),
       on('workflow/end', ((run: WfRunSlice, result: WfResultSlice) => {
         this.noteWorkflowEnd(run, result)
@@ -681,6 +716,7 @@ export class ActivityCollector {
     const rec = this.recs.get(sessionId)
     if (rec === undefined || rec.state.running === running) return
     rec.state.running = running
+    this.journal?.write({ ev: 'agent-status', session: sessionId, status: running ? 'running' : 'idle' })
     this.touch(rec)
   }
 

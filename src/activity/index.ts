@@ -13,6 +13,7 @@ import { installRpcObserver } from './rpc.ts'
 import { RPC_ACTION } from './attribution.ts'
 import { installTrafficTap } from './traffic.ts'
 import type { TrafficTap } from './traffic.ts'
+import { Journal } from './journal.ts'
 
 /** Live traffic-flush cadence: rows ride one aggregated frame, not one per read. */
 const TRAFFIC_FLUSH_MS = 750
@@ -32,7 +33,11 @@ export interface ActivitySetup {
  * resolves against what is actually mounted.
  */
 export function applyActivity(ctx: Context): ActivitySetup {
-  const collector = new ActivityCollector(ctx)
+  // The plugin's own observation journal (live-only events session logs never
+  // carry); disabled by DSH_SCHEMATIC_JOURNAL=0. Boot prunes old day-files.
+  const journal = Journal.enabled() ? new Journal(undefined, (m) => { ctx.logger.warn(m) }) : null
+  journal?.prune()
+  const collector = new ActivityCollector(ctx, journal)
   const traffic = installTrafficTap(ctx)
   const rpc = installRpcObserver(ctx, (method, isError, durationMs) => {
     const module = RPC_ACTION[method] ?? null
