@@ -28,6 +28,7 @@ const zh = {
   miniTitle: '实时插件拓扑缩影 · 双击打开完整视图',
   bgTitle: '星座面板底色',
   bgHint: '输入框旁星图的深空底色浓淡；鼠标悬停面板滚动滚轮也可随调',
+  tipLinks: '连线',
 }
 const en = {
   section: 'Plugin topology',
@@ -37,6 +38,7 @@ const en = {
   miniTitle: 'Live plugin-topology miniature · double-click to open the full view',
   bgTitle: 'Constellation backdrop',
   bgHint: 'Opacity of the deep-space backdrop behind the composer-side star map; the mouse wheel over the panel adjusts it too',
+  tipLinks: 'links',
 }
 
 export const inject = ['slots', 'locale', 'sessions']
@@ -290,7 +292,7 @@ export function apply(ctx: SchematicCtx): void {
   // dots in a viewport-fixed panel beside the composer card (same horizontal
   // level, vertically centered on it), opening the viewer at that same
   // scattered state on double-click.
-  ctx.effect(() => mountMiniTopology(t), 'dsh-schematic: composer-side miniature')
+  ctx.effect(() => mountMiniTopology(t, () => ctx.locale.getSnapshot().active), 'dsh-schematic: composer-side miniature')
   const ask = consumeAskParams()
   if (ask !== null) askInChat(ctx, ask.name, ask.id)
 }

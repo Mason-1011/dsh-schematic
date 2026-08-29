@@ -22,7 +22,10 @@
  * fill and glow when lit — uncategorized packages wear star tints at
  * degree-scaled brightness, a freshly lit dot ripples once, and the panel
  * wears a deep-space backdrop whose opacity the mouse wheel adjusts (both
- * themes follow the SPA's color-scheme via light-dark()).
+ * themes follow the SPA's color-scheme via light-dark()). Hovering a dot
+ * raises a card with its name, package id, and description (Chinese through
+ * the viewer page's shared translation cache, lazily batch-translating
+ * misses — the same sch.zhmap store the viewer reads and writes).
  */
 
 /**
@@ -139,6 +142,21 @@ export const MINI_TOPOLOGY_CSS = `
   font: 500 10px/1.4 ui-monospace, monospace; letter-spacing: 0.5px;
   opacity: 0; transition: opacity 0.25s ease; pointer-events: none;
 }
+/* Hover card for one dot: name, package id, description, link count. Lives on
+   document.body (the panel clips overflow) and is inert to the pointer. */
+.schMiniTip {
+  position: fixed; z-index: 13; pointer-events: none; max-width: 260px;
+  padding: 8px 10px; border-radius: 8px;
+  background: light-dark(#ffffff, #141d33);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16), inset 0 0 0 1px light-dark(rgba(15, 23, 42, 0.08), rgba(148, 163, 184, 0.24));
+  color: var(--dsw-alias-label-secondary, #888);
+  font: 12px/1.55 -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+}
+.schMiniTip .nm { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--dsw-alias-label-primary, #333); }
+.schMiniTip .sw { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.schMiniTip .md { margin-top: 2px; font: 10px/1.4 ui-monospace, monospace; opacity: 0.75; word-break: break-all; }
+.schMiniTip .ds { margin-top: 5px; }
+.schMiniTip .lg { margin-top: 5px; font-size: 10px; opacity: 0.65; }
 @keyframes schMiniPing { from { transform: scale(1); opacity: 0.85; } to { transform: scale(3); opacity: 0; } }
 /* The twinkle breathes brightness as well as size — opacity pulses the whole
    lit dot + halo, which reads as a flash at any panel scale. */
@@ -170,6 +188,14 @@ function findCard(): HTMLElement | null {
   return null
 }
 
+/** One hoverable dot in viewBox coordinates; `d` is its edge count. */
+interface Star { x: number; y: number; r: number; d: number; module: string }
+
+/** Minimal escaper for graph-sourced strings going into the hover card. */
+function esc(s: string): string {
+  return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c)
+}
+
 /**
  * The dot constellation: a deterministic galaxy, not a grid. Units seed on a
  * golden-angle spiral in degree order (hubs fall toward the center), then a
@@ -180,11 +206,12 @@ function findCard(): HTMLElement | null {
  * reshuffle the sky.
  * @param vh - viewBox height; the relaxation uses it vertically, so a freely
  * resized panel fills edge to edge — never letterboxed, never stretched.
- * @returns the SVG markup for the panel (callers index the LIVE circles
- * after insertion — a map built from a detached parse would toggle classes
- * on orphaned nodes).
+ * @returns the SVG markup plus the dot table in viewBox coordinates (hover
+ * hit-testing walks the table; callers index the LIVE circles after
+ * insertion — a map built from a detached parse would toggle classes on
+ * orphaned nodes).
  */
-function layout(graph: any, vh: number): string {
+function layout(graph: any, vh: number): { svg: string; stars: Star[] } {
   const nodes: any[] = (graph.nodes ?? []).filter((n: any) => typeof n.module === 'string')
   const deg = new Map<string, number>()
   for (const e of graph.edges ?? []) {
@@ -269,6 +296,7 @@ function layout(graph: any, vh: number): string {
     lines += `<line x1="${a[0].toFixed(1)}" y1="${a[1].toFixed(1)}" x2="${b[0].toFixed(1)}" y2="${b[1].toFixed(1)}"/>`
   }
   let circles = ''
+  const stars: Star[] = []
   units.forEach((n, i) => {
     const [x, y] = pos.get(String(n.id)) ?? [W / 2, VH / 2]
     const v = n.spine === true ? '--mc1' : CAT_VAR[n.category as string]
@@ -277,8 +305,10 @@ function layout(graph: any, vh: number): string {
     const c = v ?? `--star${1 + Math.floor(hash01(String(n.module)) * 6)}`
     const m = Math.sqrt(Math.min(1, (deg.get(String(n.id)) ?? 0) / maxDeg)).toFixed(2)
     circles += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${rad[i].toFixed(2)}" data-module="${n.module}" style="--c: var(${c}); --m: ${m}"/>`
+    stars.push({ x, y, r: rad[i], d: deg.get(String(n.id)) ?? 0, module: String(n.module) })
   })
-  return `<svg viewBox="0 0 ${W} ${VH.toFixed(1)}" preserveAspectRatio="xMidYMid meet">${lines}${circles}</svg>`
+  const svg = `<svg viewBox="0 0 ${W} ${VH.toFixed(1)}" preserveAspectRatio="xMidYMid meet">${lines}${circles}</svg>`
+  return { svg, stars }
 }
 
 /**
@@ -292,11 +322,13 @@ function layout(graph: any, vh: number): string {
  * re-renders never churn it. The bottom-right grip resizes the panel freely
  * (width and height independent, persisted per browser) and the galaxy
  * re-flows to the new aspect; dots are hollow rings that fill and glow when
- * lit.
- * @param t locale seat for the tooltip.
+ * lit. Hovering a dot raises a card naming the package and its description.
+ * @param t locale seat for the panel title and hover-card meta line.
+ * @param lang active locale thunk; Chinese hover cards reuse the viewer
+ * page's shared description translations.
  * @returns disposer removing the panel and its feeds.
  */
-export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
+export function mountMiniTopology(t: (key: 'miniTitle' | 'tipLinks') => string, lang: () => string): () => void {
   const host = document.createElement('div')
   const label = t('miniTitle')
   host.className = 'schMini'
@@ -310,7 +342,7 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
   document.body.appendChild(host)
 
   /** Field-diagnosis seat: row-kind tail + live counters, read from the console. */
-  const debug = { frames: [] as string[], polls: 0, ok: -1, active: 0, dots: 0, graphAt: 0, w: W, h: PANEL_H, bg: 0.88 }
+  const debug = { frames: [] as string[], polls: 0, ok: -1, active: 0, dots: 0, graphAt: 0, w: W, h: PANEL_H, bg: 0.88, tip: '' }
   ;(window as unknown as Record<string, unknown>).__schMini = debug
 
   /** Panel size in CSS px, persisted so the panel stays what the user set. */
@@ -352,9 +384,13 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
   grip.title = `${label} — ⇲`
   host.appendChild(grip)
   grip.addEventListener('dblclick', (e) => e.stopPropagation())
+  /** True while a body drag or grip resize is in flight — hover cards hide. */
+  let dragging = false
   grip.addEventListener('pointerdown', (e) => {
     e.stopPropagation()
     e.preventDefault()
+    dragging = true
+    hideTip()
     const startX = e.clientX
     const startY = e.clientY
     const startW = panelW
@@ -373,6 +409,7 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
     const up = (ev: PointerEvent): void => {
       // Window-level capture-phase listeners: the drag keeps flowing even if
       // the pointer outruns the 14px grip or a rebuild moves it.
+      dragging = false
       window.removeEventListener('pointermove', move, true)
       window.removeEventListener('pointerup', up, true)
       window.removeEventListener('pointercancel', up, true)
@@ -399,6 +436,9 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
   bgHint.className = 'schMiniBg'
   host.appendChild(bgHint)
   let bgHintTimer = 0
+  /** Native panel tooltip text (title + backdrop dial); blanked while a dot's
+      hover card is up so the two never stack. */
+  const panelTitle = (): string => `${label} · ⌀ ${Math.round(bgA * 100)}%`
   /** silent skips the sync event — mount and event-driven applications never
      re-broadcast, so the panel ↔ settings slider loop can't self-echo. */
   const applyBg = (silent = false): void => {
@@ -408,7 +448,7 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
     window.clearTimeout(bgHintTimer)
     bgHintTimer = window.setTimeout(() => { bgHint.style.opacity = '0' }, 700)
     try { localStorage.setItem(BG_KEY, bgA.toFixed(2)) } catch { /* an unwritable store loses the setting, not the panel */ }
-    host.title = `${label} · ⌀ ${Math.round(bgA * 100)}%`
+    host.title = panelTitle()
     debug.bg = bgA
     if (!silent) window.dispatchEvent(new CustomEvent('sch-mini-bg', { detail: bgA }))
   }
@@ -441,6 +481,8 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
   host.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return
     e.preventDefault()
+    dragging = true
+    hideTip()
     host.classList.add('drag')
     const sx = e.clientX
     const sy = e.clientY
@@ -456,6 +498,7 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
       anchor()
     }
     const up = (): void => {
+      dragging = false
       window.removeEventListener('pointermove', move, true)
       window.removeEventListener('pointerup', up, true)
       window.removeEventListener('pointercancel', up, true)
@@ -482,6 +525,10 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
   const ac = new AbortController()
   /** module → constellation dots currently drawn for it. */
   let dotsByModule = new Map<string, Element[]>()
+  /** Dot table for hover hit-testing, in the viewBox of the last render. */
+  let stars: Star[] = []
+  /** module → graph node, the hover card's name/description source. */
+  let nodeByModule = new Map<string, any>()
   /** ctx key → provider modules, for lighting both ends of a service read. */
   let keyOwners = new Map<string, string[]>()
   const active = new Map<string, { until: number; strong: boolean }>()
@@ -562,7 +609,9 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
     if (lastGraph === null) return
     drawnVh = viewH()
     debug.graphAt = Date.now()
-    stage.innerHTML = layout(lastGraph, drawnVh)
+    const out = layout(lastGraph, drawnVh)
+    stage.innerHTML = out.svg
+    stars = out.stars
     // Index the circles AFTER insertion: the live nodes are the only ones
     // whose classes paint.
     dotsByModule = new Map<string, Element[]>()
@@ -573,6 +622,10 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
       dotsByModule.set(module, list)
     }
     debug.dots = dotsByModule.size
+    nodeByModule = new Map<string, any>()
+    for (const n of lastGraph.nodes ?? []) {
+      if (typeof n.module === 'string') nodeByModule.set(n.module, n)
+    }
     keyOwners = new Map<string, string[]>()
     for (const n of lastGraph.nodes ?? []) {
       for (const key of n.provides ?? []) {
@@ -583,6 +636,110 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
     }
     paint()
   }
+
+  // ------- hover card: name + explanation for the dot under the pointer -------
+  /** Body-level (the panel clips its overflow) and inert to the pointer. */
+  const tip = document.createElement('div')
+  tip.className = 'schMiniTip'
+  tip.style.display = 'none'
+  document.body.appendChild(tip)
+  /** en→zh description translations, shared with the viewer page. */
+  const zhMap = new Map<string, string>()
+  try {
+    const saved = localStorage.getItem('sch.zhmap')
+    if (saved !== null) for (const [k, v] of JSON.parse(saved) as [string, string][]) zhMap.set(k, v)
+  } catch { /* a corrupt store just leaves hover cards in English */ }
+  const pendingZh = new Set<string>()
+  /** The star whose card is up; '' while hidden. */
+  let tipStar: Star | null = null
+  function hideTip(): void {
+    if (tipStar === null) return
+    tipStar = null
+    tip.style.display = 'none'
+    debug.tip = ''
+    host.title = panelTitle()
+  }
+  /** Card content for one star: swatch, short name, package id, description, link count. */
+  function fillTip(s: Star): void {
+    const node = nodeByModule.get(s.module)
+    const dot = dotsByModule.get(s.module)?.[0]
+    const swatch = dot === undefined ? 'transparent' : getComputedStyle(dot).stroke
+    const name = typeof node?.label === 'string' && node.label !== '' ? node.label : s.module
+    let html = `<div class="nm"><i class="sw" style="background:${swatch}"></i>${esc(name)}</div>`
+    html += `<div class="md">${esc(s.module)}</div>`
+    const desc = node?.desc
+    if (typeof desc === 'string' && desc !== '') {
+      const zh = lang() === 'zh' ? (zhMap.get(desc) ?? desc) : desc
+      html += `<div class="ds">${esc(zh)}</div>`
+      ensureZhDesc(desc)
+    }
+    html += `<div class="lg">${s.d} ${esc(t('tipLinks'))}</div>`
+    tip.innerHTML = html
+  }
+  /** Translate one missing description (zh locale only); a late landing refreshes the open card. */
+  function ensureZhDesc(desc: string): void {
+    if (lang() !== 'zh' || zhMap.has(desc) || pendingZh.has(desc)) return
+    pendingZh.add(desc)
+    void fetch('/schematic/api/translate-batch', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ texts: [desc] }),
+      signal: ac.signal,
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: any) => {
+        if (d === null || !Array.isArray(d.zh) || typeof d.zh[0] !== 'string') return
+        zhMap.set(desc, d.zh[0])
+        // Same store the viewer page reads: one translation serves both faces.
+        try { localStorage.setItem('sch.zhmap', JSON.stringify([...zhMap])) } catch { /* quota exceeded: the translation lives in memory */ }
+        if (tipStar !== null && nodeByModule.get(tipStar.module)?.desc === desc) fillTip(tipStar)
+      })
+      .catch(() => { /* a failed request keeps English for this description */ })
+      .finally(() => { pendingZh.delete(desc) })
+  }
+  /** Nearest star to a screen point within a generous hit radius, or null. */
+  function starAt(cx: number, cy: number): Star | null {
+    const svg = stage.querySelector('svg')
+    if (svg === null || stars.length === 0) return null
+    const rect = svg.getBoundingClientRect()
+    if (rect.width === 0 || rect.height === 0) return null
+    const vh = Math.max(drawnVh, H)
+    const scale = Math.min(rect.width / W, rect.height / vh)
+    const vx = (cx - rect.left - (rect.width - W * scale) / 2) / scale
+    const vy = (cy - rect.top - (rect.height - vh * scale) / 2) / scale
+    let best: Star | null = null
+    let bestD = Number.POSITIVE_INFINITY
+    for (const s of stars) {
+      const d = Math.hypot(s.x - vx, s.y - vy)
+      if (d < Math.max(s.r + 4, 6) && d < bestD) { best = s; bestD = d }
+    }
+    return best
+  }
+  stage.addEventListener('pointermove', (e: PointerEvent) => {
+    if (dragging) { hideTip(); return }
+    const s = starAt(e.clientX, e.clientY)
+    if (s === null) { hideTip(); return }
+    if (tipStar?.module !== s.module) {
+      tipStar = s
+      debug.tip = s.module
+      // Blank the native panel tooltip while the card is up — the two would
+      // stack over the same pointer.
+      host.title = ''
+      fillTip(s)
+      tip.style.display = ''
+    }
+    // Follow the cursor, flipping at the window edges.
+    const w = tip.offsetWidth
+    const h = tip.offsetHeight
+    let x = e.clientX + 14
+    if (x + w > window.innerWidth - 8) x = e.clientX - 14 - w
+    let y = e.clientY + 16
+    if (y + h > window.innerHeight - 8) y = e.clientY - 16 - h
+    tip.style.left = `${Math.max(8, Math.round(x))}px`
+    tip.style.top = `${Math.max(8, Math.round(y))}px`
+  })
+  stage.addEventListener('pointerleave', hideTip)
+
   const applyGraph = (graph: any): void => {
     const next = JSON.stringify([
       (graph.nodes ?? []).map((n: any) => [n.id, n.module, n.category]),
@@ -664,10 +821,10 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
       return
     }
     const card = findCard()
-    if (card === null) { host.style.display = 'none'; return }
+    if (card === null) { host.style.display = 'none'; hideTip(); return }
     const r = card.getBoundingClientRect()
     const left = Math.round(r.right + GAP)
-    if (left + panelW > window.innerWidth - 8) { host.style.display = 'none'; return }
+    if (left + panelW > window.innerWidth - 8) { host.style.display = 'none'; hideTip(); return }
     host.style.display = ''
     host.style.left = `${left}px`
     host.style.top = `${Math.round(r.top + (r.height - panelH) / 2)}px`
@@ -684,5 +841,6 @@ export function mountMiniTopology(t: (key: 'miniTitle') => string): () => void {
     window.removeEventListener('sch-mini-bg', onBgEvent)
     ac.abort()
     host.remove()
+    tip.remove()
   }
 }
