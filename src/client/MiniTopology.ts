@@ -48,11 +48,11 @@ const W = 208
 const H = 32
 /** Panel height on screen; the CSS below reads the same number. */
 const PANEL_H = 30
-/** Free-resize bounds (CSS px) and persistence key for the corner grip. */
+/** Free-resize floor (CSS px) and persistence key for the corner grip; the
+    ceiling is the viewport itself — the panel can grow to a full-screen star
+    map, never past the window. */
 const MIN_W = 120
-const MAX_W = 800
 const MIN_H = 24
-const MAX_H = 320
 const SIZE_KEY = 'sch.mini.size'
 /** Persisted free-placement origin; absent while docked to the card. */
 const POS_KEY = 'sch.mini.pos'
@@ -286,6 +286,25 @@ function layout(graph: any, vh: number): { svg: string; stars: Star[] } {
       py[i] = Math.max(3, Math.min(VH - 3, py[i] + Math.max(-3, Math.min(3, fy[i] * cool))))
     }
   }
+  // The force phase contracts the seeded envelope: repulsion is local and the
+  // centering pull wins at the fringe, so long panels keep empty bands at both
+  // ends of their long axis. Rescale the solved bounds back onto the frame —
+  // the wall clamps keep the solved box inside [4,W-4]x[3,VH-3], so each axis
+  // only stretches (factor >= 1), gaps grow or hold, and no overlap appears.
+  let minX = Infinity
+  let maxX = -Infinity
+  let minY = Infinity
+  let maxY = -Infinity
+  for (let i = 0; i < units.length; i++) {
+    minX = Math.min(minX, px[i]); maxX = Math.max(maxX, px[i])
+    minY = Math.min(minY, py[i]); maxY = Math.max(maxY, py[i])
+  }
+  const sx = maxX - minX > 1 ? (W - 8) / (maxX - minX) : 1
+  const sy = maxY - minY > 1 ? (VH - 6) / (maxY - minY) : 1
+  for (let i = 0; i < units.length; i++) {
+    px[i] = 4 + (px[i] - minX) * sx
+    py[i] = 3 + (py[i] - minY) * sy
+  }
   const pos = new Map<string, [number, number]>()
   units.forEach((n, i) => pos.set(String(n.id), [px[i], py[i]]))
   let lines = ''
@@ -348,21 +367,25 @@ export function mountMiniTopology(t: (key: 'miniTitle' | 'tipLinks') => string, 
   /** Panel size in CSS px, persisted so the panel stays what the user set. */
   let panelW = W
   let panelH = PANEL_H
+  /** Saved sizes may predate a window resize; re-clamp into today's viewport
+      (window fit wins over the floor on tiny windows). */
+  const fitW = (w: number): number => Math.min(window.innerWidth - 4, Math.max(MIN_W, w))
+  const fitH = (h: number): number => Math.min(window.innerHeight - 4, Math.max(MIN_H, h))
   try {
     const raw = localStorage.getItem(SIZE_KEY)
     if (raw !== null) {
       const m = /^(\d+)x(\d+)$/.exec(raw)
       if (m !== null) {
-        panelW = Math.min(MAX_W, Math.max(MIN_W, Number(m[1])))
-        panelH = Math.min(MAX_H, Math.max(MIN_H, Number(m[2])))
+        panelW = fitW(Number(m[1]))
+        panelH = fitH(Number(m[2]))
       }
     } else {
       // v0.2.22's single-scale store carries over once; Number(null) is 0,
       // so only a present key with a positive number counts.
       const legacy = Number(localStorage.getItem(SCALE_KEY))
       if (Number.isFinite(legacy) && legacy > 0) {
-        panelW = Math.min(MAX_W, Math.max(MIN_W, Math.round(W * legacy)))
-        panelH = Math.min(MAX_H, Math.max(MIN_H, Math.round(PANEL_H * legacy)))
+        panelW = fitW(Math.round(W * legacy))
+        panelH = fitH(Math.round(PANEL_H * legacy))
       }
     }
   } catch { /* an unreadable store just keeps the default size */ }
@@ -397,11 +420,11 @@ export function mountMiniTopology(t: (key: 'miniTitle' | 'tipLinks') => string, 
     const startH = panelH
     const move = (ev: PointerEvent): void => {
       if (ev.buttons === 0) return
-      // Width stops at the window edge instead of tripping anchor()'s
+      // Size stops at the window edges instead of tripping anchor()'s
       // no-room hide — the user is mid-gesture, not asking to dismiss.
-      const room = window.innerWidth - 8 - host.getBoundingClientRect().left
-      panelW = Math.min(MAX_W, room, Math.max(MIN_W, startW + ev.clientX - startX))
-      panelH = Math.min(MAX_H, Math.max(MIN_H, startH + ev.clientY - startY))
+      const rect = host.getBoundingClientRect()
+      panelW = Math.min(window.innerWidth - 8 - rect.left, Math.max(MIN_W, startW + ev.clientX - startX))
+      panelH = Math.min(window.innerHeight - 8 - rect.top, Math.max(MIN_H, startH + ev.clientY - startY))
       applySize()
       if (Math.abs(viewH() - drawnVh) > 2) render()
       anchor()
@@ -827,7 +850,9 @@ export function mountMiniTopology(t: (key: 'miniTitle' | 'tipLinks') => string, 
     if (left + panelW > window.innerWidth - 8) { host.style.display = 'none'; hideTip(); return }
     host.style.display = ''
     host.style.left = `${left}px`
-    host.style.top = `${Math.round(r.top + (r.height - panelH) / 2)}px`
+    // A panel taller than the card centers on it; one taller than the window
+    // pins inside the viewport instead of overflowing past its top edge.
+    host.style.top = `${Math.round(Math.max(2, Math.min(window.innerHeight - panelH - 2, r.top + (r.height - panelH) / 2)))}px`
   }
   anchor()
   const anchorTimer = window.setInterval(anchor, ANCHOR_MS)
