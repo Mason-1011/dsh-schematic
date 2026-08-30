@@ -164,6 +164,68 @@ const T: Record<string, { en: string; zh: string }> = {
   dtListensTip:    { en: 'broadcast events this package listens to; packages that only provide/inject services register none', zh: '该包监听的广播事件;纯服务接线(只提供/注入服务)的包不注册任何监听' },
   dtReads:         { en: 'runtime access', zh: '运行时访问' },
   dtReadsTip:      { en: 'ctx service keys this package actually accessed since process start, with counts — the wiring that did work, not just the wiring that exists', zh: '进程启动以来该包真实访问过的 ctx 服务键及次数——是实际发生作用的接线,不只是存在的接线' },
+  // composition edit (v0.3)
+  editTitle:       { en: 'toggle edit mode (default off — the page stays a pure observer)', zh: '切换编辑模式(默认关——页面保持纯旁观)' },
+  eLocked:         { en: 'composition view is read-only: {r}. Refresh or fix the file, then retry.', zh: '组合视图只读:{r}。刷新或修好文件后重试。' },
+  eLastFail:       { en: 'harness rejected the last reload ({m}); the previous tree keeps running. Roll back?', zh: 'harness 拒载了上一次重载({m});旧插件树仍在运行。回滚吗?' },
+  eRollback:       { en: '⟲ rollback', zh: '⟲ 回滚' },
+  eRolledBack:     { en: 'rolled back to {f}', zh: '已回滚到 {f}' },
+  eNoBackups:      { en: 'nothing to roll back to', zh: '没有可回滚的备份' },
+  eApplied:        { en: 'applied — harness reloading…', zh: '已应用——harness 正在热重载…' },
+  eApplyFail:      { en: 'apply failed: {m}', zh: '应用失败:{m}' },
+  ePreviewFail:    { en: 'preview failed: {m}', zh: '预览失败:{m}' },
+  eStale:          { en: 'the patch file changed elsewhere — model refreshed, please retry', zh: 'patch 文件被其他方修改——模型已刷新,请重试' },
+  eDrawerTitle:    { en: 'composition preview · {n} op(s)', zh: '组合预览 · {n} 个操作' },
+  eDiffRemoved:    { en: 'removed', zh: '移除' },
+  eDiffAdded:      { en: 'added (provides unknown until mounted)', zh: '新增(挂载前 provides 未知)' },
+  eDiffChanged:    { en: 'changed', zh: '变更' },
+  eChangeDisabled: { en: 'disable', zh: '停用' },
+  eChangeConfig:   { en: 'config', zh: '配置' },
+  eNoChanges:      { en: 'no effective change', zh: '无实际变化' },
+  eYamlDiff:       { en: 'managed block YAML', zh: '受管区块 YAML' },
+  eWarnings:       { en: 'warnings', zh: '警告' },
+  eOrphaned:       { en: 'orphaned keys (no known provider left)', zh: '失供键(已无已知提供方)' },
+  wSelf:           { en: 'this removes the editor itself — after applying, this page dies. Restore: revert ~/.dsh/profiles/<name>/cordis.patch.yml to the newest backup in ~/.dsh/schematic/patches/, or hand-delete the marked block.', zh: '这会移除编辑器本体——应用后本页面会消失。恢复:把 ~/.dsh/profiles/<名>/cordis.patch.yml 写回 ~/.dsh/schematic/patches/ 里最新的备份,或手工删除标记区块。' },
+  wFreeze:         { en: '{ids}: {fields} currently hold !!js expressions evaluated per boot; editing freezes them to literals. Original values are in the YAML diff below.', zh: '{ids}:{fields} 目前是每次启动求值的 !!js 表达式;编辑会把它冻结为字面量。原值见下方 YAML diff。' },
+  wConflict:       { en: 'the old and new provider may both register the seam key; if the harness rejects the double registration it keeps the previous tree — roll back from the drawer.', zh: '新旧提供方可能同时注册接缝键;若 harness 拒绝双注册,它会保持旧插件树——在抽屉里回滚即可。' },
+  wOrphan:         { en: 'key {keys} loses its last known provider; units still injecting it: {detail}. A pending new provider may cover it (unknown until mounted).', zh: '键 {keys} 失去最后一个已知提供方;仍在注入的单元:{detail}。待挂载的新提供方可能补上(挂载前未知)。' },
+  wDropped:        { en: '{ids}: fields {keys} are dropped by the new config — patch semantics replace config whole.', zh: '{ids}:新配置丢掉了字段 {keys}——patch 语义是整体替换 config。' },
+  wBoot:           { en: '{ids} is boot-critical ({detail}); the harness keeps the previous tree if the reload fails.', zh: '{ids} 是启动关键项({detail});重载失败时 harness 会保持旧插件树。' },
+  eConfirmNeed:    { en: 'type {ids} to confirm the danger operation', zh: '输入 {ids} 以确认危险操作' },
+  eConfirmPh:      { en: 'type the entry id', zh: '输入条目 id' },
+  eApply:          { en: 'apply', zh: '应用' },
+  eCancel:         { en: 'discard draft', zh: '丢弃草稿' },
+  eClear:          { en: 'clear all schematic edits', zh: '撤销全部 schematic 改动' },
+  eCleared:        { en: 'cleared — {n} row(s) removed', zh: '已清空——移除 {n} 行' },
+  eCfgTitle:       { en: 'edit config · {id}', zh: '编辑配置 · {id}' },
+  eCfgHint:        { en: 'patch semantics replace the whole config — keep every field you want to keep; !!js freezes to literals.', zh: 'patch 语义整体替换 config——想保留的字段都要写上;!!js 会冻结为字面量。' },
+  eCfgPreview:     { en: 'preview change', zh: '预览变更' },
+  eCfgEmpty:       { en: 'config must be a YAML mapping (can be empty: {})', zh: 'config 必须是 YAML 映射(可以为空:{})' },
+  eDisable:        { en: '⏻ disable entry', zh: '⏻ 停用条目' },
+  eEnable:         { en: '⏻ enable entry', zh: '⏻ 启用条目' },
+  eEditCfg:        { en: '✎ edit config', zh: '✎ 编辑配置' },
+  eOrigin:         { en: 'layer', zh: '来源层' },
+  eOriginManaged:  { en: 'layer {l} · schematic-managed', zh: '来源层 {l} · schematic 托管' },
+  eProtected:      { en: 'protected: {r}', zh: '受保护:{r}' },
+  wrSelf:          { en: 'the editor itself', zh: '编辑器本体' },
+  wrHot:           { en: 'hot-reload machinery', zh: '热重载机制' },
+  wrPage:          { en: 'the server this page rides on', zh: '本页面的服务器' },
+  wrSpa:           { en: 'SPA boot roster', zh: 'SPA 启动名单' },
+  wrSecrets:       { en: 'settings/credentials plumbing', zh: '设置/凭据管线' },
+  wrDura:          { en: 'session durability chain', zh: '会话持久化链' },
+  wrMany:          { en: 'many dependents', zh: '多方依赖' },
+  eSwapTitle:      { en: 'swap provider', zh: '换提供方' },
+  eSwapCurrent:    { en: 'current', zh: '当前' },
+  eAltInTree:      { en: 'in tree', zh: '已在树中' },
+  eAltInTreeOff:   { en: 'in tree · disabled', zh: '已在树中 · 已停用' },
+  eAltInstalled:   { en: 'installed', zh: '已安装' },
+  eAltCatalog:     { en: 'not installed', zh: '未安装' },
+  eSwapTo:         { en: 'swap to this', zh: '换到这个' },
+  eInstallCmd:     { en: 'install first:', zh: '先安装:' },
+  eCopy:           { en: 'copy', zh: '复制' },
+  eCopied:         { en: 'copied', zh: '已复制' },
+  eGhostLegend:    { en: 'dashed = pending addition · struck = pending removal', zh: '虚线 = 待新增 · 删除线 = 待移除' },
+  eUnavailable:    { en: 'composition editing unavailable (host plugin older than the page?)', zh: '组合编辑不可用(宿主插件比页面旧?)' },
 }
 
 const CATS = [
@@ -496,6 +558,61 @@ const CSS = `
 .sch .actList .actStRow .er { color: var(--s8); }
 .sch .actList .actStRow .nw { color: var(--ink-1); font-weight: 600; }
 .sch .actList .actStRow .md.un { opacity: 0.55; }
+/* composition edit (v0.3) */
+.sch .editBtn { font-size: 14px; line-height: 1; padding: 3px 9px; border-radius: 7px; border: 1px solid var(--border); background: none; color: var(--ink-2); cursor: pointer; }
+.sch .editBtn[aria-pressed="true"] { color: var(--ink-1); border-color: var(--ink-2); background: color-mix(in oklab, var(--ink-1) 8%, transparent); }
+.sch .editBanner { display: none; }
+.sch .editBanner.on { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 5px 14px; font-size: 12px; color: var(--ink-1); background: color-mix(in oklab, var(--s8) 10%, var(--surface-1)); border-bottom: 1px solid var(--border); }
+.sch .editBanner .ebRollback { font-size: 11.5px; border: 1px solid var(--ink-3); background: none; color: var(--ink-1); border-radius: 6px; padding: 2px 9px; cursor: pointer; }
+.sch .editSec { border-top: 1px dashed var(--border); margin-top: 10px; padding-top: 8px; }
+.sch .editSec .editMeta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 11px; color: var(--ink-3); margin-bottom: 6px; }
+.sch .editSec .protBadge { font-size: 10.5px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--ink-3); }
+.sch .editSec .protBadge.danger { color: var(--s8); border-color: color-mix(in oklab, var(--s8) 40%, transparent); background: color-mix(in oklab, var(--s8) 7%, transparent); }
+.sch .editSec .protBadge.warn { color: var(--ink-2); }
+.sch .editSec .btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.sch .editSec button, .sch .editDrawer .dbtns button { font-size: 11.5px; border: 1px solid var(--border); background: none; color: var(--ink-1); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+.sch .editSec button:hover, .sch .editDrawer .dbtns button:hover:not(:disabled) { border-color: var(--ink-3); }
+.sch .editSec .swapSec h4 { margin: 0 0 4px; font-size: 11.5px; color: var(--ink-2); }
+.sch .editSec .swapCur { font-size: 11.5px; color: var(--ink-2); margin-bottom: 4px; }
+.sch .editSec .swapRow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 3px 0; font-size: 11.5px; }
+.sch .editSec .swapRow .pkg { font-size: 10.5px; color: var(--ink-2); }
+.sch .editSec .badge { font-size: 10px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--ink-3); white-space: nowrap; }
+.sch .editSec .badge.cur { color: var(--ink-1); border-color: var(--ink-3); }
+.sch .editSec .badge.installed { color: var(--s3); border-color: var(--s3); }
+.sch .editSec .badge.catalog { color: var(--ink-3); border-style: dashed; }
+.sch .editSec .eb-copy { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.sch .editScrim { display: none; }
+.sch .editScrim.on { display: block; position: fixed; inset: 0; z-index: 40; background: transparent; }
+.sch .editDrawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(540px, 94vw); z-index: 41; background: var(--surface-1); color: var(--ink-1); border-left: 1px solid var(--border); box-shadow: -12px 0 32px #0002; transform: translateX(102%); transition: transform .18s ease; padding: 14px 16px; overflow-y: auto; font-size: 12.5px; }
+.sch .editDrawer.on { transform: none; }
+.sch .editDrawer h3 { margin: 0 0 8px; font-size: 13.5px; }
+.sch .editDrawer h4 { margin: 12px 0 4px; font-size: 11.5px; color: var(--ink-3); text-transform: none; }
+.sch .editDrawer .hint { color: var(--ink-3); font-size: 11.5px; margin: 4px 0; }
+.sch .editDrawer .dRows { list-style: none; margin: 4px 0; padding: 0; }
+.sch .editDrawer .dRow { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; border-bottom: 1px dashed var(--border); }
+.sch .editDrawer .dRow.removed b { text-decoration: line-through; color: var(--ink-3); }
+.sch .editDrawer .dRow.added b { color: var(--s3); }
+.sch .editDrawer .dRow span { color: var(--ink-3); font-size: 11px; text-align: right; }
+.sch .editDrawer .warnList { list-style: none; margin: 6px 0; padding: 0; }
+.sch .editDrawer .warnItem { padding: 5px 8px; margin: 4px 0; border-left: 3px solid var(--ink-3); background: color-mix(in oklab, var(--ink-3) 6%, transparent); font-size: 11.5px; line-height: 1.45; }
+.sch .editDrawer .warnItem.warn { border-left-color: var(--s8); }
+.sch .editDrawer .warnItem.danger { border-left-color: var(--s8); background: color-mix(in oklab, var(--s8) 7%, transparent); }
+.sch .editDrawer .confirmLbl { display: block; margin: 6px 0 3px; color: var(--s8); font-size: 11.5px; }
+.sch .editDrawer .confirmIn { width: 100%; box-sizing: border-box; padding: 4px 8px; border: 1px solid color-mix(in oklab, var(--s8) 40%, transparent); border-radius: 6px; background: none; color: var(--ink-1); font-size: 12px; }
+.sch .editDrawer .yamlDiff { margin: 2px 0; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; overflow-x: auto; font-size: 11px; line-height: 1.5; white-space: pre; }
+.sch .editDrawer .yamlDiff .l { display: block; }
+.sch .editDrawer .yamlDiff .l.- { color: var(--s8); background: color-mix(in oklab, var(--s8) 8%, transparent); }
+.sch .editDrawer .yamlDiff .l.+ { color: var(--s3); background: color-mix(in oklab, var(--s3) 8%, transparent); }
+.sch .editDrawer .cfgText { width: 100%; box-sizing: border-box; min-height: 40vh; margin: 4px 0; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: none; color: var(--ink-1); font: 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }
+.sch .editDrawer .dbtns { display: flex; align-items: center; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.sch .editDrawer .dPrimary { border-color: var(--ink-2) !important; font-weight: 600; }
+.sch .editDrawer .dPrimary:disabled { opacity: 0.45; cursor: not-allowed; }
+.sch .editDrawer .dGhost { color: var(--ink-3) !important; }
+.sch .graph .node.ghostRem { opacity: 0.38; }
+.sch .graph .node.ghostRem rect { stroke-dasharray: 3 3; }
+.sch .graph .node.ghostRem text { text-decoration: line-through; opacity: 0.7; }
+.sch .graph .node.ghostAdd rect { fill: none; stroke: var(--ink-2); stroke-dasharray: 4 4; }
+.sch .graph .node.ghostAdd text { fill: var(--ink-2); font-size: 10px; }
 `
 
 /** Idempotent stylesheet injection. */
@@ -589,9 +706,11 @@ export function mountSchematic(container: HTMLElement): () => void {
   <span class="spacer"></span>
   <select class="sessSel" title="${t('sessSelTitle')}"></select>
   <input type="search" class="search" placeholder="${t('searchPh')}">
+  <button class="editBtn" aria-pressed="false" title="${t('editTitle')}">✎</button>
   <button class="langToggle" title="${t('langTitle')}">中</button>
   <button class="themeToggle">◐</button>
 </header>
+<div class="editBanner"></div>
 <div class="filters"></div>
 <main>
   <div class="journey"></div>
@@ -620,7 +739,9 @@ export function mountSchematic(container: HTMLElement): () => void {
   <button class="refresh" title="${t('refreshTitle')}">⟳</button>
 </footer>
 <div class="toast"></div>
-<div class="tooltip"></div>`
+<div class="tooltip"></div>
+<div class="editScrim"></div>
+<aside class="editDrawer"></aside>`
   container.classList.add('sch')
   container.innerHTML = html
   container.dataset.tab = bootTab
@@ -1452,6 +1573,7 @@ export function mountSchematic(container: HTMLElement): () => void {
     renderTable(L)
     updateCrumb(scoped, scoped ? L.cluster.label : undefined)
     paintActivity()
+    paintEditOverlay()
   }
 
   const countInj = (k: string): number => GRAPH.nodes.filter((n: any) => n.inject.includes(k)).length
@@ -1536,6 +1658,35 @@ export function mountSchematic(container: HTMLElement): () => void {
     for (const e of edgeEls) { e.classList.remove('dim'); e.classList.remove('on') }
   }
 
+  /** Detail-panel edit section: only in edit mode, only for loader entries. */
+  function editSection(n: any): string {
+    if (!editOn || compose === null || !compose.editable) return ''
+    const e = composeEntryOf(n)
+    if (e === null) return ''
+    const origin = e.origin.managed ? t('eOriginManaged', { l: e.origin.layer }) : `${t('eOrigin')}: ${e.origin.layer}`
+    const prot = e.protected === null ? '' : `<div class="protBadge ${e.protected.tier}">${t('eProtected', { r: t(WREASONS[e.protected.reason] ?? 'wrMany') })}</div>`
+    return `
+    <div class="editSec">
+      <div class="editMeta">${origin}${prot}</div>
+      <div class="btns">
+        <button class="eb-toggle" data-id="${esc(e.id)}">${e.disabled ? t('eEnable') : t('eDisable')}</button>
+        ${e.config !== null ? `<button class="eb-cfg" data-id="${esc(e.id)}">${t('eEditCfg')}</button>` : ''}
+      </div>
+    </div>`
+  }
+
+  /** Wire the edit section's buttons (called right after renderDetail paints). */
+  function bindEditSection(): void {
+    const toggle = container.querySelector('.detail .eb-toggle') as HTMLButtonElement | null
+    if (toggle !== null) {
+      const id = toggle.dataset.id as string
+      const disabled = entryById.get(id)?.disabled ?? false
+      toggle.onclick = () => addOp({ kind: disabled ? 'enable' : 'disable', id })
+    }
+    const cfg = container.querySelector('.detail .eb-cfg') as HTMLButtonElement | null
+    if (cfg !== null) cfg.onclick = () => { configEditFor = cfg.dataset.id as string; renderDrawer() }
+  }
+
   function renderDetail(n: any): void {
     const owners = (k: string): string => (keyOwners.get(k) ?? []).map((o) => nodeLabel(o)).join(', ')
     const keyChips = (list: string[]): string => list.map((k) => {
@@ -1561,6 +1712,7 @@ export function mountSchematic(container: HTMLElement): () => void {
     </dl>
     ${(state.tab === 'domains' && !state.scope && state.expanded.has(lastL?.nodeGroup?.get(n.id) ?? ''))
       ? `<button class="open-btn grp">${t('collapseGroup')}</button>` : ''}
+    ${editSection(n)}
     <button class="ask-btn" title="${t('askTitle')}">${t('ask')}</button>`
     const grpBtn = container.querySelector('.detail .open-btn.grp') as HTMLElement | null
     if (grpBtn !== null) {
@@ -1574,6 +1726,7 @@ export function mountSchematic(container: HTMLElement): () => void {
       if (name !== n.id) params.set('sch-name', name)
       window.open(`/?${params.toString()}`, '_blank', 'noopener')
     }
+    bindEditSection()
   }
 
   function renderDetailCluster(c: any): void {
@@ -1593,9 +1746,60 @@ export function mountSchematic(container: HTMLElement): () => void {
     <div class="btns">
       <button class="open-btn exp">${state.expanded.has(c.id) ? t('collapseGroup') : t('expInOverview')}</button>
       <button class="open-btn">${t('openGroup')}</button>
-    </div>`
+    </div>
+    ${swapSection(c)}`
     ;(container.querySelector('.detail .open-btn.exp') as HTMLElement).onclick = () => toggleExpand(c.id)
     ;(container.querySelector('.detail .open-btn:not(.exp)') as HTMLElement).onclick = () => enterScope(c.id)
+    bindSwapSection(c)
+  }
+
+  /** Cluster-card provider-swap section: live registrars + catalog alternatives. */
+  function swapSection(c: any): string {
+    if (!editOn || compose === null || !compose.editable) return ''
+    const seam = (compose.seams ?? []).find((s: any) => (c.seamKeys ?? []).includes(s.key))
+    if (seam === undefined || seam.alternatives.length === 0) return ''
+    const from = stripInc(seam.registrars[0]?.entryId ?? seam.owner?.id ?? '')
+    const cur = seam.registrars.length > 0
+      ? `<div class="swapCur"><span class="badge cur">${t('eSwapCurrent')}</span> ${esc(seam.registrars.map((r: any) => stripInc(r.entryId ?? r.id)).join(', '))}</div>`
+      : ''
+    const altRow = (a: any): string => {
+      const badge = a.state === 'in-tree' ? (a.disabled ? t('eAltInTreeOff') : t('eAltInTree')) : a.state === 'installed' ? t('eAltInstalled') : t('eAltCatalog')
+      const cls = a.state === 'in-tree' ? 'inTree' : a.state === 'installed' ? 'installed' : 'catalog'
+      if (a.state === 'catalog') {
+        return `<div class="swapRow"><span class="badge ${cls}">${badge}</span><code class="pkg">${esc(a.package)}</code>
+          <button class="eb-copy" data-cmd="${esc(a.install ?? '')}">${t('eCopy')} · ${esc(a.install ?? '')}</button></div>`
+      }
+      return `<div class="swapRow"><span class="badge ${cls}">${badge}</span><code class="pkg">${esc(a.package)}</code>
+        <button class="eb-swap" data-seam="${esc(seam.key)}" data-from="${esc(from)}" data-to-id="${esc(a.id ?? '')}" data-to-name="${esc(a.state === 'in-tree' ? '' : a.package)}">${t('eSwapTo')}</button></div>`
+    }
+    return `
+    <div class="editSec swapSec">
+      <h4>${t('eSwapTitle')} · <code>${esc(seam.key)}</code></h4>
+      ${cur}
+      ${seam.alternatives.map(altRow).join('')}
+    </div>`
+  }
+
+  /** Wire the swap section's buttons. */
+  function bindSwapSection(c: any): void {
+    const seam = compose === null ? undefined : (compose.seams ?? []).find((s: any) => (c.seamKeys ?? []).includes(s.key))
+    if (seam === undefined) return
+    container.querySelectorAll<HTMLButtonElement>('.detail .eb-swap').forEach((btn) => {
+      btn.onclick = () => {
+        const to: any = {}
+        if (btn.dataset.toId !== '') to.id = btn.dataset.toId
+        if (btn.dataset.toName !== '') to.name = btn.dataset.toName
+        addOp({ kind: 'swap', seam: btn.dataset.seam, from: btn.dataset.from, to })
+      }
+    })
+    container.querySelectorAll<HTMLButtonElement>('.detail .eb-copy').forEach((btn) => {
+      btn.onclick = () => {
+        void navigator.clipboard?.writeText(btn.dataset.cmd).then(
+          () => { btn.textContent = t('eCopied'); window.setTimeout(() => { btn.textContent = `${t('eCopy')} · ${btn.dataset.cmd}` }, 1500) },
+          () => toast(btn.dataset.cmd),
+        )
+      }
+    })
   }
 
   /** Re-localize whichever detail panel is showing (language flip). */
@@ -1798,6 +2002,280 @@ export function mountSchematic(container: HTMLElement): () => void {
     window.clearTimeout(toastTimer)
     toastTimer = window.setTimeout(() => toastEl.classList.remove('on'), 6000)
   }
+
+  // ------- composition edit (the graph is the editor) -------
+  /**
+   * Mirror of the host half's compose endpoints: a model fetched on demand,
+   * a pending operation list previewed in the right drawer, ghost overlays
+   * on the mesh while a preview is open, and writes that ride the harness's
+   * own hot reload. Everything sits behind the ✎ toggle (sessionStorage
+   * 'sch-edit'); off = the pure-observer page, with no edit affordance.
+   */
+  let editOn = false
+  let compose: any = null
+  let composeSeq = 0
+  let entryById = new Map<string, any>()
+  let draftOps: any[] = []
+  let draftPreview: any = null
+  let configEditFor: string | null = null
+  let confirmText = ''
+  const editBtn = $('.editBtn')
+
+  const stripInc = (id: string): string => id.replace(/^include:/, '')
+
+  const composeEntryOf = (n: any): any | null =>
+    compose === null || n.origin === 'runtime' ? null : entryById.get(stripInc(n.id)) ?? null
+
+  const postCompose = async (path: string, body: any): Promise<{ status: number; json: any }> => {
+    const r = await fetch('/schematic/compose/' + path, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    })
+    return { status: r.status, json: await r.json().catch(() => null) }
+  }
+
+  const refreshCompose = async (): Promise<void> => {
+    const seq = ++composeSeq
+    let body: any = null
+    try { body = await (await fetch('/schematic/compose.json', { cache: 'no-store' })).json() } catch { /* host older than the page */ }
+    if (seq !== composeSeq || !editOn) return
+    compose = body
+    entryById = new Map((compose?.entries ?? []).map((e: any): [string, any] => [e.id, e]))
+    renderEditChrome()
+    refreshDetail()
+  }
+
+  /** Banner + ✎ state; the drawer renders itself via renderDrawer(). */
+  const renderEditChrome = (): void => {
+    editBtn.setAttribute('aria-pressed', String(editOn))
+    const banner = $('.editBanner')
+    banner.classList.toggle('on', editOn && (compose === null || !compose.editable || compose.lastError !== null))
+    if (!editOn) { banner.innerHTML = ''; renderDrawer(); return }
+    if (compose === null) { banner.innerHTML = `<span>${t('eUnavailable')}</span>`; renderDrawer(); return }
+    if (!compose.editable) {
+      banner.innerHTML = `<span>${t('eLocked', { r: compose.notEditableReason ?? '?' })}</span>` +
+        (compose.backups.length > 0 ? `<button class="ebRollback">${t('eRollback')}</button>` : '')
+    } else if (compose.lastError !== null) {
+      banner.innerHTML = `<span>${t('eLastFail', { m: esc(compose.lastError.message.split('\n')[0]) })}</span>` +
+        (compose.backups.length > 0 ? `<button class="ebRollback">${t('eRollback')}</button>` : '')
+    } else banner.innerHTML = ''
+    const rb = banner.querySelector('.ebRollback') as HTMLElement | null
+    if (rb !== null) rb.onclick = () => { void doRollback() }
+    renderDrawer()
+  }
+
+  const doRollback = async (): Promise<void> => {
+    const r = await postCompose('rollback', {})
+    if (r.status === 200) toast(t('eRolledBack', { f: r.json.restored }))
+    else toast(r.json?.error ?? t('eNoBackups'))
+    void load()
+    void refreshCompose()
+  }
+
+  /** Queue one operation, refresh the preview, open the drawer. */
+  const addOp = (op: any): void => {
+    if (compose === null || !compose.editable) return
+    draftOps = [...draftOps, op]
+    confirmText = ''
+    configEditFor = null
+    void runPreview()
+  }
+
+  const resetDraft = (): void => {
+    draftOps = []
+    draftPreview = null
+    configEditFor = null
+    confirmText = ''
+    renderDrawer()
+    render()
+  }
+
+  const runPreview = async (): Promise<void> => {
+    if (compose === null) return
+    const r = await postCompose('preview', { baseHash: compose.patch.hash, operations: draftOps })
+    if (r.status === 200) { draftPreview = r.json; renderDrawer(); render(); return }
+    if (r.status === 409) { toast(t('eStale')); resetDraft(); void refreshCompose(); return }
+    toast(t('ePreviewFail', { m: r.json?.error ?? r.status }))
+    draftOps = draftOps.slice(0, -1)
+    renderDrawer()
+  }
+
+  const applyDraft = async (): Promise<void> => {
+    if (compose === null || draftPreview === null) return
+    const confirmIds = confirmText.split(/[\s,，]+/).filter(Boolean)
+    const r = await postCompose('apply', { baseHash: compose.patch.hash, operations: draftOps, confirmIds })
+    if (r.status === 200) {
+      toast(t('eApplied'))
+      draftOps = []; draftPreview = null; confirmText = ''
+      void load()
+      window.setTimeout(() => { void load(); void refreshCompose() }, 2500)
+      renderDrawer()
+      return
+    }
+    if (r.status === 409) { toast(t('eStale')); resetDraft(); void refreshCompose(); return }
+    toast(t('eApplyFail', { m: r.json?.error ?? r.status }))
+    renderDrawer()
+  }
+
+  const doClear = async (): Promise<void> => {
+    if (compose === null) return
+    const r = await postCompose('clear', { baseHash: compose.patch.hash })
+    if (r.status === 200) { toast(t('eCleared', { n: r.json.removedRowCount })); resetDraft(); void load(); void refreshCompose() }
+    else if (r.status === 409) { toast(t('eStale')); void refreshCompose() }
+    else toast(t('eApplyFail', { m: r.json?.error ?? r.status }))
+  }
+
+  /** One LCS line diff of the managed block; blocks are small, so the full table is fine. */
+  const lineDiff = (a: string, b: string): { s: ' ' | '-' | '+', t: string }[] => {
+    const A = a === '' ? [] : a.split('\n'), B = b === '' ? [] : b.split('\n')
+    const m = A.length, n = B.length
+    const dp: number[][] = Array.from({ length: m + 1 }, () => new Array<number>(n + 1).fill(0))
+    for (let i = m - 1; i >= 0; i--) for (let j = n - 1; j >= 0; j--)
+      dp[i][j] = A[i] === B[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1])
+    const out: { s: ' ' | '-' | '+', t: string }[] = []
+    let i = 0, j = 0
+    while (i < m && j < n) {
+      if (A[i] === B[j]) { out.push({ s: ' ', t: A[i] }); i++; j++ }
+      else if (dp[i + 1][j] >= dp[i][j + 1]) { out.push({ s: '-', t: A[i] }); i++ }
+      else { out.push({ s: '+', t: B[j] }); j++ }
+    }
+    while (i < m) { out.push({ s: '-', t: A[i] }); i++ }
+    while (j < n) { out.push({ s: '+', t: B[j] }); j++ }
+    return out
+  }
+
+  const WKEYS: Record<string, string> = {
+    SELF_DISABLE: 'wSelf', FREEZE_JS_EXPR: 'wFreeze', KEY_CONFLICT_RISK: 'wConflict',
+    ORPHANED_KEY: 'wOrphan', CONFIG_FIELD_DROPPED: 'wDropped', BOOT_CRITICAL: 'wBoot',
+  }
+  const WREASONS: Record<string, string> = {
+    self: 'wrSelf', hotReload: 'wrHot', pageServer: 'wrPage', spaRoster: 'wrSpa',
+    settingsSecrets: 'wrSecrets', durability: 'wrDura', manyDependents: 'wrMany',
+  }
+
+  const warnRow = (w: any): string => {
+    const key = WKEYS[w.code]
+    if (key === undefined) return ''
+    const params: Record<string, string | number> = {
+      ids: (w.ids ?? []).join(', '), keys: (w.keys ?? []).join(', '), detail: w.detail ?? '',
+    }
+    if (w.code === 'BOOT_CRITICAL' && WREASONS[w.detail] !== undefined) params.detail = t(WREASONS[w.detail])
+    return `<li class="warnItem ${w.level}">${t(key, params)}</li>`
+  }
+
+  /** The right drawer: config-edit mode, or the pending preview. */
+  const renderDrawer = (): void => {
+    const drawer = $('.editDrawer'), scrim = $('.editScrim')
+    const open = editOn && (configEditFor !== null || draftPreview !== null)
+    drawer.classList.toggle('on', open)
+    scrim.classList.toggle('on', open)
+    if (!open) { drawer.innerHTML = ''; return }
+
+    if (configEditFor !== null) {
+      const e = entryById.get(configEditFor)
+      drawer.innerHTML = `
+      <h3>${t('eCfgTitle', { id: esc(configEditFor) })}</h3>
+      <p class="hint">${t('eCfgHint')}</p>
+      <textarea class="cfgText" spellcheck="false">${esc(e?.config?.raw ?? '')}</textarea>
+      <div class="dbtns">
+        <button class="dPrimary cfgGo">${t('eCfgPreview')}</button>
+        <button class="dGhost cfgCancel">${t('eCancel')}</button>
+      </div>`
+      ;(drawer.querySelector('.cfgCancel') as HTMLElement).onclick = () => { configEditFor = null; renderDrawer() }
+      ;(drawer.querySelector('.cfgGo') as HTMLElement).onclick = () => {
+        const text = (drawer.querySelector('.cfgText') as HTMLTextAreaElement).value
+        if (text.trim() === '') { toast(t('eCfgEmpty')); return }
+        const id = configEditFor as string
+        configEditFor = null
+        addOp({ kind: 'setConfig', id, config: text })
+      }
+      return
+    }
+
+    const p = draftPreview
+    const kindRow = (e: any): string => {
+      const label = e.kind === 'removed' ? t('eDiffRemoved') : e.kind === 'added' ? t('eDiffAdded') : t('eDiffChanged')
+      const change = e.kind === 'changed'
+        ? ' (' + e.changes.map((c: string) => t(c === 'disabled' ? 'eChangeDisabled' : 'eChangeConfig')).join(' · ') + ')' : ''
+      return `<li class="dRow ${e.kind}"><b>${esc(e.id)}</b><span>${label}${change}</span></li>`
+    }
+    const dangerIds = [...new Set((p.warnings ?? []).filter((w: any) => w.level === 'danger').flatMap((w: any) => w.ids ?? []))]
+    const confirmed = dangerIds.length === 0 || dangerIds.every((id) => confirmText.split(/[\s,，]+/).includes(id))
+    const diff = lineDiff(p.blockYamlBefore ?? '', p.blockYamlAfter ?? '')
+    drawer.innerHTML = `
+    <h3>${t('eDrawerTitle', { n: draftOps.length })}</h3>
+    ${p.entries.length > 0
+      ? `<ul class="dRows">${p.entries.map(kindRow).join('')}</ul>`
+      : `<p class="hint">${t('eNoChanges')}</p>`}
+    ${p.orphanedKeys.length > 0 ? `<p class="hint">${t('eOrphaned')}: ${p.orphanedKeys.map((o: any) => `<code>${esc(o.key)}</code>`).join(' ')}</p>` : ''}
+    ${p.warnings.length > 0 ? `<ul class="warnList">${p.warnings.map(warnRow).join('')}</ul>` : ''}
+    ${dangerIds.length > 0 ? `<label class="confirmLbl">${t('eConfirmNeed', { ids: dangerIds.join(' ') })}</label>
+      <input class="confirmIn" placeholder="${t('eConfirmPh')}" value="${esc(confirmText)}">` : ''}
+    <h4>${t('eYamlDiff')}</h4>
+    <pre class="yamlDiff">${diff.map((l) => `<span class="l ${l.s}">${l.s === ' ' ? ' ' : l.s} ${esc(l.t)}</span>`).join('\n')}</pre>
+    <p class="hint">${t('eGhostLegend')}</p>
+    <div class="dbtns">
+      <button class="dPrimary dApply" ${confirmed ? '' : 'disabled'}>${t('eApply')}</button>
+      <button class="dGhost dCancel">${t('eCancel')}</button>
+      <span class="spacer" style="flex:1"></span>
+      ${compose?.backups?.length > 0 ? `<button class="dGhost dRollback">${t('eRollback')} (${compose.backups.length})</button>` : ''}
+      <button class="dGhost dClear">${t('eClear')}</button>
+    </div>`
+    ;(drawer.querySelector('.dCancel') as HTMLElement).onclick = () => resetDraft()
+    ;(drawer.querySelector('.dApply') as HTMLElement).onclick = () => { void applyDraft() }
+    const rb = drawer.querySelector('.dRollback') as HTMLElement | null
+    if (rb !== null) rb.onclick = () => { void doRollback(); resetDraft() }
+    ;(drawer.querySelector('.dClear') as HTMLElement).onclick = () => { void doClear() }
+    const ci = drawer.querySelector('.confirmIn') as HTMLInputElement | null
+    if (ci !== null) ci.oninput = () => {
+      confirmText = ci.value
+      const ok = dangerIds.every((id) => confirmText.split(/[\s,，]+/).includes(id))
+      ;(drawer.querySelector('.dApply') as HTMLButtonElement).disabled = !ok
+    }
+  }
+
+  /**
+   * Ghost overlay while a preview is open: struck/faded pills for entries the
+   * draft removes or disables, dashed pills beside the mesh for additions
+   * (their provides are unknown until mounted, hence the ?).
+   */
+  const paintEditOverlay = (): void => {
+    world.querySelectorAll('g.editGhosts').forEach((g) => g.remove())
+    world.querySelectorAll('.node.ghostRem').forEach((g) => g.classList.remove('ghostRem'))
+    if (!editOn || draftPreview === null || state.tab === 'journey') return
+    for (const e of draftPreview.entries) {
+      if (e.liveNodeId === null) continue
+      const going = e.kind === 'removed' || (e.kind === 'changed' && e.changes.includes('disabled') && e.disabledAfter)
+      if (!going) continue
+      world.querySelectorAll(`.node[data-id="${cssEscape(e.liveNodeId)}"]`).forEach((g) => g.classList.add('ghostRem'))
+    }
+    const adds = draftPreview.entries.filter((e: any) => e.kind === 'added')
+    const pos: any[] = [...(lastL?.pos?.values() ?? [])]
+    if (adds.length === 0 || pos.length === 0) return
+    const gG = el('g', { class: 'editGhosts' }, world)
+    const gx = Math.max(...pos.map((p) => p.x + p.w)) + 24
+    const gy = Math.min(...pos.map((p) => p.y))
+    adds.forEach((e: any, i: number) => {
+      const g = el('g', { class: 'node ghostAdd' }, gG)
+      const y = gy + i * (H + 8)
+      el('rect', { x: String(gx), y: String(y), width: String(Math.max(96, e.id.length * 7.2 + 44)), height: String(H), rx: '7' }, g)
+      const tx = el('text', { x: String(gx + 14), y: String(y + H / 2 + 1) }, g)
+      tx.textContent = `${e.id} ?`
+    })
+  }
+
+  editBtn.addEventListener('click', () => {
+    editOn = !editOn
+    try { sessionStorage.setItem('sch-edit', editOn ? '1' : '0') } catch { /* session storage unavailable */ }
+    if (!editOn) { compose = null; entryById = new Map(); resetDraft() }
+    else void refreshCompose()
+    renderEditChrome()
+    render()
+    refreshDetail()
+  })
+  ;(() => { // restore the remembered mode, but never silently enable affordances
+    try { editOn = sessionStorage.getItem('sch-edit') === '1' } catch { /* keep off */ }
+    if (editOn) { editBtn.setAttribute('aria-pressed', 'true'); void refreshCompose() }
+  })()
 
   /** Fetch a snapshot; first load paints it, later loads diff against the shown one. */
   const load = async (first = false): Promise<void> => {
@@ -2522,6 +3000,7 @@ export function mountSchematic(container: HTMLElement): () => void {
     renderChips()
     render()
     refreshDetail()
+    renderEditChrome()
     ensureZh()
     renderSessSel()
     renderActHead()

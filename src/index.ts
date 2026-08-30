@@ -13,14 +13,18 @@
  */
 
 import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import { buildGraph, graphModuleNames } from './graph.ts'
 import { translateBatch, HttpError } from './llm.ts'
+import { send, sendJson, readJsonBody } from './http.ts'
 import { applyActivity } from './activity/index.ts'
 import { journalRows } from './activity/replay.ts'
+import { normalizeEditConfig } from './compose/config.ts'
+import { handleComposeGet, handleComposePost, type ComposeDeps, type UpdateFailure } from './compose/routes.ts'
 
 export const name = 'dsh-schematic'
 export const inject = ['loader', 'webServer']
@@ -35,40 +39,19 @@ interface WebRouteReg {
 }
 
 const PREFIX = '/schematic'
-const MAX_BODY_BYTES = 64 * 1024
 
-function send(res: ServerResponse, status: number, type: string, body: string): void {
-  res.writeHead(status, { 'content-type': type, 'cache-control': 'no-store' })
-  res.end(body)
-}
-
-function sendJson(res: ServerResponse, status: number, value: unknown): void {
-  send(res, status, 'application/json', JSON.stringify(value))
-}
-
-/** Read one JSON request body under the size cap. */
-function readJsonBody(req: IncomingMessage): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    const parts: Buffer[] = []
-    let size = 0
-    req.on('data', (chunk: Buffer) => {
-      size += chunk.length
-      if (size > MAX_BODY_BYTES) {
-        req.destroy()
-        reject(new HttpError(413, '请求体过大'))
-        return
-      }
-      parts.push(chunk)
-    })
-    req.on('end', () => {
-      try {
-        resolve(JSON.parse(Buffer.concat(parts).toString('utf8') || 'null'))
-      } catch {
-        reject(new HttpError(400, '请求体不是合法 JSON'))
-      }
-    })
-    req.on('error', (err) => reject(new HttpError(400, `读取请求体失败:${err.message}`)))
-  })
+// The harness's hmr plugin declares this event in its own module augmentation;
+// out-of-tree, we declare the slice we consume with the same signature.
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * A watched patch-file refresh failed; the previous plugin tree stays.
+     * @param filename - Absolute path observed by HMR.
+     * @param error - Normalized refresh failure.
+     * @mode parallel
+     */
+    'hmr/config-update-failed'(filename: string, error: Error): Promise<void> | void
+  }
 }
 
 /** Body limits for one translate-batch request. */
@@ -166,10 +149,31 @@ async function handleApi(ctx: Context, req: IncomingMessage, sub: string, res: S
   return sendJson(res, 200, { zh: await translateBatch(ctx, texts) })
 }
 
-export function apply(ctx: Context): void {
+/** Plugin config as declared in the schematic loader row (`config.edit`). */
+export interface SchConfig {
+  edit?: unknown
+}
+
+export function apply(ctx: Context, config: SchConfig = {}): void {
   const webServer = (ctx as Context & { webServer: WebRouteReg }).webServer
   const html = readFileSync(fileURLToPath(new URL('./web/index.html', import.meta.url)), 'utf8')
   const clientDir = fileURLToPath(new URL('./../dist/', import.meta.url))
+
+  const editConfig = normalizeEditConfig(config.edit)
+  // The harness's own hot-reload failure signal, made visible at
+  // compose.json.lastError: one entry per watched patch file, newest-last.
+  const updateFailures = new Map<string, UpdateFailure>()
+  ctx.on('hmr/config-update-failed', (filename: string, error: Error) => {
+    updateFailures.set(filename, {
+      time: Date.now(),
+      filename,
+      message: error instanceof Error ? error.message : String(error),
+      // Snapshot the bytes the harness refused, so compose.json can retire
+      // the banner once different bytes load (no success event exists).
+      hash: 'sha256:' + createHash('sha256').update(hashableFileText(filename)).digest('hex'),
+    })
+  })
+  const composeDeps: ComposeDeps = { editConfig, updateFailures }
 
   const activity = applyActivity(ctx)
   // Tool attribution resolves against currently mounted modules; refresh on
@@ -220,7 +224,13 @@ export function apply(ctx: Context): void {
           // structural-signature gate would freeze growing counters.
           return sendJson(res, 200, activity.collector.statsSnapshot())
         }
+        if (sub === '/compose.json') {
+          return await handleComposeGet(ctx, res, composeDeps)
+        }
         return send(res, 404, 'text/plain', 'not found')
+      }
+      if (req.method === 'POST' && sub.startsWith('/compose/')) {
+        return await handleComposePost(ctx, req, sub, res, composeDeps)
       }
       if (req.method === 'POST' && sub.startsWith('/api/')) {
         return await handleApi(ctx, req, sub, res)
@@ -236,4 +246,13 @@ export function apply(ctx: Context): void {
   ctx.effect(() => webServer.register({ kind: 'prefix', path: PREFIX, handler: (req, res) => {
     void handle(req, res)
   } }), 'dsh-schematic: /schematic routes')
+}
+
+/** The file's text for failure-hash snapshotting; '' when it vanished (a hash of nothing matches nothing). */
+function hashableFileText(filename: string): string {
+  try {
+    return readFileSync(filename, 'utf8')
+  } catch {
+    return ''
+  }
 }

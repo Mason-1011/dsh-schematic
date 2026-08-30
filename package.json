@@ -1,7 +1,7 @@
 {
   "name": "dsh-schematic",
-  "version": "0.2.28",
-  "description": "Live plugin-topology viewer for DeepSeek Harness: the wiring diagram of every mounted plugin, its runtime activity, and a composer-side star map — pure observer, zero writes to session logs.",
+  "version": "0.3.0",
+  "description": "Live plugin-topology viewer for DeepSeek Harness: the wiring diagram of every mounted plugin, its runtime activity, a composer-side star map — and a composition workbench that edits the wiring on the graph itself (previewed, validated, backed up, reversible).",
   "keywords": [
     "dsh",
     "deepseek-harness",
@@ -23,7 +23,9 @@
     "./package.json": "./package.json"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1"
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/cordis-plugin-include": "^1.0.6",
+    "@deepseek-ai/dsh-app-boot": ">=0.1.0-rc.8"
   },
   "repository": {
     "type": "git",

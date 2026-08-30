@@ -1,0 +1,18 @@
+# Scratch overlay for schematic M3 apply tests, port 3082 (dev 3081, user 3080).
+# Launched from the harness checkout:
+#   node --import tsx/esm apps/cli/src/bin.ts --profile schdev --patch <this file> --no-open
+# The profile is hand-assembled (package.json + [] + a schematic insert row);
+# apply tests write ONLY schdev's own cordis.patch.yml. Backups are redirected
+# into the isolated dev root so the user's real ~/.dsh/schematic/patches stays
+# clean — which doubles as the config.edit.backupDir wiring test.
+- id: webserver
+  config:
+    host: 127.0.0.1
+    port: 3082
+- id: session-persistence-jsonl
+  config:
+    root: /Users/mason_yu/.dsh-schematic-dev/sessions-schdev
+- id: schematic
+  config:
+    edit:
+      backupDir: /Users/mason_yu/.dsh-schematic-dev/backups-schdev
