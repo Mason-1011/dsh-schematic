@@ -3,14 +3,23 @@
 > 读懂——并亲手改写——你的 DeepSeek Harness 的接线。
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Stage](https://img.shields.io/badge/stage-early%20development-orange)](#状态)
+[![npm](https://img.shields.io/npm/v/dsh-schematic.svg)](https://www.npmjs.com/package/dsh-schematic)
+[![CI](https://github.com/Mason-1011/dsh-schematic/actions/workflows/ci.yml/badge.svg)](https://github.com/Mason-1011/dsh-schematic/actions/workflows/ci.yml)
 [![Built for](https://img.shields.io/badge/built%20for-DeepSeek%20Harness-4f46e5)](https://github.com/deepseek-ai/deepseek-harness)
 
 [English](README.md) | **简体中文**
 
+看清一轮 DeepSeek Harness 对话里谁提供每项服务、谁处理每个运行时事件、时间花在哪——然后直接在图上改写这些接线。
+
+```sh
+dsh plugin --profile web add dsh-schematic
+```
+
+![dsh-schematic:查看实时拓扑、找到插件,再把图切换成编辑器](docs/assets/dsh-schematic-demo.gif)
+
 ## 状态
 
-🚧 早期开发——但已经能用。**实时拓扑查看器**(v0.2.x)与**组合工作台**(v0.3)已交付;preset 工作台与接缝感知市场面板(v0.4)是下一步。已发布到 npm:[`dsh-schematic@0.3.0`](https://www.npmjs.com/package/dsh-schematic),一条命令安装(见[安装](#安装))。GitHub 仓库暂未公开。
+**v0.3.0 现已发布。**实时拓扑查看器与组合工作台均已交付,并以 [`dsh-schematic@0.3.0`](https://www.npmjs.com/package/dsh-schematic) 发布到 npm。preset 工作台与接缝感知市场面板计划在 v0.4 交付。
 
 ## 这是什么
 
@@ -19,7 +28,7 @@ DeepSeek Harness(dsh)用插件拼出整个 agent 产品:每一项能力——模
 这些接线只存在于运行中的进程里。`dsh-schematic` 把它画出来。
 
 - **拓扑视图**——已挂载插件的交互式接线图:谁提供 `ctx.fs`、谁注入它、事件在哪些插件之间流动、每条能力接缝在哪。数据来自 loader 自己的插件树。
-- **组合工作台**(v0.3)——**在图上直接**编辑接线:启停插件、改条目配置、按接缝换 provider(本机 → 沙箱 → 远程)。每个改动先以幽灵节点 + YAML diff 预览,先走一遍与启动完全相同的组合干跑,先备份,再经 harness 自己的热重载生效——一键可回滚。
+- **组合工作台**(v0.3.0)——**在图上直接**编辑接线:启停插件、改条目配置、按接缝换 provider(本机 → 沙箱 → 远程)。每个改动先以幽灵节点 + YAML diff 预览,先走一遍与启动完全相同的组合干跑,先备份,再经 harness 自己的热重载生效——一键可回滚。
 - **preset 工作台 + 接缝感知市场**(规划中,v0.4)——组装 preset;点一个空着的接缝,看到能填它的插件,冲突在安装前浮现。
 
 ## 功能
@@ -41,11 +50,11 @@ DeepSeek Harness(dsh)用插件拼出整个 agent 产品:每一项能力——模
 - 一包一点,确定性力松弛星系排布;随当前会话的真实运行点亮;悬停浮现插件名片,双击打开完整查看页。
 - 自由摆放(拖到任意位置,拖回卡片旁自动重新吸合)、自由调大小(视口是唯一上限)、按模块哈希的星野配色、深空底色滚轮随调(或在设置里调)。
 
-**组合工作台**(v0.3)——页头的 ✎ 开关,**默认关**:关着就是原来的纯观察查看页;打开,图就变成编辑器。
+**组合工作台**(v0.3.0)——页头的 ✎ 开关,**默认关**:关着就是原来的纯观察查看页;打开,图就变成编辑器。
 - **一切先预览。**排队的改动先在图上渲染成幽灵(将消失的加删除线+降透明度,将到来的虚线+`?`),抽屉里展示逐条目 diff、受管块 YAML 修改前后的行级 diff,以及结构感知的警告(某服务键即将失去唯一提供方、你的改动丢掉了哪个配置字段、哪处 `!!js` 表达式会被整体替换冻结成字面量)。
 - **写入前先干跑。**每次应用都重跑一遍 harness 启动时走的同一套离线组合;非法批次直接拒绝(422),文件一个字节不动。重复条目 id 在计划期就拒掉——loader 遇到会拒绝整棵树。
 - **启停与配置。**插件详情面板新增:来源层、保护徽章、启用/停用开关、预填当前 YAML 的行内配置编辑器(丢字段会点名;`!!js` 值在被替换冻结前会警告)。
-- **按接缝换提供方。**聚类卡列出该接缝的全部在册提供方与候选(在树/已安装/目录),一键换:同批停旧插新。未安装的包给可复制的安装命令文本(v0.3 不代装)。
+- **按接缝换提供方。**聚类卡列出该接缝的全部在册提供方与候选(在树/已安装/目录),一键换:同批停旧插新。未安装的包给可复制的安装命令文本(v0.3.0 不代装)。
 - **安全落地。**只写 profile `cordis.patch.yml` 里版本化受管块(块外字节逐字保留);每次应用先落一份全文件时间戳备份,文件被别人改过就拒写(409)。harness 约 1–2 秒热重载;被 harness 拒绝的重载保持旧树继续跑,横幅报错 + 一键回滚。停用 schematic 自己属危险级:要逐字输入条目 id 确认,横幅附手工恢复步骤。
 - **清空**一键撤销全部 schematic 改动(整块连标记删掉),文件恢复到逐字节原样。
 
@@ -57,7 +66,7 @@ DeepSeek Harness(dsh)用插件拼出整个 agent 产品:每一项能力——模
 
 观察侧的一切保持构造上的只读:插件绝不写会话日志(不追加自定义事件类型)、绝不包装或拦截服务返回值、也不给自己的观察者加拓扑边。
 
-工作台(v0.3)只写两样东西,都落在路径明示的地方:
+工作台(v0.3.0)只写两样东西,都落在路径明示的地方:
 - profile `cordis.patch.yml` 里的**受管块**——`# >>> dsh-schematic v1` 与 `# <<< dsh-schematic v1` 之间的行;标记外的每一个字节逐字保留,写块之前必先落全文件时间戳备份;
 - 插件自己的 `~/.dsh/schematic/` 目录——观察日记与这些 patch 备份。
 
@@ -80,16 +89,20 @@ agent 已经有自己的"创造模式"(运行中检查、重挂插件的自改�
 
 ## 非目标
 
-- 不做又一个大而全的市场,也不做安装器——安装走官方 `dsh plugin` 命令;v0.3 只递给你命令文本,市场(v0.4)才是图的供给侧面板;
-- 暂不做 preset 组装——v0.3 编辑的是活接线;preset 与市场一起在 v0.4 交付;
+- 不做又一个大而全的市场,也不做安装器——安装走官方 `dsh plugin` 命令;v0.3.0 只递给你命令文本,市场(v0.4)才是图的供给侧面板;
+- 暂不做 preset 组装——v0.3.0 编辑的是活接线;preset 与市场一起在 v0.4 交付;
 - 不做 ComfyUI 式数据流画布——dsh 的组合是"插座与电线"的依赖注入,不是数据流,节点画布是错误的隐喻;
 - 不做会话回放画布——时间线的回放是插件归因("谁干了什么"),不是读对话的方式;消息级回放属于 dsh-synapse 和 dsh-flowglass。
 
 ## 环境要求
 
-- 带 web profile 的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)(基于 rc.8 开发)。
-- 当前版本的 Chromium / Firefox / Safari(用到 `light-dark()`、`EventSource`)。
-- Node ≥ 20 与 npm——只用于构建浏览器产物。
+| 组件 | 支持范围 |
+|---|---|
+| [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | `>=0.1.0-rc.8`,web profile |
+| `@deepseek-ai/cordis` | `^4.0.1` |
+| `@deepseek-ai/cordis-plugin-include` | `^1.0.6` |
+| 浏览器 | 当前版本 Chromium、Firefox 或 Safari(用到 `light-dark()`、`EventSource`) |
+| Node.js | `>=22.19` 与 npm,仅从源码构建时需要;CI 覆盖 Node 22 与 24 |
 
 ## 安装
 
@@ -108,7 +121,7 @@ agent 已经有自己的"创造模式"(运行中检查、重挂插件的自改�
 
 其他 profile 同理(`dsh plugin --profile tui add dsh-schematic`)。升级是 `dsh plugin --profile web update dsh-schematic`,卸载是 `dsh plugin --profile web remove dsh-schematic`(remove 会同时把它从 bundle 层里摘掉)。
 
-**从源码跑**(维护者;GitHub 仓库暂未公开):`npm install && npm run build` 之后,要么把源码目录软链到 profile 的 `node_modules/dsh-schematic`(按名字挂载;用包自带的 bundle 层或手动 insert 二选一,两者同时用会因 loader 条目 id 重复而整树报错),要么用现成示例 [`dev.cordis.yml`](dev.cordis.yml)——端口 3081,从 harness 源码启动(`node --import tsx/esm apps/cli/src/bin.ts --profile web --patch dev.cordis.yml`);开发实例的会话根已隔离到 `~/.dsh-schematic-dev/`,开发实例的重启与被杀都碰不到你的正式会话。
+**从源码跑**(维护者):克隆[公开仓库](https://github.com/Mason-1011/dsh-schematic),执行 `npm install && npm run build`。之后要么把源码目录软链到 profile 的 `node_modules/dsh-schematic`(按名字挂载;用包自带的 bundle 层或手动 insert 二选一,两者同时用会因 loader 条目 id 重复而整树报错),要么用现成示例 [`dev.cordis.yml`](dev.cordis.yml)——端口 3081,从 harness 源码启动(`node --import tsx/esm apps/cli/src/bin.ts --profile web --patch dev.cordis.yml`);开发实例的会话根已隔离到 `~/.dsh-schematic-dev/`,开发实例的重启与被杀都碰不到你的正式会话。
 
 ## 使用
 
@@ -133,6 +146,10 @@ npm run build    # esbuild 打包两个浏览器产物
 ```
 
 `tools/scan.mjs` 从 harness 源码目录渲染静态图(v0.1 的纯静态方案,没有运行实例时仍然好用)。内部的定位与命名决策记录在 [`DECISIONS.md`](DECISIONS.md)。
+
+## 参与贡献
+
+欢迎提交 issue、兼容性报告与范围清晰的 pull request。请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md);报告 bug 时请附 DSH 版本、profile、复现步骤及相关浏览器/宿主日志。
 
 ## 路线图
 

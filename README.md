@@ -3,14 +3,23 @@
 > Read — and rewrite — the wiring of your DeepSeek Harness.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Stage](https://img.shields.io/badge/stage-early%20development-orange)](#status)
+[![npm](https://img.shields.io/npm/v/dsh-schematic.svg)](https://www.npmjs.com/package/dsh-schematic)
+[![CI](https://github.com/Mason-1011/dsh-schematic/actions/workflows/ci.yml/badge.svg)](https://github.com/Mason-1011/dsh-schematic/actions/workflows/ci.yml)
 [![Built for](https://img.shields.io/badge/built%20for-DeepSeek%20Harness-4f46e5)](https://github.com/deepseek-ai/deepseek-harness)
 
 **English** | [简体中文](README.zh.md)
 
+See which plugin provides each service, handles each runtime event, and consumes the time behind a DeepSeek Harness turn — then edit that wiring on the graph itself.
+
+```sh
+dsh plugin --profile web add dsh-schematic
+```
+
+![dsh-schematic: inspect the live topology, find a plugin, and turn the graph into an editor](docs/assets/dsh-schematic-demo.gif)
+
 ## Status
 
-🚧 Early development — but already useful. The **live topology viewer** (v0.2.x) and the **composition workbench** (v0.3) are shipped; the preset workbench and seam-aware market panel (v0.4) are next. Published to npm as [`dsh-schematic@0.3.0`](https://www.npmjs.com/package/dsh-schematic) — one-command install (see [Install](#install)). The GitHub repository is not public yet.
+**v0.3.0 is available now.** The live topology viewer and the composition workbench are both shipped and published to npm as [`dsh-schematic@0.3.0`](https://www.npmjs.com/package/dsh-schematic). The preset workbench and seam-aware market panel are planned for v0.4.
 
 ## What this is
 
@@ -19,7 +28,7 @@ DeepSeek Harness (dsh) composes an entire agent product from plugins: every capa
 That wiring only exists inside the running process. `dsh-schematic` draws it.
 
 - **Topology view** — an interactive wiring diagram of the mounted plugins: who provides `ctx.fs`, who injects it, which events flow between them, where each capability seam sits. Rendered from the loader's own plugin tree.
-- **Composition workbench** (v0.3) — edit the wiring **on the graph itself**: toggle plugins, edit an entry's config, swap a seam's provider (local → sandbox → remote). Every change is previewed as ghost nodes plus a YAML diff, dry-run through the same composition the boot performs, backed up, and applied through the harness's own hot reload — reversible with one click.
+- **Composition workbench** (v0.3.0) — edit the wiring **on the graph itself**: toggle plugins, edit an entry's config, swap a seam's provider (local → sandbox → remote). Every change is previewed as ghost nodes plus a YAML diff, dry-run through the same composition the boot performs, backed up, and applied through the harness's own hot reload — reversible with one click.
 - **Preset workbench + seam-aware market** *(planned, v0.4)* — compose presets; click an empty seam and see the plugins that can fill it, with conflicts surfaced before install.
 
 ## Features
@@ -41,11 +50,11 @@ Shipped so far (details per version in the [changelog](CHANGELOG.md)):
 - One dot per package in a deterministic force-relaxed galaxy; dots light with the viewed conversation's real activity; hover raises a plugin card, double-click opens the full viewer.
 - Free placement (drag anywhere, re-docks beside the card), free resizing (viewport is the only ceiling), starfield tints by module hash, deep-space backdrop with a live opacity dial (mouse wheel or Settings).
 
-**Composition workbench** (v0.3) — the ✎ toggle in the header, **off by default**: off, the page is exactly the read-only viewer; on, the graph becomes the editor.
+**Composition workbench** (v0.3.0) — the ✎ toggle in the header, **off by default**: off, the page is exactly the read-only viewer; on, the graph becomes the editor.
 - **Preview everything first.** Queued edits render as ghosts on the graph (strikethrough + fade for what goes, dashed + `?` for what arrives), the drawer shows a per-entry diff, the exact managed-block YAML before/after as a line diff, and structure-aware warnings (a service key losing its only provider, a config field your edit drops, a `!!js` expression that a whole-config replace would freeze into a literal).
 - **Dry-run before write.** Every apply re-runs the same offline composition the harness boot performs; invalid batches are refused (422) and nothing touches the file. Duplicate entry ids are rejected at plan time — the loader would refuse the whole tree.
 - **Toggle & config.** A plugin's detail panel gains its source layer, a protection badge, an enable/disable switch, and an inline config editor prefilled with the entry's current YAML (dropped fields are named; `!!js` values warn before a replace freezes them).
-- **Swap providers per seam.** A cluster card lists every registered provider of the seam and the alternatives (in-tree, installed, or catalog) — swapping disables the old and inserts the new in one batch. For packages that are not installed, the install command is offered as copyable text (v0.3 does not install for you).
+- **Swap providers per seam.** A cluster card lists every registered provider of the seam and the alternatives (in-tree, installed, or catalog) — swapping disables the old and inserts the new in one batch. For packages that are not installed, the install command is offered as copyable text (v0.3.0 does not install for you).
 - **Applied safely.** Writes go only to a versioned managed block inside the profile's `cordis.patch.yml` (bytes outside it are preserved verbatim); each apply first takes a timestamped full-file backup and refuses to clobber if the file changed under it (409). The harness hot-reloads the file in ~1–2 s; a reload the harness rejects keeps the old tree running, raises a banner with the error, and offers one-click rollback. Disabling schematic itself is danger-tier: it needs the entry id typed in, and the banner carries the manual-recovery steps.
 - **Clear** drops every schematic-made change in one action (the whole managed block, markers included), restoring the file byte-for-byte.
 
@@ -57,7 +66,7 @@ Shipped so far (details per version in the [changelog](CHANGELOG.md)):
 
 All observation remains read-only by construction: the plugin never writes to session logs (no custom event types), never wraps or intercepts service return values, and adds no topology edges for its own observers.
 
-The workbench (v0.3) writes exactly two things, both in plainly named places:
+The workbench (v0.3.0) writes exactly two things, both in plainly named places:
 - the **managed block** inside the profile's `cordis.patch.yml` — the rows between `# >>> dsh-schematic v1` and `# <<< dsh-schematic v1`; every byte outside those markers is preserved verbatim, and the block is never written without a full-file timestamped backup taken first;
 - the plugin's own files under `~/.dsh/schematic/` — the observation journal and those patch backups.
 
@@ -80,16 +89,20 @@ The agent already has its own "creative mode" (self-modification tools that insp
 
 ## Non-goals
 
-- Not another generic marketplace, and not an installer — installation rides on the official `dsh plugin` command; v0.3 only hands you the command text, and the market (v0.4) will be the supply panel of the graph.
-- Not a preset composer (yet) — v0.3 edits the live wiring; preset composition joins the market in v0.4.
+- Not another generic marketplace, and not an installer — installation rides on the official `dsh plugin` command; v0.3.0 only hands you the command text, and the market (v0.4) will be the supply panel of the graph.
+- Not a preset composer (yet) — v0.3.0 edits the live wiring; preset composition joins the market in v0.4.
 - Not a ComfyUI-style dataflow canvas — dsh composition is sockets-and-wires dependency injection, not dataflow; a node canvas would be the wrong metaphor.
 - Not a conversation-replay canvas — the timeline's replay is plugin attribution ("who did what"), not a way to read conversations; message-level replay belongs to dsh-synapse and dsh-flowglass.
 
 ## Requirements
 
-- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) with the web profile (developed against rc.8).
-- A current Chromium / Firefox / Safari (uses `light-dark()`, `EventSource`).
-- Node ≥ 20 with npm — only to build the browser bundle.
+| Component | Supported |
+|---|---|
+| [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | `>=0.1.0-rc.8`, web profile |
+| `@deepseek-ai/cordis` | `^4.0.1` |
+| `@deepseek-ai/cordis-plugin-include` | `^1.0.6` |
+| Browser | Current Chromium, Firefox, or Safari (`light-dark()`, `EventSource`) |
+| Node.js | `>=22.19` with npm, only when building from source; CI covers Node 22 and 24 |
 
 ## Install
 
@@ -110,7 +123,7 @@ Other profiles work the same way (`dsh plugin --profile tui add dsh-schematic`).
 
 To uninstall cleanly, also drop the `schematic` row from `dsh.profile.bundles` (the reconcile does that automatically on `remove`).
 
-**From source** (maintainers; the GitHub repo is not public yet): build with `npm install && npm run build`, then either symlink the checkout into the profile's `node_modules/dsh-schematic` (mount by name; keep the package's own bundle layer or your manual insert — never both, duplicate loader entry ids fail the tree), or run the worked example [`dev.cordis.yml`](dev.cordis.yml) — port 3081 against a harness checkout (`node --import tsx/esm apps/cli/src/bin.ts --profile web --patch dev.cordis.yml`); the dev instance's session root is isolated to `~/.dsh-schematic-dev/`, so dev restarts and kills never touch your live sessions.
+**From source** (maintainers): clone the [public repository](https://github.com/Mason-1011/dsh-schematic), then build with `npm install && npm run build`. Either symlink the checkout into the profile's `node_modules/dsh-schematic` (mount by name; keep the package's own bundle layer or your manual insert — never both, duplicate loader entry ids fail the tree), or run the worked example [`dev.cordis.yml`](dev.cordis.yml) — port 3081 against a harness checkout (`node --import tsx/esm apps/cli/src/bin.ts --profile web --patch dev.cordis.yml`); the dev instance's session root is isolated to `~/.dsh-schematic-dev/`, so dev restarts and kills never touch your live sessions.
 
 ## Usage
 
@@ -135,6 +148,10 @@ npm run build    # esbuild bundles both browser artifacts
 ```
 
 `tools/scan.mjs` renders a static graph from a harness checkout (the pre-live v0.1 approach; still handy without a running instance). Internal positioning and naming decisions live in [`DECISIONS.md`](DECISIONS.md).
+
+## Contributing
+
+Issues, compatibility reports, and focused pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md), and include your DSH version, profile, reproduction steps, and relevant browser/host logs in bug reports.
 
 ## Roadmap
 
