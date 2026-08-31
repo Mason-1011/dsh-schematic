@@ -21,8 +21,17 @@
  *   job           {id, label, status, startedAt}
  *   job-done      {id, label, status, detail?, startedAt, finishedAt}
  *   agent-status  {session, status}
+ *   topo-node     {id, label, module, origin, added} — settled graph diff between
+ *                 consecutive snapshots (debounced ~750ms); entry-origin units
+ *                 only, runtime mounts are noise
+ *   topo-provider {key, from, to} — a ctx key's provider unit label changed;
+ *                 'host' marks a launcher-provided key, null the unresolved side
+ *   topo-state    {label, module, from, to, error?} — a unit flipped into or out
+ *                 of 'failed', with the clipped failure reason
  * Service reads (traffic) are deliberately not journaled: per-read moments are
  * the noise floor, and cumulative counts already ride graph.json.
+ * The topo-* records are host-scope like job/agent-status: never merged into a
+ * session's replay — the live timeline shows them, the journal remembers them.
  *
  * Rotation is per-day; each day's file is capped, and boot prunes old files.
  * Set DSH_SCHEMATIC_JOURNAL=0 to disable writing entirely.
@@ -47,6 +56,9 @@ export type JournalEvent =
   | { ev: 'job'; id: string; label: string; status: string; startedAt: number }
   | { ev: 'job-done'; id: string; label: string; status: string; detail?: string; startedAt: number; finishedAt?: number }
   | { ev: 'agent-status'; session: string; status: 'idle' | 'running' }
+  | { ev: 'topo-node'; id: string; label: string; module: string | null; origin: 'entry' | 'runtime'; added: boolean }
+  | { ev: 'topo-provider'; key: string; from: string | null; to: string | null }
+  | { ev: 'topo-state'; label: string; module: string | null; from: string; to: string; error?: string }
 
 export class Journal {
   /** The day-file currently closed ('' = writing; '*' = disabled outright). */

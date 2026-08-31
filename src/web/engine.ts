@@ -159,6 +159,9 @@ const T: Record<string, { en: string; zh: string }> = {
   akWorkflow:      { en: 'workflow', zh: '工作流' },
   akWorkflowEnd:   { en: 'workflow done', zh: '工作流完成' },
   akSvc:           { en: 'service access', zh: '服务访问' },
+  akTopo:          { en: 'topology', zh: '拓扑' },
+  topoOn:          { en: 'mounted', zh: '已挂载' },
+  topoOff:         { en: 'unmounted', zh: '已卸载' },
   actSvc:          { en: 'service access', zh: '服务访问' },
   actSvcTitle:     { en: 'show service-access rows: which package actually accessed which ctx service key (the provide/inject wiring in use)', zh: '显示服务访问行:哪个包真的访问了哪个 ctx 服务键(实际发生作用的提供/注入接线)' },
   recvLine:        { en: 'session/event broadcast → {n} in-listeners', zh: 'session/event 广播 → {n} 个插件在听' },
@@ -2580,7 +2583,7 @@ export function mountSchematic(container: HTMLElement): () => void {
     user: 'akUser', llm: 'akLlm', tool: 'akTool', 'tool-end': 'akToolEnd', turn: 'akTurn',
     approval: 'akApproval', todo: 'akTodo', compaction: 'akCompaction', retry: 'akRetry',
     subagent: 'akSubagent', title: 'akTitle', action: 'akAction', job: 'akJob',
-    workflow: 'akWorkflow', 'workflow-end': 'akWorkflowEnd', svc: 'akSvc',
+    workflow: 'akWorkflow', 'workflow-end': 'akWorkflowEnd', svc: 'akSvc', topo: 'akTopo',
   }
   const sessSel = $('.sessSel') as unknown as HTMLSelectElement
   const subBtn = $('.subBtn')
@@ -2724,6 +2727,12 @@ export function mountSchematic(container: HTMLElement): () => void {
       case 'workflow': return [e.name, e.snippet].filter(Boolean).join(' · ') + (e.durationMs !== undefined ? ` · ${e.durationMs}ms` : '') + (e.isError ? ' ✕' : '')
       case 'workflow-end': return (e.snippet ?? '') + (e.durationMs !== undefined ? ` · ${e.durationMs}ms` : '') + (e.isError ? ' ✕' : '')
       case 'svc': return e.name ?? ''
+      case 'topo': {
+        // snippet is '+'/'-' for mount/unmount rows, else 'from → to · reason'
+        const d = e.snippet ?? ''
+        if (d === '+' || d === '-') return `${e.name ?? ''} ${d === '+' ? t('topoOn') : t('topoOff')}`
+        return [e.name, d].filter(Boolean).join(' · ') + (e.isError ? ' ✕' : '')
+      }
       default: return e.name ?? ''
     }
   }
@@ -2745,7 +2754,7 @@ export function mountSchematic(container: HTMLElement): () => void {
       // every non-action row arrived as one session/event broadcast — hover
       // names the units that received it (host-domain actions, job rows,
       // service reads, and live workflow rows did not broadcast)
-      const tip = e.kind === 'action' || e.kind === 'job' || e.kind === 'svc' || e.kind === 'workflow' || e.kind === 'workflow-end' ? '' : recvTip()
+      const tip = e.kind === 'action' || e.kind === 'job' || e.kind === 'svc' || e.kind === 'topo' || e.kind === 'workflow' || e.kind === 'workflow-end' ? '' : recvTip()
       return `<div class="actRow${e.isError ? ' err' : ''}"${e.module ? ` data-module="${esc(e.module)}"` : ''}${tip ? ` title="${esc(tip)}"` : ''}><time>${fmtTime(e.time)}</time>${badge}<span class="tx">${label} · ${esc(detailOf(e))}</span></div>`
     }
     let html = ''

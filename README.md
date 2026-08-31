@@ -38,10 +38,12 @@ Shipped so far (details per version in the [changelog](CHANGELOG.md)):
 **Topology viewer** — served at `/schematic` once mounted.
 - Three tabs: **journey** (one message's path through the runtime as stage cards with the ctx keys exchanged), **domains** (radial mesh; family/cluster/core-spine cards open into scope views; group scatter with ⊕ and expand-all; edges drawn provider → consumer with hover cards), **table**.
 - Live refresh every 5 s with a change toast; new plugins pulse; `?tab=` and `?expand=all` deep links.
+- Failures surface at the unit level: a FAILED internal child fiber fails the entry's whole unit on the graph (with the clipped reason in its panel), and recovery clears it at the next settle.
 - One-click EN ⇄ 中文 whole-page switch — descriptions machine-translated in-process, identifiers kept in English.
 
 **Runtime activity** — watch the work flow.
 - Every turn, model reply, tool call, workflow run, registry change, host action, background job, and service read is attributed to its owning plugin; the graph lights up while the work flows through it (strong glow during tool runs and model streaming, breathing decay after) and a collapsible timeline names who did what, when, and how long it took.
+- **Structure changes are events too** (v0.3.1) — a plugin mounted or unmounted, a seam's provider swapped, a key falling unresolved, a unit flipping into or out of failure: each settled structural change lands as a timeline row and a journal record, so "what did the wiring do when I applied that" stays answerable after the fact.
 - A session selector defaults to following the chat you are looking at; subagent/background filtering included.
 - **Replay** — the timeline's replay toggle pages back through the session's durable log (over the host's own read-only history RPC), re-attributing each event through the same live fold and merging the journal's live-only rows: who did what from before the viewer was ever open.
 - **Stats** — a per-plugin monitoring table over this instance's live window: rows, tool calls and failures, tool time (sum + max), LLM completions, and what each plugin has in flight right now.
@@ -64,7 +66,7 @@ Shipped so far (details per version in the [changelog](CHANGELOG.md)):
 
 ### What it writes — and what it never touches
 
-All observation remains read-only by construction: the plugin never writes to session logs (no custom event types), never wraps or intercepts service return values, and adds no topology edges for its own observers.
+All observation remains read-only by construction: the plugin never writes to session logs (no custom event types), never wraps or intercepts service return values, and adds no topology edges for its own observers. It does provide one real ctx service — `schematic`, handing out the same live graph the viewer renders (`ctx.schematic.graph()`). That is a capability, not an observation edge: a consumer that injects it shows up on the graph, honestly, as wired to the viewer.
 
 The workbench (v0.3.0) writes exactly two things, both in plainly named places:
 - the **managed block** inside the profile's `cordis.patch.yml` — the rows between `# >>> dsh-schematic v1` and `# <<< dsh-schematic v1`; every byte outside those markers is preserved verbatim, and the block is never written without a full-file timestamped backup taken first;
@@ -138,7 +140,7 @@ To uninstall cleanly, also drop the `schematic` row from `dsh.profile.bundles` (
 
 Two halves in one package:
 
-- **Host half** (`src/index.ts`, `src/activity/`, `src/graph.ts`, `src/compose/`) — a Cordis plugin that reads the loader's plugin tree, subscribes in-process to the session-event firehose, agent status, registry callbacks, and the internal service-read waterfall, then serves `/schematic` (viewer page), `/schematic/events` (SSE), `/schematic/mini.json` (polled miniature feed), `/schematic/history` (paged replay), `/schematic/stats.json` (live-window per-plugin counters), and the workbench routes (`/schematic/compose.json` GET + `/compose/preview|apply|rollback|clear` POST) from the harness web server. The workbench derives the profile's patch file from the loader tree, dry-runs candidate edits through `@deepseek-ai/dsh-app-boot`'s own composition, and writes only the managed block (all YAML round-tripping through `@deepseek-ai/cordis-plugin-include`'s dialect, so `!!js` expressions survive verbatim; both resolved from the profile at runtime, declared as peer dependencies).
+- **Host half** (`src/index.ts`, `src/activity/`, `src/graph.ts`, `src/compose/`, `src/service.ts`) — a Cordis plugin that reads the loader's plugin tree, subscribes in-process to the session-event firehose, agent status, registry callbacks, and the internal service-read waterfall, then serves `/schematic` (viewer page), `/schematic/events` (SSE), `/schematic/mini.json` (polled miniature feed), `/schematic/history` (paged replay), `/schematic/stats.json` (live-window per-plugin counters), and the workbench routes (`/schematic/compose.json` GET + `/compose/preview|apply|rollback|clear` POST) from the harness web server; `src/service.ts` additionally provides the live graph as the `schematic` ctx service (`ctx.schematic.graph()`) for sibling plugins that inject it. The workbench derives the profile's patch file from the loader tree, dry-runs candidate edits through `@deepseek-ai/dsh-app-boot`'s own composition, and writes only the managed block (all YAML round-tripping through `@deepseek-ai/cordis-plugin-include`'s dialect, so `!!js` expressions survive verbatim; both resolved from the profile at runtime, declared as peer dependencies).
 - **Browser half** (`src/client/`, bundled to `dist/client.js`) — loads inside the dsh web SPA: contributes the Settings section, dresses the nav icon, mounts the composer-side star map, and handles the ask-in-chat hand-off. The standalone viewer (`dist/engine.js`) is self-booting and talks only to the host routes above.
 
 ## Development

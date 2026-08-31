@@ -13,7 +13,9 @@ import { installRpcObserver } from './rpc.ts'
 import { RPC_ACTION } from './attribution.ts'
 import { installTrafficTap } from './traffic.ts'
 import type { TrafficTap } from './traffic.ts'
+import { installTopoWatcher } from './topo.ts'
 import { Journal } from './journal.ts'
+import { buildGraph, type LiveGraph } from '../graph.ts'
 
 /** Live traffic-flush cadence: rows ride one aggregated frame, not one per read. */
 const TRAFFIC_FLUSH_MS = 750
@@ -27,6 +29,8 @@ export interface ActivitySetup {
   journalDir: string | null
   /** Refresh the graph-module set after every graph rebuild. */
   noteGraphModules: (modules: Iterable<string>) => void
+  /** Diff a settled graph snapshot (journal + host-scope rows); the /graph.json route rides this to self-heal the baseline. */
+  noteTopo: (graph: LiveGraph) => void
 }
 
 /**
@@ -41,6 +45,14 @@ export function applyActivity(ctx: Context): ActivitySetup {
   journal?.prune()
   const collector = new ActivityCollector(ctx, journal)
   const traffic = installTrafficTap(ctx)
+  // Push-driven structural feed: fiber lifecycle + provider-swap events arm a
+  // debounced rebuild whose diff lands in the journal and on the action ring.
+  // Installed before the boot prime so mid-boot settling only arms it.
+  installTopoWatcher(ctx, collector)
+  // Boot prime: settle the structural baseline (and the attribution module
+  // set) before any diff can run; a failed build leaves both to the first
+  // event — an observer must not fail its own mount over a snapshot.
+  try { collector.noteTopo(buildGraph(ctx)) } catch { /* first event re-primes */ }
   const rpc = installRpcObserver(ctx, (method, isError, durationMs) => {
     const module = RPC_ACTION[method] ?? null
     collector.noteAction({ time: Date.now(), kind: 'action', module, name: method, isError, durationMs })
@@ -74,6 +86,10 @@ export function applyActivity(ctx: Context): ActivitySetup {
     journalDir: journal === null ? null : journal.dir,
     noteGraphModules: (modules) => {
       collector.noteGraphModules(modules)
+      rpc.ensure()
+    },
+    noteTopo: (graph) => {
+      collector.noteTopo(graph)
       rpc.ensure()
     },
   }

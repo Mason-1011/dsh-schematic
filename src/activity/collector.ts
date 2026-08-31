@@ -16,7 +16,7 @@ import {
   WORKFLOW_ENGINE, WORKFLOW_RECORDER, WORKFLOW_TOOLS,
 } from './attribution.ts'
 import type { Journal } from './journal.ts'
-import { graphModuleNames } from '../graph.ts'
+import { graphModuleNames, type LiveGraph } from '../graph.ts'
 
 /** Structural slice of a Session (out-of-tree: no type import). */
 interface SessionSlice {
@@ -141,6 +141,13 @@ function capMap<K, V>(map: Map<K, V>, max: number): void {
 /** Cap for live-only workflow bookkeeping (runs end and self-delete; this bounds crash leftovers). */
 const WF_CAP = 128
 
+/**
+ * Grace after the first snapshot: prime-only, no diff rows. Schematic can
+ * mount mid-boot (its injects resolve before the tree settles), so a bare
+ * first-call baseline would journal ~50 phantom "mounted" rows every boot.
+ */
+const TOPO_BOOT_GRACE_MS = 10_000
+
 /** Pairing values applyEvent extracts from its event switch; rowFor assembles them into rows. */
 interface Pairing {
   pairedName?: string
@@ -170,6 +177,12 @@ export class ActivityCollector {
   private readonly wfLiveAt = new Map<string, number>()
   /** Module specifiers currently in the graph, for tool-owner resolution. */
   private mountedModules = new Set<string>()
+  /** 0 until the first noteTopo primes the structural baseline. */
+  private topoPrimedAt = 0
+  /** Settled structural baseline: node id → what a diff needs to remember. */
+  private readonly topoNodes = new Map<string, { label: string; module: string | null; origin: 'entry' | 'runtime'; state: string | null; error: string | null }>()
+  /** Settled structural baseline: ctx key → provider unit label | 'host' | null (unresolved). */
+  private readonly topoProviders = new Map<string, string | null>()
   private readonly warnedTools = new Set<string>()
   /** Live per-module counters since plugin load (monitoring table); monotonic. */
   private readonly stats = new Map<string | null, ModuleStat>()
@@ -429,6 +442,115 @@ export class ActivityCollector {
    */
   noteGraphModules(modules: Iterable<string>): void {
     this.mountedModules = new Set(modules)
+  }
+
+  /**
+   * A settled graph snapshot (the watcher's debounced rebuild, the boot prime,
+   * or a /graph.json poll): diff it against the previous settled snapshot and
+   * record what structurally changed — units mounted/unmounted, a ctx key's
+   * provider swapped (null = the unresolved side, 'host' = launcher-provided),
+   * a unit flipping into or out of 'failed'. The first call primes the
+   * baseline; a grace window after it keeps mid-boot settling rowless. Every
+   * record lands in the journal AND rides the host-scope action ring, journal
+   * or not — the live feed never depends on disk.
+   */
+  noteTopo(graph: LiveGraph): void {
+    this.mountedModules = new Set(graph.nodes.flatMap((n) => n.module ?? []))
+    if (this.topoPrimedAt === 0) this.topoPrimedAt = Date.now()
+    else if (Date.now() - this.topoPrimedAt >= TOPO_BOOT_GRACE_MS) this.diffTopo(graph)
+    this.absorbTopo(graph)
+  }
+
+  /** ctx key → provider unit label, deterministically: nodes sorted by id, first provider wins; host/unresolved seeded after (disjoint by construction). */
+  private providersOf(graph: LiveGraph): Map<string, string | null> {
+    const providers = new Map<string, string | null>()
+    for (const n of [...graph.nodes].sort((a, b) => a.id.localeCompare(b.id))) {
+      for (const key of n.provides) {
+        if (!providers.has(key)) providers.set(key, n.label)
+      }
+    }
+    for (const key of graph.hostKeys) providers.set(key, 'host')
+    for (const key of graph.unresolvedKeys) providers.set(key, null)
+    return providers
+  }
+
+  private diffTopo(graph: LiveGraph): void {
+    const now = Date.now()
+    const nextNodes = new Map(graph.nodes.map((n) => [n.id, { label: n.label, module: n.module, origin: n.origin, state: n.state, error: n.error }]))
+
+    // 1. unit mount/unmount — entry-origin only: runtime mounts churn with
+    //    every agent session and their story already rides attribution rows.
+    const rowedIds = new Set<string>()
+    for (const id of [...nextNodes.keys()].filter((id) => !this.topoNodes.has(id)).sort()) {
+      const rec = nextNodes.get(id)!
+      if (rec.origin !== 'entry') continue
+      rowedIds.add(id)
+      this.journal?.write({ ev: 'topo-node', id, label: rec.label, module: rec.module, origin: rec.origin, added: true })
+      this.noteAction({ time: now, kind: 'topo', module: rec.module, name: rec.label, snippet: '+' })
+    }
+    for (const id of [...this.topoNodes.keys()].filter((id) => !nextNodes.has(id)).sort()) {
+      const rec = this.topoNodes.get(id)!
+      if (rec.origin !== 'entry') continue
+      rowedIds.add(id)
+      this.journal?.write({ ev: 'topo-node', id, label: rec.label, module: rec.module, origin: rec.origin, added: false })
+      this.noteAction({ time: now, kind: 'topo', module: rec.module, name: rec.label, snippet: '-' })
+    }
+    // a provider row is redundant when the unit it names already got its own
+    // mount/unmount row in this same diff (disabling a 10-key provider must
+    // not emit 11 rows that say the same thing)
+    const rowedLabels = new Set([...rowedIds].map((id) => nextNodes.get(id)?.label ?? this.topoNodes.get(id)?.label))
+    // label → module for pill attribution: the gaining provider owns the row,
+    // the losing one when the key fell unresolved
+    const moduleOfLabel = new Map<string, string | null>()
+    for (const rec of [...nextNodes.values(), ...this.topoNodes.values()]) {
+      if (!moduleOfLabel.has(rec.label)) moduleOfLabel.set(rec.label, rec.module)
+    }
+
+    // 2. provider swaps — only keys both snapshots know: a key appearing from
+    //    nowhere is the mount row's news, and one vanishing is the unmount's.
+    const nextProviders = this.providersOf(graph)
+    for (const key of [...this.topoProviders.keys()].filter((key) => nextProviders.has(key)).sort()) {
+      const from = this.topoProviders.get(key)!
+      const to = nextProviders.get(key)!
+      if (from === to) continue
+      if (rowedLabels.has(from) || rowedLabels.has(to)) continue
+      this.journal?.write({ ev: 'topo-provider', key, from, to })
+      this.noteAction({
+        time: now, kind: 'topo',
+        module: moduleOfLabel.get(to) ?? moduleOfLabel.get(from) ?? null,
+        name: `ctx.${key}`, snippet: `${from ?? '∅'} → ${to ?? '∅'}`,
+      })
+    }
+
+    // 3. failure flips — only transitions touching 'failed': HMR reloads pass
+    //    active → loading → active and must coalesce to silence, and
+    //    pending/loading live on the graph itself already. Runtime units
+    //    included: an agent session's own mount failing is exactly the story.
+    for (const id of [...nextNodes.keys()].filter((id) => this.topoNodes.has(id)).sort()) {
+      const prevRec = this.topoNodes.get(id)!
+      const rec = nextNodes.get(id)!
+      if (prevRec.state === rec.state) continue
+      if (prevRec.state !== 'failed' && rec.state !== 'failed') continue
+      const reason = rec.state === 'failed' ? rec.error : prevRec.error
+      this.journal?.write({
+        ev: 'topo-state', label: rec.label, module: rec.module,
+        from: prevRec.state ?? '—', to: rec.state ?? '—', ...(reason ? { error: reason } : {}),
+      })
+      this.noteAction({
+        time: now, kind: 'topo', module: rec.module, name: rec.label,
+        snippet: `${prevRec.state ?? '—'} → ${rec.state ?? '—'}${reason ? ` · ${reason}` : ''}`,
+        isError: rec.state === 'failed',
+      })
+    }
+  }
+
+  private absorbTopo(graph: LiveGraph): void {
+    this.topoNodes.clear()
+    for (const n of graph.nodes) {
+      this.topoNodes.set(n.id, { label: n.label, module: n.module, origin: n.origin, state: n.state, error: n.error })
+    }
+    this.topoProviders.clear()
+    for (const [key, provider] of this.providersOf(graph)) this.topoProviders.set(key, provider)
   }
 
   /** Boot-time attribution drift log: tool names whose owners are not mounted. */

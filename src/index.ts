@@ -19,6 +19,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import { buildGraph, graphModuleNames } from './graph.ts'
+import { provideSchematic } from './service.ts'
 import { translateBatch, HttpError } from './llm.ts'
 import { send, sendJson, readJsonBody } from './http.ts'
 import { applyActivity } from './activity/index.ts'
@@ -156,6 +157,10 @@ export interface SchConfig {
 
 export function apply(ctx: Context, config: SchConfig = {}): void {
   const webServer = (ctx as Context & { webServer: WebRouteReg }).webServer
+  // Capability, not observation: siblings that inject 'schematic' get the
+  // live graph as a service. The disposer is discarded — provide registered
+  // it as an effect on our fiber, so HMR/dispose retracts it with us.
+  provideSchematic(ctx)
   const html = readFileSync(fileURLToPath(new URL('./web/index.html', import.meta.url)), 'utf8')
   const clientDir = fileURLToPath(new URL('./../dist/', import.meta.url))
 
@@ -176,12 +181,8 @@ export function apply(ctx: Context, config: SchConfig = {}): void {
   const composeDeps: ComposeDeps = { editConfig, updateFailures }
 
   const activity = applyActivity(ctx)
-  // Tool attribution resolves against currently mounted modules; refresh on
-  // every graph build so HMR-mounted tools re-resolve without a restart.
-  const noteModules = (nodes: { module: string | null }[]): void => {
-    activity.noteGraphModules(new Set(nodes.flatMap((node) => node.module ?? [])))
-  }
-  noteModules(buildGraph(ctx).nodes)
+  // Tool attribution resolves against the module set the boot prime inside
+  // applyActivity populated; drift-log once so unmounted owners are named.
   activity.collector.logDrift()
 
   const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
@@ -205,7 +206,9 @@ export function apply(ctx: Context, config: SchConfig = {}): void {
         if (sub === '/graph.json') {
           const graph = buildGraph(ctx)
           graph.serviceReads = activity.traffic.snapshot()
-          noteModules(graph.nodes)
+          // Every served snapshot also re-syncs the structural baseline: a
+          // missed internal/* event costs at most one poll interval.
+          activity.noteTopo(graph)
           return send(res, 200, 'application/json', JSON.stringify(graph))
         }
         if (sub === '/mini.json') {

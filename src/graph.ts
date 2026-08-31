@@ -58,6 +58,26 @@ const PHASE: Record<number, string> = {
   [FIBER_STATE.UNLOADING]: 'unloading',
 }
 
+/**
+ * Worst-state-wins severity for unit aggregation: a FAILED internal child
+ * fails the entry unit even when the unit-root fiber itself stays active.
+ */
+const SEVERITY: Record<string, number> = { active: 0, pending: 1, loading: 1, unloading: 1, failed: 2 }
+
+/**
+ * Clipped failure reason of a fiber (Fiber._error is private; cast through
+ * unknown — a direct intersection collapses to never over the private field,
+ * the EntryRef pattern otherwise). Null unless the fiber actually failed.
+ */
+function fiberError(f: Fiber): string | null {
+  const err = (f as unknown as { _error?: unknown })._error
+  if (err === undefined || err === null) return null
+  const text = err instanceof Error ? err.message : typeof err === 'string' ? err : null
+  if (!text) return null
+  const flat = text.replace(/\s+/g, ' ').trim()
+  return flat.length > 200 ? `${flat.slice(0, 200)}…` : flat
+}
+
 /** Local-time "YYYY-MM-DD HH:mm:ss" snapshot stamp; the footer is read at a glance, so no UTC surprise. */
 function localStamp(d: Date): string {
   const p = (n: number): string => String(n).padStart(2, '0')
@@ -94,6 +114,8 @@ export interface LiveNode {
   /** 'entry' = mounted from configuration; 'runtime' = programmatic. */
   origin: 'entry' | 'runtime'
   state: string | null
+  /** Clipped message of the owned fiber that failed; null unless state === 'failed'. */
+  error: string | null
   /** Config identity ('entry' origin) or 'runtime mount' — the search/table "dir". */
   dir: string
   category: string
@@ -262,6 +284,23 @@ export function buildGraph(ctx: Context): LiveGraph {
     if (!providesOf.has(owner)) providesOf.set(owner, [])
     providesOf.get(owner)!.push(impl.name)
   }
+  // unit-level state: worst of every owned fiber, so a package's private
+  // FAILED child surfaces on the entry node. DISPOSED (PHASE has no index 4)
+  // self-excludes — its story is the watcher's node-removal record.
+  const stateOf = new Map<Fiber, string>()
+  const failOf = new Map<Fiber, string>()
+  for (const fiber of fibers) {
+    const owner = ownerOf.get(fiber)
+    if (owner === undefined) continue
+    const label = PHASE[fiber.state as number]
+    if (label === undefined) continue
+    const cur = stateOf.get(owner)
+    if (cur === undefined || SEVERITY[label] > SEVERITY[cur]) {
+      stateOf.set(owner, label)
+      if (label === 'failed' && !failOf.has(owner)) failOf.set(owner, fiberError(fiber) ?? '')
+    }
+  }
+
   const injectOf = new Map<Fiber, Set<string>>()
   for (const fiber of fibers) {
     const owner = ownerOf.get(fiber)
@@ -286,7 +325,8 @@ export function buildGraph(ctx: Context): LiveGraph {
       module,
       label,
       origin: isEntry ? 'entry' : 'runtime',
-      state: PHASE[fiber.state as number] ?? null,
+      state: stateOf.get(fiber) ?? PHASE[fiber.state as number] ?? null,
+      error: stateOf.get(fiber) === 'failed' ? failOf.get(fiber) ?? null : null,
       dir: isEntry ? entry!.id.replace(/^include:/, '') : 'runtime mount',
       category: categoryOf(module),
       group: categoryOf(module) === 'other' ? 'other' : label.split('-')[0] ?? 'other',

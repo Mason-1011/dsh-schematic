@@ -69,6 +69,8 @@ export interface TimelineEntry {
     | 'workflow'
     /** Workflow-run settlement row; downgrades the run's strong glow like a tool-end. */
     | 'workflow-end'
+    /** Host-scope structural change: unit mounted/unmounted, provider swap, or failure flip. */
+    | 'topo'
   module: string | null
   /** Tool name, turn ordinal label, provider id, RPC/live-event name, or workflow run/agent label depending on kind. */
   name?: string

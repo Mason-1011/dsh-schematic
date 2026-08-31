@@ -20,3 +20,18 @@
 - id: session-persistence-jsonl
   config:
     root: /Users/mason_yu/.dsh-schematic-dev/sessions
+# The shared ~/.dsh/.credentials.yaml now carries the nested version/refs
+# format of NEWER dsh builds (the installed 3080 instance reads it fine);
+# this checkout's credentials-local predates that format and rejects it, so
+# the dev instance reads its own empty credentials file instead — an empty
+# document is an empty store, and nothing in schematic's verification needs
+# a real key.
+- id: credentials
+  config:
+    path: /Users/mason_yu/.dsh-schematic-dev/credentials.yaml
+# Note for future dev boots: patch rows with a bare id only OVERRIDE existing
+# entries; brand-new entries must ride `insert:` (a bare new id is skipped with
+# a warn), and entries mounted through a private `cordis:include` keep the
+# loader's own persistence (tree.write on entry updates) out of the shared
+# profile config — the pattern v0.3.1's live verification used for its
+# throwaway topology fleet.

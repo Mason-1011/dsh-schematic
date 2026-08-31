@@ -38,10 +38,12 @@ DeepSeek Harness(dsh)用插件拼出整个 agent 产品:每一项能力——模
 **拓扑查看器**——挂载后跑在 `/schematic`。
 - 三个标签页:**旅程**(一条消息在运行时流经的阶段卡片及各阶段交换的 ctx 键)、**领域**(放射网状;家族/聚类/核心脊柱卡可展开为作用域视图;分组可 ⊕ 一键打散、全部展开;连线按提供方 → 消费方绘制,悬停卡标明双方与注入的键)、**表格**。
 - 每 5 秒刷新并弹变化提示;新插件脉冲高亮;`?tab=`、`?expand=all` 深链。
+- 失败传导到单元级——内部子孙 fiber FAILED 会把整个条目单元在图上标红(面板携带裁剪后的失败原因),恢复后下一次落定即清除。
 - 一键中英整页切换——描述由进程内 LLM 批量翻译,标识符保持英文。
 
 **运行时活动**——看工作往哪流。
 - 每个回合、模型回复、工具调用、workflow 运行、注册表变更、宿主动作、后台任务、服务读取都归因到所属插件;工作流经哪个插件,图就点亮哪个(工具执行/模型流式期间强高亮,之后呼吸光衰减);可折叠的活动时间线记下谁、做了什么、何时、耗时多久。
+- **结构变化也是事件**(v0.3.1)——插件挂载/卸载、接缝换提供方、键变得未解析、单元翻入/翻出失败:每次落定的结构变化都落成时间线行并写入日记,「我应用那次改动的时候接线动了什么」事后可查。
 - 会话选择器默认跟随你正在看的聊天,可过滤 subagent/后台任务。
 - **回放**——时间线的"回放"开关经宿主自己的只读历史 RPC 向前翻页读取会话持久日志,每一事件走同一个直播折叠逻辑重新归因,并归并日记里的 live-only 行:查看页开着之前谁干了什么,一样看得见。
 - **统计**——插件级监控表,累计本实例观察窗内的计数:行数、工具调用与失败、工具耗时(总和+最大)、LLM 完成数,以及各插件此刻在飞的任务。
@@ -64,7 +66,7 @@ DeepSeek Harness(dsh)用插件拼出整个 agent 产品:每一项能力——模
 
 ### 写什么——以及绝不碰什么
 
-观察侧的一切保持构造上的只读:插件绝不写会话日志(不追加自定义事件类型)、绝不包装或拦截服务返回值、也不给自己的观察者加拓扑边。
+观察侧的一切保持构造上的只读:插件绝不写会话日志(不追加自定义事件类型)、绝不包装或拦截服务返回值、也不给自己的观察者加拓扑边。它确实提供一个真实的 ctx 服务——`schematic`,把查看器渲染的同一份实时图递出去(`ctx.schematic.graph()`)。那是能力,不是观察边:注入它的消费方在图上如实地表现为接到了查看器上。
 
 工作台(v0.3.0)只写两样东西,都落在路径明示的地方:
 - profile `cordis.patch.yml` 里的**受管块**——`# >>> dsh-schematic v1` 与 `# <<< dsh-schematic v1` 之间的行;标记外的每一个字节逐字保留,写块之前必先落全文件时间戳备份;
@@ -136,7 +138,7 @@ agent 已经有自己的"创造模式"(运行中检查、重挂插件的自改�
 
 一个包,两半:
 
-- **宿主半边**(`src/index.ts`、`src/activity/`、`src/graph.ts`、`src/compose/`)——一个 Cordis 插件:读 loader 的插件树,进程内订阅会话事件洪流、agent 状态、注册表回调、internal/get 服务读取瀑布,然后在 harness web 服务器上提供 `/schematic`(查看页)、`/schematic/events`(SSE)、`/schematic/mini.json`(轮询的缩影数据)、`/schematic/history`(分页回放)、`/schematic/stats.json`(观察窗插件级计数),以及工作台路由(`/schematic/compose.json` GET + `/compose/preview|apply|rollback|clear` POST)。工作台从 loader 树推导 profile 的 patch 文件路径,候选改动经 `@deepseek-ai/dsh-app-boot` 自己的组合函数干跑,只写受管块(YAML 往返全部走 `@deepseek-ai/cordis-plugin-include` 的方言,`!!js` 表达式逐字保留;两者运行时从 profile 解析,以 peerDependencies 声明)。
+- **宿主半边**(`src/index.ts`、`src/activity/`、`src/graph.ts`、`src/compose/`、`src/service.ts`)——一个 Cordis 插件:读 loader 的插件树,进程内订阅会话事件洪流、agent 状态、注册表回调、internal/get 服务读取瀑布,然后在 harness web 服务器上提供 `/schematic`(查看页)、`/schematic/events`(SSE)、`/schematic/mini.json`(轮询的缩影数据)、`/schematic/history`(分页回放)、`/schematic/stats.json`(观察窗插件级计数),以及工作台路由(`/schematic/compose.json` GET + `/compose/preview|apply|rollback|clear` POST);`src/service.ts` 另把实时图作为 `schematic` ctx 服务提供给注入它的兄弟插件(`ctx.schematic.graph()`)。工作台从 loader 树推导 profile 的 patch 文件路径,候选改动经 `@deepseek-ai/dsh-app-boot` 自己的组合函数干跑,只写受管块(YAML 往返全部走 `@deepseek-ai/cordis-plugin-include` 的方言,`!!js` 表达式逐字保留;两者运行时从 profile 解析,以 peerDependencies 声明)。
 - **浏览器半边**(`src/client/`,构建为 `dist/client.js`)——加载进 dsh 的 web SPA:贡献设置分区、替换导航图标、挂载输入卡旁的星图、处理"对话中询问"。独立查看页(`dist/engine.js`)自启动,只与上述宿主路由通信。
 
 ## 开发
