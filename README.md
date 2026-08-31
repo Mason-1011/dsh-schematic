@@ -100,7 +100,7 @@ The agent already has its own "creative mode" (self-modification tools that insp
 
 | Component | Supported |
 |---|---|
-| [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | `>=0.1.0-rc.8`, web profile |
+| [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | `>=0.1.0-rc.8` (verified through `0.1.1-rc.2`), web profile |
 | `@deepseek-ai/cordis` | `^4.0.1` |
 | `@deepseek-ai/cordis-plugin-include` | `^1.0.6` |
 | Browser | Current Chromium, Firefox, or Safari (`light-dark()`, `EventSource`) |

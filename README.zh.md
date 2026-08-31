@@ -100,7 +100,7 @@ agent 已经有自己的"创造模式"(运行中检查、重挂插件的自改�
 
 | 组件 | 支持范围 |
 |---|---|
-| [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | `>=0.1.0-rc.8`,web profile |
+| [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | `>=0.1.0-rc.8`(已验证至 `0.1.1-rc.2`),web profile |
 | `@deepseek-ai/cordis` | `^4.0.1` |
 | `@deepseek-ai/cordis-plugin-include` | `^1.0.6` |
 | 浏览器 | 当前版本 Chromium、Firefox 或 Safari(用到 `light-dark()`、`EventSource`) |
