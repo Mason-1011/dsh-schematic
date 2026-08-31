@@ -81,6 +81,11 @@ export interface TimelineEntry {
   provider?: string
   model?: string
   /**
+   * Bare composed entry id (no `include:` prefix) on kind 'topo' rows that name
+   * an entry-origin unit — the page's enable affordance keys on it.
+   */
+  entry?: string
+  /**
    * Monotonic feed sequence stamped by the collector on every emitted entry
    * (timeline rows and host-scope actions alike). The polling miniature diffs
    * on it; SSE consumers can ignore it.

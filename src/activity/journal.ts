@@ -24,8 +24,11 @@
  *   topo-node     {id, label, module, origin, added} — settled graph diff between
  *                 consecutive snapshots (debounced ~750ms); entry-origin units
  *                 only, runtime mounts are noise
- *   topo-provider {key, from, to} — a ctx key's provider unit label changed;
- *                 'host' marks a launcher-provided key, null the unresolved side
+ *   topo-provider {key, from, to, fromId?, toId?} — a ctx key's provider unit
+ *                 label changed; 'host' marks a launcher-provided key, null the
+ *                 unresolved side; the optional ids are the unit's node ids
+ *                 (include:-prefixed for entry rows, dyn:* for runtime) when
+ *                 that side was a unit — the page's enable affordance reads them
  *   topo-state    {label, module, from, to, error?} — a unit flipped into or out
  *                 of 'failed', with the clipped failure reason
  * Service reads (traffic) are deliberately not journaled: per-read moments are
@@ -57,7 +60,7 @@ export type JournalEvent =
   | { ev: 'job-done'; id: string; label: string; status: string; detail?: string; startedAt: number; finishedAt?: number }
   | { ev: 'agent-status'; session: string; status: 'idle' | 'running' }
   | { ev: 'topo-node'; id: string; label: string; module: string | null; origin: 'entry' | 'runtime'; added: boolean }
-  | { ev: 'topo-provider'; key: string; from: string | null; to: string | null }
+  | { ev: 'topo-provider'; key: string; from: string | null; to: string | null; fromId?: string; toId?: string }
   | { ev: 'topo-state'; label: string; module: string | null; from: string; to: string; error?: string }
 
 export class Journal {

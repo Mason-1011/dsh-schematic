@@ -249,6 +249,22 @@ const T: Record<string, { en: string; zh: string }> = {
   eCopied:         { en: 'copied', zh: '已复制' },
   eGhostLegend:    { en: 'dashed = pending addition · struck = pending removal', zh: '虚线 = 待新增 · 删除线 = 待移除' },
   eUnavailable:    { en: 'composition editing unavailable (host plugin older than the page?)', zh: '组合编辑不可用(宿主插件比页面旧?)' },
+  // v0.3.2 recovery affordances: everything routes through queueEnable, which
+  // never flips edit mode itself — the page stays a pure observer until ✎
+  eEditFirst:      { en: 'press ✎ to turn on edit mode first — the page stays a pure observer, so nothing is queued', zh: '先按 ✎ 开启编辑模式——页面默认纯旁观,不会排队任何操作' },
+  rowEnableHint:   { en: 'enable this entry again — queues a preview; nothing is written until Apply', zh: '重新启用该条目——只排队预览,按「应用」前不会写入' },
+  rowGone:         { en: 'entry {id} is no longer in the composed tree — nothing to enable here', zh: '条目 {id} 已不在组合树中——这里没有可启用的行' },
+  eDisabledChip:   { en: 'disabled', zh: '已停用' },
+  eDisabledTitle:  { en: 'every entry disabled in the composed tree (edit mode) — click to list them', zh: '组合树中所有已停用的条目(编辑模式)——点击列出' },
+  eDisabledList:   { en: 'disabled entries · {n}', zh: '已停用条目 · {n}' },
+  eDisabledEmpty:  { en: 'no disabled entries in the composed tree', zh: '组合树中没有已停用的条目' },
+  eDisabledHint:   { en: 'these rows exist in the composed tree but are not mounted — their provides/inject are unknown until they are', zh: '这些行在组合树中但未挂载——挂载前 provides/inject 未知' },
+  eEnableBtn:      { en: '⏻ enable', zh: '⏻ 启用' },
+  pkRecover:       { en: 'recovery', zh: '恢复' },
+  pkEnableEntry:   { en: 're-enable {l}', zh: '重新启用 {l}' },
+  pkEnableAlt:     { en: 'enable {p}', zh: '启用 {p}' },
+  pkFromRing:      { en: 'from a recent topology row', zh: '来自最近一条拓扑行' },
+  pkNone:          { en: 'no recovery is known from here — the ✎ disabled list covers every disabled entry', zh: '这里无从恢复——✎ 的「已停用」列表列出了全部已停用条目' },
 }
 
 const CATS = [
@@ -672,6 +688,33 @@ const CSS = `
 .sch .graph .node.ghostRem text { text-decoration: line-through; opacity: 0.7; }
 .sch .graph .node.ghostAdd rect { fill: none; stroke: var(--ink-2); stroke-dasharray: 4 4; }
 .sch .graph .node.ghostAdd text { fill: var(--ink-2); font-size: 10px; }
+/* v0.3.2 recovery: actionable topo rows, clickable unresolved keys, popover */
+.sch .actRow[data-entry] { cursor: pointer; }
+.sch .actRow[data-entry]:hover .tx { color: var(--ink-1); }
+.sch .actRow .rec { color: var(--s3); flex: 0 0 auto; }
+.sch .graph .node.ext.unres { cursor: pointer; }
+.sch aside .keys .unres.pk { cursor: pointer; }
+.sch aside .keys .unres.pk:hover { text-decoration: underline; }
+.sch .schPop { position: fixed; z-index: 30; display: none; max-width: 360px;
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+  padding: 9px 11px; box-shadow: 0 6px 18px rgba(0,0,0,0.16); font-size: 12px; }
+.sch .schPop.on { display: block; }
+.sch .schPop .t { font: 12px ui-monospace, Menlo, monospace; font-weight: 650; word-break: break-all; }
+.sch .schPop .d { color: var(--ink-2); margin: 3px 0; }
+.sch .schPop .k { color: var(--ink-3); font: 11px ui-monospace, Menlo, monospace; word-break: break-all; }
+.sch .schPop h4 { margin: 8px 0 3px; font-size: 11px; color: var(--ink-3); }
+.sch .schPop .pkRow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 3px 0; }
+.sch .schPop button { font-size: 11.5px; border: 1px solid var(--border); background: none;
+  color: var(--ink-1); border-radius: 6px; padding: 2px 9px; cursor: pointer; }
+.sch .schPop button:hover { border-color: var(--ink-3); }
+.sch .schPop .pkRow .badge { font-size: 10px; padding: 1px 7px; border-radius: 999px;
+  border: 1px solid var(--border); color: var(--ink-3); white-space: nowrap; }
+.sch .editDrawer .dRow.dis { align-items: center; }
+.sch .editDrawer .dRow.dis .badge { font-size: 10px; padding: 1px 7px; border-radius: 999px;
+  border: 1px solid var(--border); color: var(--ink-3); white-space: nowrap; }
+.sch .editDrawer .dRow.dis button { font-size: 11.5px; border: 1px solid var(--border); background: none;
+  color: var(--ink-1); border-radius: 6px; padding: 2px 9px; cursor: pointer; }
+.sch .editDrawer .dRow.dis button:hover { border-color: var(--ink-3); }
 `
 
 /** Idempotent stylesheet injection. */
@@ -799,6 +842,7 @@ export function mountSchematic(container: HTMLElement): () => void {
 </footer>
 <div class="toast"></div>
 <div class="tooltip"></div>
+<div class="schPop"></div>
 <div class="editScrim"></div>
 <aside class="editDrawer"></aside>`
   container.classList.add('sch')
@@ -1548,6 +1592,9 @@ export function mountSchematic(container: HTMLElement): () => void {
           })
           g.addEventListener('mousemove', moveTip)
           g.addEventListener('mouseleave', hideTip)
+          // unresolved keys open the recovery popover; host keys stay
+          // hover-only — a launcher-provided key has no composition remedy
+          if (unres) g.addEventListener('click', (ev) => { ev.stopPropagation(); openUnresPop(k, ev) })
         }
         const zoneHead = (txt: string, id: string): void => {
           const p = L.pos.get(id)
@@ -1599,6 +1646,7 @@ export function mountSchematic(container: HTMLElement): () => void {
           g.addEventListener('mouseenter', () => showTip(`<div class="t">⌁ ${k}</div><div class="d">${t(unres ? 'tipUnresKey' : 'tipHostKey')}</div><div class="d">${t('tipExtCount', { n: countInj(k) })}</div>`))
           g.addEventListener('mousemove', moveTip)
           g.addEventListener('mouseleave', hideTip)
+          if (unres) g.addEventListener('click', (ev) => { ev.stopPropagation(); openUnresPop(k, ev) })
         }
         const failed = GRAPH.nodes.filter((n: any) => n.state === 'failed').length
         $('.stats').textContent =
@@ -1641,6 +1689,8 @@ export function mountSchematic(container: HTMLElement): () => void {
 
   const countInj = (k: string): number => GRAPH.nodes.filter((n: any) => n.inject.includes(k)).length
   const tip = $('.tooltip')
+  /** Singleton unresolved-key popover (surface for recovery offers). */
+  const pop = $('.schPop')
   const showTip = (html: string): void => { tip.innerHTML = html; tip.style.display = 'block' }
   const hideTip = (): void => { tip.style.display = 'none' }
   const esc = (s: string): string => s.replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch] as string))
@@ -1772,7 +1822,7 @@ export function mountSchematic(container: HTMLElement): () => void {
       const o = owners(k)
       if (o) return `<code>${k} → ${o}</code>`
       if (GRAPH.hostKeys.includes(k)) return `<span class="ext" title="${t('tipHostKey')}">${k}</span>`
-      return `<span class="unres" title="${t('tipUnresKey')}">${k}</span>`
+      return `<span class="unres pk" data-key="${esc(k)}" title="${t('tipUnresKey')}">${k}</span>`
     }).join(' ') || '<span class="empty">—</span>'
     const d = descOf(n)
     $('.detail').innerHTML = `
@@ -1799,6 +1849,11 @@ export function mountSchematic(container: HTMLElement): () => void {
     if (grpBtn !== null) {
       grpBtn.onclick = () => { const gid = lastL?.nodeGroup?.get(n.id); if (gid !== undefined) toggleExpand(gid) }
     }
+    // unresolved inject keys open the same recovery popover the ext-zone
+    // pills do (host keys stay hover-only)
+    container.querySelectorAll<HTMLElement>('.detail .keys .unres.pk').forEach((chip) => {
+      chip.onclick = (ev) => openUnresPop(chip.dataset.key as string, ev)
+    })
     ;(container.querySelector('.detail .ask-btn') as HTMLElement).onclick = () => {
       // Hand-off to the SPA: its schematic client half turns the params into a
       // fresh ungrouped session with the question prefilled (see src/client/index.ts).
@@ -2000,6 +2055,19 @@ export function mountSchematic(container: HTMLElement): () => void {
     ext.onclick = () => { state.ext = !state.ext; renderChips(); render() }
     f.appendChild(ext)
 
+    // edit chrome: every disabled entry in the composed tree — the durable
+    // companion to the timeline's recovery rows, which age out of the ring
+    if (editOn && compose !== null && compose.editable) {
+      const dis = (compose.entries ?? []).filter((e: any): boolean => e.disabled)
+      const chip = document.createElement('span')
+      chip.className = 'chip'
+      chip.title = t('eDisabledTitle')
+      chip.setAttribute('aria-pressed', String(disabledList))
+      chip.innerHTML = `<span class="dot plain"></span>${t('eDisabledChip')} <b>${dis.length}</b>`
+      chip.onclick = () => { disabledList = !disabledList; renderDrawer() }
+      f.appendChild(chip)
+    }
+
     const legend = document.createElement('span')
     legend.className = 'legend'
     legend.textContent = '⇢ ' + t('legendEdge')
@@ -2105,6 +2173,9 @@ export function mountSchematic(container: HTMLElement): () => void {
   /** Un-previewed editor texts by entry id — switching pills keeps each entry's half-typed config. */
   const cfgDrafts = new Map<string, string>()
   let confirmText = ''
+  /** Disabled-entries list open in the drawer — the standing recovery path
+   *  timeline rows age out of (the SSE snapshot carries only 40 host actions). */
+  let disabledList = false
   const editBtn = $('.editBtn')
 
   const stripInc = (id: string): string => id.replace(/^include:/, '')
@@ -2126,6 +2197,7 @@ export function mountSchematic(container: HTMLElement): () => void {
     if (seq !== composeSeq || !editOn) return
     compose = body
     entryById = new Map((compose?.entries ?? []).map((e: any): [string, any] => [e.id, e]))
+    if (GRAPH !== null) renderChips()
     renderEditChrome()
     refreshDetail()
   }
@@ -2164,6 +2236,60 @@ export function mountSchematic(container: HTMLElement): () => void {
     confirmText = ''
     configEditFor = null
     void runPreview()
+  }
+
+  /**
+   * Re-enable an unmounted entry from outside the graph — timeline topo rows,
+   * the disabled list, unresolved-key popovers all funnel here. Every gate
+   * addOp would fail silently on gets its own toast instead: the mode is never
+   * flipped for the user (✎ stays the only door into editing).
+   */
+  const queueEnable = (id: string): void => {
+    if (!editOn) { toast(t('eEditFirst')); return }
+    if (compose === null) { toast(t('eUnavailable')); return }
+    if (!compose.editable) { toast(t('eLocked', { r: compose.notEditableReason ?? '?' })); return }
+    if (!entryById.has(id)) { toast(t('rowGone', { id })); return }
+    addOp({ kind: 'enable', id })
+  }
+
+  // ------- unresolved-key popover -------
+  /** Every recovery button in the popover carries its entry id here. */
+  const closePop = (): void => { pop.classList.remove('on') }
+
+  const openUnresPop = (key: string, ev: MouseEvent): void => {
+    const injectors = GRAPH.nodes.filter((n: any) => n.inject.includes(key))
+    const inj = injectors.slice(0, 6).map((n: any) => n.label).join(', ') + (injectors.length > 6 ? ' …' : '')
+    // best-effort ring lookup: the topo-provider row that watched this key
+    // fall unresolved names the vacated entry (suppressed when the unit's own
+    // unmount row told the story — hence "best-effort", the hint says so)
+    const vacated = [...act.actions].reverse().find((a: any): boolean =>
+      a.kind === 'topo' && a.name === 'ctx.' + key && typeof a.entry === 'string' && (a.snippet ?? '').endsWith('→ ∅'))
+    const vacLabel = vacated !== undefined ? (vacated.snippet.split(' → ')[0] ?? vacated.entry) : ''
+    // 'host' vacated a launcher key (no compose row); an entry the model
+    // already shows enabled would queue a no-op — neither gets an offer
+    const vacShow = vacated !== undefined && vacLabel !== '∅' && vacLabel !== 'host'
+      && !(compose !== null && entryById.get(vacated.entry)?.disabled === false)
+    // curated seam alternatives are the reliable offer — but they only exist
+    // with the compose model loaded, i.e. while edit mode is on (by design)
+    const seam = compose === null ? undefined : (compose.seams ?? []).find((s: any): boolean => s.key === key)
+    const alts = (seam?.alternatives ?? []).filter((a: any): boolean => a.state === 'in-tree' && a.disabled)
+    pop.innerHTML = `
+      <div class="t">⌁ ctx.${esc(key)}</div>
+      <div class="d">${t('tipUnresKey')}</div>
+      <div class="d">${t('tipExtCount', { n: injectors.length })}</div>
+      ${inj !== '' ? `<div class="k">${esc(inj)}</div>` : ''}
+      <h4>${t('pkRecover')}</h4>
+      ${vacShow ? `
+      <div class="pkRow"><button data-entry="${esc(vacated.entry)}">${t('pkEnableEntry', { l: esc(vacLabel) })}</button><span class="k">${t('pkFromRing')}</span></div>` : ''}
+      ${alts.map((a: any): string => `
+      <div class="pkRow"><button data-entry="${esc(a.id)}">${t('pkEnableAlt', { p: esc(a.package) })}</button><span class="badge">${t('eAltInTreeOff')}</span></div>`).join('')}
+      ${!vacShow && alts.length === 0 ? `<div class="d">${t('pkNone')}</div>` : ''}`
+    pop.querySelectorAll<HTMLButtonElement>('button[data-entry]').forEach((btn) => {
+      btn.onclick = () => queueEnable(btn.dataset.entry as string)
+    })
+    pop.style.left = Math.min(window.innerWidth - 372, ev.clientX + 12) + 'px'
+    pop.style.top = Math.max(8, Math.min(window.innerHeight - 240, ev.clientY + 12)) + 'px'
+    pop.classList.add('on')
   }
 
   const resetDraft = (): void => {
@@ -2302,10 +2428,10 @@ export function mountSchematic(container: HTMLElement): () => void {
   /** The right drawer: config-edit mode, or the pending preview. */
   const renderDrawer = (): void => {
     const drawer = $('.editDrawer'), scrim = $('.editScrim')
-    const open = editOn && (configEditFor !== null || draftPreview !== null)
+    const open = editOn && (configEditFor !== null || draftPreview !== null || disabledList)
     drawer.classList.toggle('on', open)
     scrim.classList.toggle('on', open)
-    if (!open) { drawer.innerHTML = ''; cfgDrafts.clear(); cfgAskBack = false; return }
+    if (!open) { drawer.innerHTML = ''; cfgDrafts.clear(); cfgAskBack = false; disabledList = false; return }
 
     if (configEditFor !== null) {
       const edId = configEditFor
@@ -2420,6 +2546,31 @@ export function mountSchematic(container: HTMLElement): () => void {
       return
     }
 
+    // Standing disabled-entries list — the durable recovery surface (timeline
+    // rows age out of the action ring). Queueing an op sets draftPreview and
+    // flips the drawer to the preview branch below; cancel lands back here
+    // while disabledList stays true.
+    if (draftPreview === null) {
+      const dis = (compose?.entries ?? []).filter((e: any): boolean => e.disabled)
+      drawer.innerHTML = `
+      <button class="dClose" title="${t('eClose')}" aria-label="${t('eClose')}">✕</button>
+      <h3>${t('eDisabledList', { n: dis.length })}</h3>
+      <p class="hint">${t('eDisabledHint')}</p>
+      <ul class="dRows">${dis.length === 0
+        ? `<li class="dRow"><span>${t('eDisabledEmpty')}</span></li>`
+        : dis.map((e: any): string => `
+        <li class="dRow dis">
+          <b>${esc(e.id)}</b>
+          <span class="badge">${t('eAltInTreeOff')}</span>
+          <button class="dEnable" data-id="${esc(e.id)}">${t('eEnableBtn')}</button>
+        </li>`).join('')}</ul>`
+      ;(drawer.querySelector('.dClose') as HTMLElement).onclick = () => { disabledList = false; renderDrawer() }
+      drawer.querySelectorAll<HTMLButtonElement>('.dEnable').forEach((btn) => {
+        btn.onclick = () => queueEnable(btn.dataset.id as string)
+      })
+      return
+    }
+
     const p = draftPreview
     const kindRow = (e: any): string => {
       const label = e.kind === 'removed' ? t('eDiffRemoved') : e.kind === 'added' ? t('eDiffAdded') : t('eDiffChanged')
@@ -2495,9 +2646,10 @@ export function mountSchematic(container: HTMLElement): () => void {
   editBtn.addEventListener('click', () => {
     editOn = !editOn
     try { sessionStorage.setItem('sch-edit', editOn ? '1' : '0') } catch { /* session storage unavailable */ }
-    if (!editOn) { compose = null; entryById = new Map(); resetDraft() }
+    if (!editOn) { compose = null; entryById = new Map(); disabledList = false; resetDraft() }
     else void refreshCompose()
     renderEditChrome()
+    if (GRAPH !== null) renderChips()
     render()
     refreshDetail()
   })
@@ -2755,7 +2907,13 @@ export function mountSchematic(container: HTMLElement): () => void {
       // names the units that received it (host-domain actions, job rows,
       // service reads, and live workflow rows did not broadcast)
       const tip = e.kind === 'action' || e.kind === 'job' || e.kind === 'svc' || e.kind === 'topo' || e.kind === 'workflow' || e.kind === 'workflow-end' ? '' : recvTip()
-      return `<div class="actRow${e.isError ? ' err' : ''}"${e.module ? ` data-module="${esc(e.module)}"` : ''}${tip ? ` title="${esc(tip)}"` : ''}><time>${fmtTime(e.time)}</time>${badge}<span class="tx">${label} · ${esc(detailOf(e))}</span></div>`
+      // A topo row naming an entry that is no longer on the graph still points
+      // at a compose row: it grows an enable affordance (⏻) in place of the
+      // selection click — resolves mirrors the click handler's own lookup
+      const resolves = e.module !== null && byId.has(moduleIds.get(e.module)?.[0] ?? '')
+      const rec = e.kind === 'topo' && typeof e.entry === 'string' && !resolves
+      const entryAttr = typeof e.entry === 'string' ? ` data-entry="${esc(e.entry)}"` : ''
+      return `<div class="actRow${e.isError ? ' err' : ''}"${e.module ? ` data-module="${esc(e.module)}"` : ''}${entryAttr}${rec ? ` title="${esc(t('rowEnableHint'))}"` : tip ? ` title="${esc(tip)}"` : ''}><time>${fmtTime(e.time)}</time>${badge}<span class="tx">${label} · ${esc(detailOf(e))}</span>${rec ? ' <span class="rec">⏻</span>' : ''}</div>`
     }
     let html = ''
     if (shown.length > 0) html = shown.map(rowHtml).join('')
@@ -2935,17 +3093,23 @@ export function mountSchematic(container: HTMLElement): () => void {
   })
   // Clicking a row performs the same selection a pill click performs above:
   // the module's detail panel opens in whatever tab is showing. Rows whose
-  // module is unmounted or unattributed carry no data-module and stay inert.
-  // Stats-table rows share the interaction (closest matches both classes).
+  // module is unmounted or unattributed fall back to the topo entry id they
+  // carry — re-enabling queues through the workbench preview like any ⏻.
+  // Stats-table rows share the interaction (closest matches both classes) but
+  // never carry data-entry.
   actList.addEventListener('click', (ev) => {
     const row = (ev.target as HTMLElement).closest('.actRow, .actStRow') as HTMLElement | null
-    const module = row?.dataset.module
-    if (module === undefined) return
-    const n = byId.get(moduleIds.get(module)?.[0] ?? '')
-    if (n === undefined) return
-    state.sel = n.id
-    renderDetail(n)
-    render()
+    if (row === null) return
+    const module = row.dataset.module
+    const n = module !== undefined ? byId.get(moduleIds.get(module)?.[0] ?? '') : undefined
+    if (n !== undefined) {
+      state.sel = n.id
+      renderDetail(n)
+      render()
+      return
+    }
+    const entry = row.dataset.entry
+    if (entry !== undefined) queueEnable(entry)
   })
   $('.actFold').addEventListener('click', () => {
     const folded = actbar.classList.toggle('folded')
@@ -3146,6 +3310,16 @@ export function mountSchematic(container: HTMLElement): () => void {
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { state.scope ? exitScope() : (state.sel = null, render()) }
   }, sig)
+  // popover dismissal: pointerdown (capture) so clicking another unresolved
+  // pill closes-then-reopens cleanly, and Escape (capture, stopped) so the
+  // first press only closes the popover — the selection-exit handler above
+  // is bubble-phase and would otherwise fire on the same keystroke
+  document.addEventListener('pointerdown', (e) => {
+    if (pop.classList.contains('on') && !pop.contains(e.target as Node)) closePop()
+  }, { ...sig, capture: true })
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && pop.classList.contains('on')) { e.stopPropagation(); closePop() }
+  }, { ...sig, capture: true })
   container.querySelectorAll<HTMLButtonElement>('.tabBtn').forEach((btn) => {
     btn.addEventListener('click', () => {
       state.tab = (btn.dataset.tab ?? 'journey') as typeof state.tab
@@ -3232,6 +3406,7 @@ export function mountSchematic(container: HTMLElement): () => void {
     updateLangButton()
     relocalizeShell()
     setMeta()
+    closePop() // re-opened on the next click, in the new language
     renderChips()
     render()
     refreshDetail()

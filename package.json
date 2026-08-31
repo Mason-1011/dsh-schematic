@@ -1,6 +1,6 @@
 {
   "name": "dsh-schematic",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Live plugin-topology viewer for DeepSeek Harness: the wiring diagram of every mounted plugin, its runtime activity, a composer-side star map — and a composition workbench that edits the wiring on the graph itself (previewed, validated, backed up, reversible).",
   "keywords": [
     "dsh",

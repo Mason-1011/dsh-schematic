@@ -181,8 +181,9 @@ export class ActivityCollector {
   private topoPrimedAt = 0
   /** Settled structural baseline: node id → what a diff needs to remember. */
   private readonly topoNodes = new Map<string, { label: string; module: string | null; origin: 'entry' | 'runtime'; state: string | null; error: string | null }>()
-  /** Settled structural baseline: ctx key → provider unit label | 'host' | null (unresolved). */
-  private readonly topoProviders = new Map<string, string | null>()
+  /** Settled structural baseline: ctx key → its provider unit ({label, id} — id is the
+   * node id, null for host/unresolved) so label and id can never disagree. */
+  private readonly topoProviders = new Map<string, { label: string | null; id: string | null }>()
   private readonly warnedTools = new Set<string>()
   /** Live per-module counters since plugin load (monitoring table); monotonic. */
   private readonly stats = new Map<string | null, ModuleStat>()
@@ -461,16 +462,16 @@ export class ActivityCollector {
     this.absorbTopo(graph)
   }
 
-  /** ctx key → provider unit label, deterministically: nodes sorted by id, first provider wins; host/unresolved seeded after (disjoint by construction). */
-  private providersOf(graph: LiveGraph): Map<string, string | null> {
-    const providers = new Map<string, string | null>()
+  /** ctx key → provider unit {label, id}, deterministically: nodes sorted by id, first provider wins; host/unresolved seeded after (disjoint by construction). */
+  private providersOf(graph: LiveGraph): Map<string, { label: string | null; id: string | null }> {
+    const providers = new Map<string, { label: string | null; id: string | null }>()
     for (const n of [...graph.nodes].sort((a, b) => a.id.localeCompare(b.id))) {
       for (const key of n.provides) {
-        if (!providers.has(key)) providers.set(key, n.label)
+        if (!providers.has(key)) providers.set(key, { label: n.label, id: n.id })
       }
     }
-    for (const key of graph.hostKeys) providers.set(key, 'host')
-    for (const key of graph.unresolvedKeys) providers.set(key, null)
+    for (const key of graph.hostKeys) providers.set(key, { label: 'host', id: null })
+    for (const key of graph.unresolvedKeys) providers.set(key, { label: null, id: null })
     return providers
   }
 
@@ -486,14 +487,14 @@ export class ActivityCollector {
       if (rec.origin !== 'entry') continue
       rowedIds.add(id)
       this.journal?.write({ ev: 'topo-node', id, label: rec.label, module: rec.module, origin: rec.origin, added: true })
-      this.noteAction({ time: now, kind: 'topo', module: rec.module, name: rec.label, snippet: '+' })
+      this.noteAction({ time: now, kind: 'topo', module: rec.module, name: rec.label, snippet: '+', entry: id.replace(/^include:/, '') })
     }
     for (const id of [...this.topoNodes.keys()].filter((id) => !nextNodes.has(id)).sort()) {
       const rec = this.topoNodes.get(id)!
       if (rec.origin !== 'entry') continue
       rowedIds.add(id)
       this.journal?.write({ ev: 'topo-node', id, label: rec.label, module: rec.module, origin: rec.origin, added: false })
-      this.noteAction({ time: now, kind: 'topo', module: rec.module, name: rec.label, snippet: '-' })
+      this.noteAction({ time: now, kind: 'topo', module: rec.module, name: rec.label, snippet: '-', entry: id.replace(/^include:/, '') })
     }
     // a provider row is redundant when the unit it names already got its own
     // mount/unmount row in this same diff (disabling a 10-key provider must
@@ -512,13 +513,24 @@ export class ActivityCollector {
     for (const key of [...this.topoProviders.keys()].filter((key) => nextProviders.has(key)).sort()) {
       const from = this.topoProviders.get(key)!
       const to = nextProviders.get(key)!
-      if (from === to) continue
-      if (rowedLabels.has(from) || rowedLabels.has(to)) continue
-      this.journal?.write({ ev: 'topo-provider', key, from, to })
+      if (from.label === to.label) continue
+      if ((from.label !== null && rowedLabels.has(from.label)) || (to.label !== null && rowedLabels.has(to.label))) continue
+      // this.topoNodes still holds the PREVIOUS snapshot here, so from.id is
+      // exactly the vacated side; entry stays off runtime (dyn:*) vacaters —
+      // there is no compose row to enable for them
+      const fromEntry = from.id !== null && this.topoNodes.get(from.id)?.origin === 'entry'
+        ? from.id.replace(/^include:/, '')
+        : undefined
+      this.journal?.write({
+        ev: 'topo-provider', key, from: from.label, to: to.label,
+        ...(from.id !== null ? { fromId: from.id } : {}),
+        ...(to.id !== null ? { toId: to.id } : {}),
+      })
       this.noteAction({
         time: now, kind: 'topo',
-        module: moduleOfLabel.get(to) ?? moduleOfLabel.get(from) ?? null,
-        name: `ctx.${key}`, snippet: `${from ?? '∅'} → ${to ?? '∅'}`,
+        module: moduleOfLabel.get(to.label ?? '') ?? moduleOfLabel.get(from.label ?? '') ?? null,
+        name: `ctx.${key}`, snippet: `${from.label ?? '∅'} → ${to.label ?? '∅'}`,
+        ...(fromEntry !== undefined ? { entry: fromEntry } : {}),
       })
     }
 

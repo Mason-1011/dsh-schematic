@@ -133,7 +133,7 @@ To uninstall cleanly, also drop the `schematic` row from `dsh.profile.bundles` (
 - **Star map** — drag the panel anywhere; drag the bottom-right grip to resize; scroll the mouse wheel over it to tune the backdrop (0 = fully transparent); hover a dot for the plugin's card; double-click to open the viewer fully expanded.
 - **Settings** → *Plugin topology* — opens the viewer; the backdrop slider two-way syncs with the wheel.
 - **Timeline** — the replay toggle pages back through the selected session's history; the stats toggle swaps in the per-plugin count table (polled only while open).
-- **Workbench** — the header's ✎ toggles edit mode (off by default). In edit mode: a plugin's panel offers disable/enable and an inline config editor; a cluster card offers provider swap per seam; the drawer previews the queued batch (entry diff + YAML diff + warnings) with apply / rollback / clear. Danger moves (disabling schematic itself) ask for the entry id to be typed in.
+- **Workbench** — the header's ✎ toggles edit mode (off by default). In edit mode: a plugin's panel offers disable/enable and an inline config editor; a cluster card offers provider swap per seam; the drawer previews the queued batch (entry diff + YAML diff + warnings) with apply / rollback / clear. Danger moves (disabling schematic itself) ask for the entry id to be typed in. Disabled entries stay recoverable after their node leaves the graph — a ⏻ on the unmounted unit's timeline row, the 已停用 filter chip's standing list, and the unresolved-key popover all queue the same previewed enable; none of them flips edit mode on for you.
 - **Ask in chat** — in the viewer, a package's panel offers to ask about it in a fresh conversation, question sent for you.
 
 ## How it works
