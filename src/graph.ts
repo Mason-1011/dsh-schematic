@@ -131,7 +131,10 @@ export interface LiveGraph {
   nodes: LiveNode[]
   edges: { from: string; to: string; keys: string[] }[]
   clusters: { id: string; label: string; provider: string; category: string; desc: string | null; seamKeys: string[]; members: string[] }[]
-  externalKeys: string[]
+  /** Injected keys no tree unit provides, but the host context does (launcher facts like cmdlineArgs). */
+  hostKeys: string[]
+  /** Injected keys nothing provides in this process — every injector of them reads undefined. */
+  unresolvedKeys: string[]
   /** Broadcast subscriptions, event name first — the other half of the wiring. */
   eventSubs: EventSubscription[]
   /**
@@ -322,7 +325,10 @@ export function buildGraph(ctx: Context): LiveGraph {
   }
   eventSubs.sort((a, b) => a.name.localeCompare(b.name))
 
-  // edges: injector unit → provider unit per ctx key, aggregated per pair
+  // edges: injector unit → provider unit per ctx key, aggregated per pair.
+  // A key no tree unit provides is host-provided when any scope's reflect
+  // store carries an implementation (the launcher calls ctx.provide before
+  // the tree mounts), and unresolved when nothing carries it at all.
   const pairKeys = new Map<string, Set<string>>()
   const external = new Set<string>()
   const keyInjectCount = new Map<string, number>()
@@ -349,6 +355,7 @@ export function buildGraph(ctx: Context): LiveGraph {
     return { from, to, keys: [...keys].sort() }
   })
 
+  const implNames = new Set(impls.map((impl) => impl.name))
   const { clusters, universalKeys } = buildClusters(nodes, edges, keyInjectCount, INFRA_KEYS)
   const catById = new Map(nodes.map((n) => [n.id, n.category]))
   // the provider's category is the cluster's pill category on the overview
@@ -366,7 +373,8 @@ export function buildGraph(ctx: Context): LiveGraph {
     nodes,
     edges,
     clusters: wireClusters,
-    externalKeys: [...external].sort(),
+    hostKeys: [...external].filter((key) => implNames.has(key)),
+    unresolvedKeys: [...external].filter((key) => !implNames.has(key)),
     eventSubs,
   }
 }

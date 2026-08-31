@@ -37,10 +37,10 @@ const T: Record<string, { en: string; zh: string }> = {
   stats:           { en: '{m} mounted · {s} shown · {e} edges', zh: '已挂载 {m} · 显示 {s} · 边 {e}' },
   statsFailed:     { en: ' · {f} failed', zh: ' · 失败 {f}' },
   scopeStats:      { en: '{l} · {a}/{b} members · {n} internal edges', zh: '{l} · 成员 {a}/{b} · 内部边 {n}' },
-  zoneExt:         { en: 'EXTERNAL CTX KEYS', zh: '外部上下文键' },
+  zoneExt:         { en: 'HOST / UNRESOLVED CTX KEYS', zh: '宿主 / 未解析上下文键' },
   zoneIn:          { en: 'INJECTED BY', zh: '注入方' },
   zoneOut:         { en: 'MEMBERS INJECT', zh: '成员注入' },
-  tipExt:          { en: 'injected by {n} unit(s), provided outside this process', zh: '由 {n} 个单元注入,由本进程之外提供' },
+  tipExtCount:     { en: 'injected by {n} unit(s)', zh: '由 {n} 个单元注入' },
   tipGrouped:      { en: '(grouped)', zh: '(分组)' },
   tipUnits:        { en: '{n} mounted units', zh: '{n} 个已挂载单元' },
   tipClusterHint:  { en: 'click for details, double-click to open', zh: '单击看详情,双击进入' },
@@ -76,7 +76,10 @@ const T: Record<string, { en: string; zh: string }> = {
   metaLine:        { en: 'live snapshot · {t} · source: this dsh process', zh: '实时快照 · {t} · 来源:当前 dsh 进程' },
   loadFail:        { en: 'failed to load /schematic/graph.json — is the plugin mounted?', zh: '加载 /schematic/graph.json 失败——插件挂载了吗?' },
   originLbl:       { en: 'origin:', zh: '来源:' },
-  extKeys:         { en: 'external keys', zh: '外部键' },
+  extKeys:         { en: 'host/unresolved keys', zh: '宿主/未解析键' },
+  tipHostKey:      { en: 'host-provided: the launcher provides this key before the tree mounts', zh: '宿主提供:启动器在插件树挂载前就提供了这个键' },
+  tipUnresKey:     { en: 'unresolved: nothing provides this key in this process — injectors read undefined', zh: '未解析:本进程里没有任何提供方——注入方读到 undefined' },
+  statsUnres:      { en: ' · {n} unresolved key(s)', zh: ' · 未解析键 {n}' },
   tabJourney:      { en: 'journey', zh: '旅程' },
   tabDomains:      { en: 'domains', zh: '分域' },
   tabTable:        { en: 'table', zh: '表格' },
@@ -198,12 +201,29 @@ const T: Record<string, { en: string; zh: string }> = {
   eClear:          { en: 'clear all schematic edits', zh: '撤销全部 schematic 改动' },
   eCleared:        { en: 'cleared — {n} row(s) removed', zh: '已清空——移除 {n} 行' },
   eCfgTitle:       { en: 'edit config · {id}', zh: '编辑配置 · {id}' },
+  eCfgTitleAdd:    { en: 'add config · {id}', zh: '新增配置 · {id}' },
   eCfgHint:        { en: 'patch semantics replace the whole config — keep every field you want to keep; !!js freezes to literals.', zh: 'patch 语义整体替换 config——想保留的字段都要写上;!!js 会冻结为字面量。' },
+  eCfgHintAdd:     { en: 'this entry has no config yet — it runs on defaults. The fields you write below become its new config (a normal patch row), previewed and backed up like every change.', zh: '这个条目现在没有配置——一直用默认值跑。你在下面写下的字段将成为它的新配置(一条正常的 patch 行),和其他改动一样先预览、有备份。' },
   eCfgPreview:     { en: 'preview change', zh: '预览变更' },
   eCfgEmpty:       { en: 'config must be a YAML mapping (can be empty: {})', zh: 'config 必须是 YAML 映射(可以为空:{})' },
+  eCfgReset:       { en: 'reset', zh: '恢复原文' },
+  eCfgKeys:        { en: 'fields — struck-through ones your edit drops', zh: '字段——划掉的是你的改动会丢掉的字段' },
+  eCfgNoKeys:      { en: 'no fields yet — add “key: value” lines', zh: '还没有字段——加一行「键: 值」试试' },
+  eCfgTabErr:      { en: 'no Tab characters in YAML — use spaces', zh: 'YAML 里不能用 Tab——请用空格' },
+  eCfgQuote:       { en: 'line {n}: unclosed quote', zh: '第 {n} 行:引号没闭合' },
+  eCfgUnit:        { en: 'lines', zh: '行' },
+  eCfgDraft:       { en: 'draft, not previewed yet', zh: '草稿,尚未预览' },
+  eBack:           { en: 'back', zh: '返回' },
+  eClose:          { en: 'close', zh: '关闭' },
+  eCfgAskTitle:    { en: 'unsaved edits — apply as a preview, or restore the original?', zh: '有未预览的修改——应用为预览,还是恢复原文?' },
+  eCfgAskApply:    { en: 'apply', zh: '应用' },
+  eCfgAskDiscard:  { en: 'restore & back', zh: '恢复原文并返回' },
+  eCfgAskResume:   { en: 'keep editing', zh: '继续编辑' },
   eDisable:        { en: '⏻ disable entry', zh: '⏻ 停用条目' },
   eEnable:         { en: '⏻ enable entry', zh: '⏻ 启用条目' },
   eEditCfg:        { en: '✎ edit config', zh: '✎ 编辑配置' },
+  eRuntime:        { en: 'runtime-mounted — this plugin was attached while running (e.g. an agent session\'s own mount), not by the boot composition, so it has no entry row to toggle or edit here', zh: '运行时挂载——这个插件是运行中被动态挂上的(比如 agent 会话自己的挂载),不是启动配置装的;配置清单里没有它的条目行,所以这里无从停用、也无从改配置' },
+  eMachinery:      { en: 'host machinery — mounted directly by the dsh boot itself (the include engine, hot reload, platform-native pieces like this), outside the editable config layers, so there is no entry row to toggle or edit here', zh: '宿主机制——由 dsh 启动过程直接挂载(装载引擎、热重载、平台原生组件这类),不在可编辑的配置层里,没有可停用或编辑的条目行' },
   eOrigin:         { en: 'layer', zh: '来源层' },
   eOriginManaged:  { en: 'layer {l} · schematic-managed', zh: '来源层 {l} · schematic 托管' },
   eProtected:      { en: 'protected: {r}', zh: '受保护:{r}' },
@@ -386,11 +406,12 @@ const CSS = `
 .sch aside dt { color: var(--ink-3); }
 .sch aside dd { margin: 0; word-break: break-all; }
 .sch aside .keys { display: flex; flex-wrap: wrap; gap: 4px; }
-.sch aside .keys code, .sch aside .keys .ext {
+.sch aside .keys code, .sch aside .keys .ext, .sch aside .keys .unres {
   font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
   border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px;
 }
 .sch aside .keys .ext { border-style: dashed; color: var(--ink-3); }
+.sch aside .keys .unres { border-style: dashed; color: var(--s8); border-color: var(--s8); }
 .sch aside .empty { color: var(--ink-3); }
 .sch aside .desc { font-size: 12px; color: var(--ink-2); margin: 0 0 10px; }
 .sch aside .members { display: flex; flex-direction: column; gap: 7px; margin: 4px 0 10px; }
@@ -439,6 +460,8 @@ const CSS = `
 .sch .node.wait rect { stroke-dasharray: 4 3; }
 .sch .node.ext rect { stroke-dasharray: 4 3; stroke: var(--ink-3); }
 .sch .node.ext text { fill: var(--ink-3); font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; }
+.sch .node.ext.unres rect { stroke: var(--s8); stroke-width: 1.6; }
+.sch .node.ext.unres text { fill: var(--s8); }
 .sch .edge { fill: none; stroke: var(--c); stroke-opacity: 0.34; stroke-width: 1.5; marker-end: url(#sch-arrow); }
 .sch .edgeHit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; }
 .sch .dim { opacity: 0.16; }
@@ -566,6 +589,7 @@ const CSS = `
 .sch .editBanner .ebRollback { font-size: 11.5px; border: 1px solid var(--ink-3); background: none; color: var(--ink-1); border-radius: 6px; padding: 2px 9px; cursor: pointer; }
 .sch .editSec { border-top: 1px dashed var(--border); margin-top: 10px; padding-top: 8px; }
 .sch .editSec .editMeta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 11px; color: var(--ink-3); margin-bottom: 6px; }
+.sch .editSec .rtNote { font-size: 11px; line-height: 1.6; color: var(--ink-3); padding: 6px 9px; border: 1px dashed var(--border); border-radius: 8px; background: color-mix(in oklab, var(--page) 92%, var(--ink-3)); }
 .sch .editSec .protBadge { font-size: 10.5px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--ink-3); }
 .sch .editSec .protBadge.danger { color: var(--s8); border-color: color-mix(in oklab, var(--s8) 40%, transparent); background: color-mix(in oklab, var(--s8) 7%, transparent); }
 .sch .editSec .protBadge.warn { color: var(--ink-2); }
@@ -582,10 +606,12 @@ const CSS = `
 .sch .editSec .badge.catalog { color: var(--ink-3); border-style: dashed; }
 .sch .editSec .eb-copy { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .sch .editScrim { display: none; }
-.sch .editScrim.on { display: block; position: fixed; inset: 0; z-index: 40; background: transparent; }
+.sch .editScrim.on { display: block; position: fixed; inset: 0; z-index: 40; background: transparent; pointer-events: none; }
 .sch .editDrawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(540px, 94vw); z-index: 41; background: var(--surface-1); color: var(--ink-1); border-left: 1px solid var(--border); box-shadow: -12px 0 32px #0002; transform: translateX(102%); transition: transform .18s ease; padding: 14px 16px; overflow-y: auto; font-size: 12.5px; }
 .sch .editDrawer.on { transform: none; }
-.sch .editDrawer h3 { margin: 0 0 8px; font-size: 13.5px; }
+.sch .editDrawer h3 { margin: 0 0 8px; font-size: 13.5px; padding-right: 30px; }
+.sch .editDrawer .dClose { position: absolute; top: 10px; right: 12px; width: 24px; height: 24px; line-height: 1; font-size: 12px; border: 1px solid var(--border); background: none; color: var(--ink-3); border-radius: 6px; cursor: pointer; }
+.sch .editDrawer .dClose:hover { color: var(--ink-1); border-color: var(--ink-3); }
 .sch .editDrawer h4 { margin: 12px 0 4px; font-size: 11.5px; color: var(--ink-3); text-transform: none; }
 .sch .editDrawer .hint { color: var(--ink-3); font-size: 11.5px; margin: 4px 0; }
 .sch .editDrawer .dRows { list-style: none; margin: 4px 0; padding: 0; }
@@ -603,7 +629,37 @@ const CSS = `
 .sch .editDrawer .yamlDiff .l { display: block; }
 .sch .editDrawer .yamlDiff .l.- { color: var(--s8); background: color-mix(in oklab, var(--s8) 8%, transparent); }
 .sch .editDrawer .yamlDiff .l.+ { color: var(--s3); background: color-mix(in oklab, var(--s3) 8%, transparent); }
-.sch .editDrawer .cfgText { width: 100%; box-sizing: border-box; min-height: 40vh; margin: 4px 0; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: none; color: var(--ink-1); font: 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }
+.sch .editDrawer .cfgEd { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 8px; }
+.sch .editDrawer .cfgKeys { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.sch .editDrawer .cfgKeysLbl { font-size: 10.5px; color: var(--ink-3); margin-right: 2px; }
+.sch .editDrawer .kChip { font: 10.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace; padding: 3px 7px; border-radius: 99px; border: 1px solid var(--border); color: var(--ink-2); background: color-mix(in srgb, var(--surface-1) 70%, transparent); }
+.sch .editDrawer .kChip.drop { text-decoration: line-through; color: var(--s8); border-color: color-mix(in srgb, var(--s8) 45%, transparent); }
+.sch .editDrawer .yEd { display: flex; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--surface-1) 55%, var(--page)); overflow: hidden; }
+.sch .editDrawer .yEd:focus-within { border-color: color-mix(in srgb, var(--s1) 55%, transparent); }
+.sch .editDrawer .yEd.bad { border-color: var(--s8); }
+.sch .editDrawer .yGutter { flex: none; overflow: hidden; padding: 8px 6px 8px 0; margin-left: 8px; text-align: right; white-space: pre; font: 11.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink-3); border-right: 1px solid var(--border); user-select: none; }
+.sch .editDrawer .yWrap { position: relative; flex: 1; min-width: 0; height: 46vh; }
+.sch .editDrawer .yHl, .sch .editDrawer .ySrc { position: absolute; inset: 0; margin: 0; padding: 8px 10px; font: 11.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre; border: none; box-sizing: border-box; }
+.sch .editDrawer .yHl { overflow: hidden; pointer-events: none; }
+.sch .editDrawer .yHl code { display: block; }
+.sch .editDrawer .ySrc { color: transparent; caret-color: var(--ink-1); background: transparent; resize: none; outline: none; overflow: auto; }
+.sch .editDrawer .ySrc::selection { background: color-mix(in srgb, var(--s1) 30%, transparent); }
+.sch .editDrawer .tc { color: var(--ink-3); font-style: italic; }
+.sch .editDrawer .tk { color: var(--s1); font-weight: 600; }
+.sch .editDrawer .ts { color: var(--s3); }
+.sch .editDrawer .tn { color: var(--s7); }
+.sch .editDrawer .tb { color: var(--s7); font-weight: 600; }
+.sch .editDrawer .tj { color: var(--s4); font-weight: 700; }
+.sch .editDrawer .tje { color: var(--s4); opacity: 0.85; }
+.sch .editDrawer .tp { color: var(--ink-1); }
+.sch .editDrawer .cfgFoot { display: flex; align-items: center; gap: 8px; }
+.sch .editDrawer .yMsg { flex: 1; font-size: 10.5px; color: var(--ink-3); }
+.sch .editDrawer .yMsg.bad { color: var(--s8); }
+.sch .editDrawer .yReset { font-size: 10.5px; padding: 3px 9px; border-radius: 99px; border: 1px solid var(--border); background: none; color: var(--ink-2); cursor: pointer; }
+.sch .editDrawer .yReset:hover { border-color: var(--baseline); color: var(--ink-1); }
+.sch .editDrawer .askBar { display: flex; flex-direction: column; gap: 7px; margin: 2px 0 8px; padding: 9px 11px; border: 1px solid color-mix(in srgb, var(--s4) 55%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--s4) 8%, var(--surface-1)); }
+.sch .editDrawer .askMsg { font-size: 11.5px; color: var(--ink-1); }
+.sch .editDrawer .askBtns { display: flex; gap: 6px; flex-wrap: wrap; }
 .sch .editDrawer .dbtns { display: flex; align-items: center; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
 .sch .editDrawer .dPrimary { border-color: var(--ink-2) !important; font-weight: 600; }
 .sch .editDrawer .dPrimary:disabled { opacity: 0.45; cursor: not-allowed; }
@@ -1076,7 +1132,7 @@ export function mountSchematic(container: HTMLElement): () => void {
     lastExpandable = expandable
     const injectedByShown = new Set(
       GRAPH.nodes.filter((n: any) => nodeUnit.has(n.id)).flatMap((n: any) => n.inject))
-    const extList = state.ext ? GRAPH.externalKeys.filter((k: string) => injectedByShown.has(k)) : []
+    const extList = state.ext ? [...GRAPH.hostKeys, ...GRAPH.unresolvedKeys].filter((k: string) => injectedByShown.has(k)) : []
     const extW = extList.length ? Math.max(...extList.map((k: string) => k.length * 6.6 + 38)) : 0
     // the overview body is a radial mesh: link count decides centrality
     // (placeUnits stays for the scope view). placeRadial bisects the ellipse
@@ -1480,11 +1536,12 @@ export function mountSchematic(container: HTMLElement): () => void {
         }
         for (const k of L.extList) {
           const p = L.pos.get('ext:' + k)
-          const g = el('g', { class: 'node ext' }, gN)
+          const unres = GRAPH.unresolvedKeys.includes(k)
+          const g = el('g', { class: 'node ext' + (unres ? ' unres' : '') }, gN)
           el('rect', { x: p.x, y: p.y, width: p.w, height: H, rx: '7' }, g)
           el('text', { x: p.x + 20, y: p.y + H / 2 + 1 }, g).textContent = k
           g.addEventListener('mouseenter', () => {
-            showTip(`<div class="t">⌁ ${k}</div><div class="d">${t('tipExt', { n: countInj(k) })}</div>`)
+            showTip(`<div class="t">⌁ ${k}</div><div class="d">${t(unres ? 'tipUnresKey' : 'tipHostKey')}</div><div class="d">${t('tipExtCount', { n: countInj(k) })}</div>`)
           })
           g.addEventListener('mousemove', moveTip)
           g.addEventListener('mouseleave', hideTip)
@@ -1532,10 +1589,11 @@ export function mountSchematic(container: HTMLElement): () => void {
         if (L.extList.length) el('text', { class: 'zone-h', x: '24', y: '26' }, gN).textContent = t('zoneExt')
         for (const k of L.extList) {
           const p = L.pos.get('ext:' + k)
-          const g = el('g', { class: 'node ext' }, gN)
+          const unres = GRAPH.unresolvedKeys.includes(k)
+          const g = el('g', { class: 'node ext' + (unres ? ' unres' : '') }, gN)
           el('rect', { x: p.x, y: p.y, width: p.w, height: H, rx: '7' }, g)
           el('text', { x: p.x + 20, y: p.y + H / 2 + 1 }, g).textContent = k
-          g.addEventListener('mouseenter', () => showTip(`<div class="t">⌁ ${k}</div><div class="d">${t('tipExt', { n: countInj(k) })}</div>`))
+          g.addEventListener('mouseenter', () => showTip(`<div class="t">⌁ ${k}</div><div class="d">${t(unres ? 'tipUnresKey' : 'tipHostKey')}</div><div class="d">${t('tipExtCount', { n: countInj(k) })}</div>`))
           g.addEventListener('mousemove', moveTip)
           g.addEventListener('mouseleave', hideTip)
         }
@@ -1543,6 +1601,7 @@ export function mountSchematic(container: HTMLElement): () => void {
         $('.stats').textContent =
           t('stats', { m: GRAPH.nodes.length, s: L.units.length, e: unitEdges.length })
           + (failed ? t('statsFailed', { f: failed }) : '')
+          + (GRAPH.unresolvedKeys.length ? t('statsUnres', { n: GRAPH.unresolvedKeys.length }) : '')
       }
 
       svg.setAttribute('height', svg.clientHeight)
@@ -1568,6 +1627,7 @@ export function mountSchematic(container: HTMLElement): () => void {
       $('.stats').textContent =
         t('stats', { m: GRAPH.nodes.length, s: GRAPH.nodes.filter(visibleNode).length, e: GRAPH.edges.length })
         + (failed ? t('statsFailed', { f: failed }) : '')
+        + (GRAPH.unresolvedKeys.length ? t('statsUnres', { n: GRAPH.unresolvedKeys.length }) : '')
     }
 
     renderTable(L)
@@ -1658,11 +1718,17 @@ export function mountSchematic(container: HTMLElement): () => void {
     for (const e of edgeEls) { e.classList.remove('dim'); e.classList.remove('on') }
   }
 
-  /** Detail-panel edit section: only in edit mode, only for loader entries. */
+  /** Detail-panel edit section: only in edit mode. Loader entries get the actions
+   *  (config edit included for config-less entries — an added config is a normal
+   *  patch row); runtime mounts get the boundary note instead of silent absence. */
   function editSection(n: any): string {
     if (!editOn || compose === null || !compose.editable) return ''
     const e = composeEntryOf(n)
-    if (e === null) return ''
+    if (e === null) {
+      // Either mounted while running, or boot machinery the loader tree carries
+      // without an editable row (the include engine, HMR, native pieces).
+      return `<div class="editSec"><div class="rtNote">${t(n.origin === 'runtime' ? 'eRuntime' : 'eMachinery')}</div></div>`
+    }
     const origin = e.origin.managed ? t('eOriginManaged', { l: e.origin.layer }) : `${t('eOrigin')}: ${e.origin.layer}`
     const prot = e.protected === null ? '' : `<div class="protBadge ${e.protected.tier}">${t('eProtected', { r: t(WREASONS[e.protected.reason] ?? 'wrMany') })}</div>`
     return `
@@ -1670,7 +1736,7 @@ export function mountSchematic(container: HTMLElement): () => void {
       <div class="editMeta">${origin}${prot}</div>
       <div class="btns">
         <button class="eb-toggle" data-id="${esc(e.id)}">${e.disabled ? t('eEnable') : t('eDisable')}</button>
-        ${e.config !== null ? `<button class="eb-cfg" data-id="${esc(e.id)}">${t('eEditCfg')}</button>` : ''}
+        <button class="eb-cfg" data-id="${esc(e.id)}">${t('eEditCfg')}</button>
       </div>
     </div>`
   }
@@ -1684,14 +1750,26 @@ export function mountSchematic(container: HTMLElement): () => void {
       toggle.onclick = () => addOp({ kind: disabled ? 'enable' : 'disable', id })
     }
     const cfg = container.querySelector('.detail .eb-cfg') as HTMLButtonElement | null
-    if (cfg !== null) cfg.onclick = () => { configEditFor = cfg.dataset.id as string; renderDrawer() }
+    if (cfg !== null) cfg.onclick = () => { configEditFor = cfg.dataset.id as string; cfgAskBack = false; renderDrawer() }
   }
 
   function renderDetail(n: any): void {
+    // In config-edit mode the drawer follows the selection: clicking another
+    // pill swaps the editor to that entry (per-entry drafts make it lossless).
+    if (editOn && configEditFor !== null && compose !== null) {
+      const ce = composeEntryOf(n)
+      if (ce !== null && ce.id !== configEditFor) {
+        configEditFor = ce.id
+        cfgAskBack = false
+        renderDrawer()
+      }
+    }
     const owners = (k: string): string => (keyOwners.get(k) ?? []).map((o) => nodeLabel(o)).join(', ')
     const keyChips = (list: string[]): string => list.map((k) => {
       const o = owners(k)
-      return o ? `<code>${k} → ${o}</code>` : `<span class="ext" title="provided outside this process">${k}</span>`
+      if (o) return `<code>${k} → ${o}</code>`
+      if (GRAPH.hostKeys.includes(k)) return `<span class="ext" title="${t('tipHostKey')}">${k}</span>`
+      return `<span class="unres" title="${t('tipUnresKey')}">${k}</span>`
     }).join(' ') || '<span class="empty">—</span>'
     const d = descOf(n)
     $('.detail').innerHTML = `
@@ -1915,7 +1993,7 @@ export function mountSchematic(container: HTMLElement): () => void {
     f.appendChild(sep2)
     const ext = document.createElement('span')
     ext.className = 'chip' + (state.ext ? '' : 'off')
-    ext.innerHTML = `<span class="dot ext"></span>${t('extKeys')} <b>${GRAPH.externalKeys.length}</b>`
+    ext.innerHTML = `<span class="dot ext"></span>${t('extKeys')} <b>${GRAPH.hostKeys.length + GRAPH.unresolvedKeys.length}</b>`
     ext.onclick = () => { state.ext = !state.ext; renderChips(); render() }
     f.appendChild(ext)
 
@@ -1991,7 +2069,8 @@ export function mountSchematic(container: HTMLElement): () => void {
     g.nodes.map((n: any) => [n.id, n.state, n.provides.join(','), n.inject.join(',')]).sort(),
     g.edges.map((e: any) => [e.from, e.to, e.keys.join(',')]).sort(),
     g.clusters.map((c: any) => [c.id, c.members.length]).sort(),
-    g.externalKeys,
+    g.hostKeys,
+    g.unresolvedKeys,
   ])
 
   let lastSig = ''
@@ -2018,6 +2097,10 @@ export function mountSchematic(container: HTMLElement): () => void {
   let draftOps: any[] = []
   let draftPreview: any = null
   let configEditFor: string | null = null
+  /** Back with unsaved edits raises the apply-or-restore prompt (drawer-local, cleared on any exit). */
+  let cfgAskBack = false
+  /** Un-previewed editor texts by entry id — switching pills keeps each entry's half-typed config. */
+  const cfgDrafts = new Map<string, string>()
   let confirmText = ''
   const editBtn = $('.editBtn')
 
@@ -2162,31 +2245,174 @@ export function mountSchematic(container: HTMLElement): () => void {
     return `<li class="warnItem ${w.level}">${t(key, params)}</li>`
   }
 
+  /** Color one YAML line lexically. Consumes every character exactly once, so the highlight layer never misaligns with the transparent textarea on top. */
+  const hlValue = (v: string): string => {
+    let out = '', i = 0
+    while (i < v.length) {
+      const c = v[i]!
+      if (c === '"' || c === "'") {
+        const close = v.indexOf(c, i + 1)
+        const end = close === -1 ? v.length : close + 1
+        out += `<span class="ts">${esc(v.slice(i, end))}</span>`; i = end; continue
+      }
+      if (c === '!' && v[i + 1] === '!') {
+        const sp = v.indexOf(' ', i)
+        const end = sp === -1 ? v.length : sp
+        out += `<span class="tj">${esc(v.slice(i, end))}</span>`
+        if (sp !== -1) out += `<span class="tje">${esc(v.slice(sp))}</span>`
+        return out
+      }
+      const num = /^\d[\d._]*/.exec(v.slice(i))
+      if (num !== null) { out += `<span class="tn">${esc(num[0])}</span>`; i += num[0].length; continue }
+      const word = /^[A-Za-z_$][\w$.-]*/.exec(v.slice(i))
+      if (word !== null) {
+        const w = word[0]
+        out += (w === 'true' || w === 'false' || w === 'null')
+          ? `<span class="tb">${esc(w)}</span>` : `<span class="tp">${esc(w)}</span>`
+        i += w.length; continue
+      }
+      out += `<span class="tp">${esc(c)}</span>`; i += 1
+    }
+    return out
+  }
+  const hlYamlLine = (line: string): string => {
+    if (line.trimStart().startsWith('#')) return `<span class="tc">${esc(line)}</span>`
+    let code = line, cmt = ''
+    const hash = line.indexOf(' #')
+    if (hash > 0 && ((line.slice(0, hash).match(/["']/g) ?? []).length) % 2 === 0) {
+      code = line.slice(0, hash); cmt = line.slice(hash)
+    }
+    const key = /^(\s*(?:-\s+)*)([\w.$-]+)(:)(.*)$/.exec(code)
+    const body = key !== null
+      ? (key[1] !== '' ? `<span class="tp">${esc(key[1])}</span>` : '')
+        + `<span class="tk">${esc(key[2])}</span><span class="tp">:</span>` + hlValue(key[4])
+      : hlValue(code)
+    return body + (cmt !== '' ? `<span class="tc">${esc(cmt)}</span>` : '')
+  }
+  /** Mapping keys declared in a config text (any nesting level; enough for the dropped-field chips). */
+  const yamlKeys = (text: string): string[] => {
+    const keys: string[] = []
+    for (const m of text.matchAll(/^[\s-]*([\w.$-]+):(?=\s|$)/gm)) keys.push(m[1])
+    return keys
+  }
+
   /** The right drawer: config-edit mode, or the pending preview. */
   const renderDrawer = (): void => {
     const drawer = $('.editDrawer'), scrim = $('.editScrim')
     const open = editOn && (configEditFor !== null || draftPreview !== null)
     drawer.classList.toggle('on', open)
     scrim.classList.toggle('on', open)
-    if (!open) { drawer.innerHTML = ''; return }
+    if (!open) { drawer.innerHTML = ''; cfgDrafts.clear(); cfgAskBack = false; return }
 
     if (configEditFor !== null) {
-      const e = entryById.get(configEditFor)
+      const edId = configEditFor
+      const e = entryById.get(edId)
+      const raw = e?.config?.raw ?? ''
+      const initial = cfgDrafts.get(edId) ?? raw
+      const origKeys = yamlKeys(raw)
       drawer.innerHTML = `
-      <h3>${t('eCfgTitle', { id: esc(configEditFor) })}</h3>
-      <p class="hint">${t('eCfgHint')}</p>
-      <textarea class="cfgText" spellcheck="false">${esc(e?.config?.raw ?? '')}</textarea>
+      <button class="dClose" title="${t('eClose')}" aria-label="${t('eClose')}">✕</button>
+      <h3>${t(raw === '' ? 'eCfgTitleAdd' : 'eCfgTitle', { id: esc(edId) })}</h3>
+      <p class="hint">${t(raw === '' ? 'eCfgHintAdd' : 'eCfgHint')}</p>
+      <div class="cfgEd">
+        <div class="cfgKeys"><span class="cfgKeysLbl">${t('eCfgKeys')}</span>${
+          origKeys.map((k) => `<span class="kChip" data-k="${esc(k)}">${esc(k)}</span>`).join('')
+          || `<span class="hint">${t('eCfgNoKeys')}</span>`}</div>
+        <div class="yEd">
+          <div class="yGutter"></div>
+          <div class="yWrap">
+            <pre class="yHl" aria-hidden="true"><code></code></pre>
+            <textarea class="ySrc" spellcheck="false" wrap="off">${esc(initial)}</textarea>
+          </div>
+        </div>
+        <div class="cfgFoot">
+          <span class="yMsg"></span>
+          <button class="yReset">${t('eCfgReset')}</button>
+        </div>
+      </div>
+      ${cfgAskBack && initial !== raw ? `
+      <div class="askBar">
+        <span class="askMsg">${t('eCfgAskTitle')}</span>
+        <div class="askBtns">
+          <button class="dPrimary askApply">${t('eCfgAskApply')}</button>
+          <button class="dGhost askDiscard">${t('eCfgAskDiscard')}</button>
+          <button class="dGhost askResume">${t('eCfgAskResume')}</button>
+        </div>
+      </div>` : ''}
       <div class="dbtns">
         <button class="dPrimary cfgGo">${t('eCfgPreview')}</button>
-        <button class="dGhost cfgCancel">${t('eCancel')}</button>
+        <button class="dGhost cfgBack">${t('eBack')}</button>
       </div>`
-      ;(drawer.querySelector('.cfgCancel') as HTMLElement).onclick = () => { configEditFor = null; renderDrawer() }
-      ;(drawer.querySelector('.cfgGo') as HTMLElement).onclick = () => {
-        const text = (drawer.querySelector('.cfgText') as HTMLTextAreaElement).value
+      const ta = drawer.querySelector('.ySrc') as HTMLTextAreaElement
+      const code = drawer.querySelector('.yHl code') as HTMLElement
+      const hl = drawer.querySelector('.yHl') as HTMLElement
+      const gutter = drawer.querySelector('.yGutter') as HTMLElement
+      const yEd = drawer.querySelector('.yEd') as HTMLElement
+      const msg = drawer.querySelector('.yMsg') as HTMLElement
+      const paint = (): void => {
+        const text = ta.value
+        const lines = text.split('\n')
+        code.innerHTML = lines.map(hlYamlLine).join('\n') + (text.endsWith('\n') ? '\n ' : '')
+        gutter.textContent = lines.map((_, i) => String(i + 1)).join('\n')
+        const now = new Set(yamlKeys(text))
+        drawer.querySelectorAll<HTMLElement>('.kChip').forEach((chip) => {
+          chip.classList.toggle('drop', !now.has(chip.dataset.k as string))
+        })
+        const errs: string[] = []
+        if (text.includes('\t')) errs.push(t('eCfgTabErr'))
+        lines.forEach((l, i) => {
+          if (((l.match(/["']/g) ?? []).length) % 2 === 1) errs.push(t('eCfgQuote', { n: i + 1 }))
+        })
+        const dirty = text !== raw
+        msg.textContent = errs.length > 0
+          ? errs.join(' · ')
+          : (dirty ? `✎ ${t('eCfgDraft')} · ` : '') + `${lines.length} ${t('eCfgUnit')}`
+        msg.classList.toggle('bad', errs.length > 0)
+        yEd.classList.toggle('bad', errs.length > 0)
+      }
+      let deb = 0
+      ta.addEventListener('input', () => { cfgDrafts.set(edId, ta.value); clearTimeout(deb); deb = window.setTimeout(paint, 180) })
+      ta.addEventListener('scroll', () => { hl.scrollTop = ta.scrollTop; hl.scrollLeft = ta.scrollLeft; gutter.scrollTop = ta.scrollTop })
+      ta.addEventListener('keydown', (ev) => {
+        if (ev.key !== 'Tab') return
+        ev.preventDefault()
+        ta.setRangeText('  ', ta.selectionStart, ta.selectionEnd, 'end')
+        cfgDrafts.set(edId, ta.value)
+        paint()
+      })
+      ;(drawer.querySelector('.yReset') as HTMLElement).onclick = () => { ta.value = raw; cfgDrafts.delete(edId); paint() }
+      paint()
+      const go = (): void => {
+        const text = ta.value
         if (text.trim() === '') { toast(t('eCfgEmpty')); return }
-        const id = configEditFor as string
         configEditFor = null
-        addOp({ kind: 'setConfig', id, config: text })
+        cfgAskBack = false
+        cfgDrafts.delete(edId)
+        addOp({ kind: 'setConfig', id: edId, config: text })
+      }
+      ;(drawer.querySelector('.cfgGo') as HTMLElement).onclick = go
+      const back = (): void => {
+        if (ta.value === raw) { configEditFor = null; renderDrawer(); return }
+        cfgAskBack = true
+        renderDrawer()
+        ;(drawer.querySelector('.askResume') as HTMLElement | null)?.focus()
+      }
+      ;(drawer.querySelector('.cfgBack') as HTMLElement).onclick = back
+      ;(drawer.querySelector('.dClose') as HTMLElement).onclick = back
+      const askApply = drawer.querySelector('.askApply') as HTMLElement | null
+      const askDiscard = drawer.querySelector('.askDiscard') as HTMLElement | null
+      const askResume = drawer.querySelector('.askResume') as HTMLElement | null
+      if (askApply !== null) askApply.onclick = go
+      if (askDiscard !== null) askDiscard.onclick = () => {
+        cfgDrafts.delete(edId)
+        configEditFor = null
+        cfgAskBack = false
+        renderDrawer()
+      }
+      if (askResume !== null) askResume.onclick = () => {
+        cfgAskBack = false
+        renderDrawer()
+        ;(drawer.querySelector('.ySrc') as HTMLElement).focus()
       }
       return
     }
