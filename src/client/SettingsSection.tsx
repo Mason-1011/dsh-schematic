@@ -7,6 +7,7 @@
  */
 
 import { useEffect, useState } from 'react'
+import type { JSX } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 
 /** settings.section component props: the locale seat for this namespace. */

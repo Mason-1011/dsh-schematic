@@ -899,7 +899,7 @@ export function mountSchematic(container: HTMLElement): () => void {
     expanded: new Set<string>(),
     tab: bootTab,
   }
-  container.querySelectorAll('.tabBtn').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tab === state.tab)))
+  container.querySelectorAll<HTMLElement>('.tabBtn').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tab === state.tab)))
   /** Node ids that appeared in the latest auto-refresh; they pulse once. */
   const freshIds = new Set<string>()
   /** Every scatterable group id in the latest overview layout, carded or dissolved (expand-all's target list and its all/none test). */
@@ -1221,8 +1221,9 @@ export function mountSchematic(container: HTMLElement): () => void {
       else if (aIn) addGhost(b, 'out', e.keys)
       else if (bIn) addGhost(a, 'in', e.keys)
     }
-    const extList = state.ext
+    const extList: string[] = state.ext
       ? [...new Set(members.flatMap((n: any) => n.inject.filter((k: string) => !keyOwners.has(k))))].sort()
+        .map(String)
       : []
 
     const inList = [...ghosts.values()].filter((g: any) => g.side === 'in').sort(byCatThenLabel)
@@ -1281,7 +1282,7 @@ export function mountSchematic(container: HTMLElement): () => void {
       const keys = new Set<string>()
       for (const e of GRAPH.edges) {
         const fs = stageById.get(e.from), ts = stageById.get(e.to)
-        if ((fs === sid && FLOW.includes(ts)) || (ts === sid && FLOW.includes(fs))) {
+        if ((fs === sid && ts !== undefined && FLOW.includes(ts)) || (ts === sid && fs !== undefined && FLOW.includes(fs))) {
           e.keys.forEach((k: string) => keys.add(k))
         }
       }
@@ -1453,9 +1454,9 @@ export function mountSchematic(container: HTMLElement): () => void {
 
   // ------- render -------
   const NS = 'http://www.w3.org/2000/svg'
-  const el = (name: string, attrs: Record<string, string>, parent?: Element): SVGElement => {
+  const el = (name: string, attrs: Record<string, string | number>, parent?: Element): SVGElement => {
     const e = document.createElementNS(NS, name)
-    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v)
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v))
     if (parent) parent.appendChild(e)
     return e
   }
@@ -1497,7 +1498,7 @@ export function mountSchematic(container: HTMLElement): () => void {
     if (GRAPH === null) return
     if (state.tab === 'journey') { renderJourney(); updateCrumb(false); paintActivity(); return }
     const scoped = !!state.scope
-    const L = scoped ? layoutScope() : layoutOverview()
+    const L: any = scoped ? layoutScope() : layoutOverview()
     lastL = L
 
     const edgePath = (a: any, b: any): string => {
@@ -1543,9 +1544,9 @@ export function mountSchematic(container: HTMLElement): () => void {
         const d = edgePath(b, a)
         const p = el('path', { class: 'edge', style: c ? `--c: var(${c})` : '--c: var(--ink-3)', d }, gE)
         const hit = el('path', { class: 'edgeHit', d }, gE)
-        p.dataset.from = e.from
-        p.dataset.to = e.to
-        p.dataset.keys = e.keys.join(', ')
+        p.setAttribute('data-from', e.from)
+        p.setAttribute('data-to', e.to)
+        p.setAttribute('data-keys', e.keys.join(', '))
         const fl = unitLabel(e.from), tl = unitLabel(e.to)
         hit.addEventListener('mouseenter', () => {
           p.classList.add('on')
@@ -1655,9 +1656,9 @@ export function mountSchematic(container: HTMLElement): () => void {
           + (GRAPH.unresolvedKeys.length ? t('statsUnres', { n: GRAPH.unresolvedKeys.length }) : '')
       }
 
-      svg.setAttribute('height', svg.clientHeight)
-      world.dataset.height = L.height
-      world.dataset.width = L.width
+      svg.setAttribute('height', String(svg.clientHeight))
+      world.dataset.height = String(L.height)
+      world.dataset.width = String(L.width)
       if (state.sel && nodeEls.has(state.sel)) focusNode(state.sel, nodeEls, edgeEls)
       else resetFocus(nodeEls, edgeEls)
       if (refit) fit(L)
@@ -1695,9 +1696,10 @@ export function mountSchematic(container: HTMLElement): () => void {
   const hideTip = (): void => { tip.style.display = 'none' }
   const esc = (s: string): string => s.replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch] as string))
   const trunc = (s: string, n: number): string => (s.length > n ? s.slice(0, n - 1) + '…' : s)
-  const moveTip = (ev: MouseEvent): void => {
-    tip.style.left = Math.min(window.innerWidth - 360, ev.clientX + 14) + 'px'
-    tip.style.top = (ev.clientY + 14) + 'px'
+  const moveTip = (ev: Event): void => {
+    const mouse = ev as MouseEvent
+    tip.style.left = Math.min(window.innerWidth - 360, mouse.clientX + 14) + 'px'
+    tip.style.top = (mouse.clientY + 14) + 'px'
   }
 
   function enterScope(id: string): void {
@@ -1930,9 +1932,10 @@ export function mountSchematic(container: HTMLElement): () => void {
     })
     container.querySelectorAll<HTMLButtonElement>('.detail .eb-copy').forEach((btn) => {
       btn.onclick = () => {
-        void navigator.clipboard?.writeText(btn.dataset.cmd).then(
+        const command = btn.dataset.cmd ?? ''
+        void navigator.clipboard?.writeText(command).then(
           () => { btn.textContent = t('eCopied'); window.setTimeout(() => { btn.textContent = `${t('eCopy')} · ${btn.dataset.cmd}` }, 1500) },
-          () => toast(btn.dataset.cmd),
+          () => toast(command),
         )
       }
     })
@@ -2256,7 +2259,8 @@ export function mountSchematic(container: HTMLElement): () => void {
   /** Every recovery button in the popover carries its entry id here. */
   const closePop = (): void => { pop.classList.remove('on') }
 
-  const openUnresPop = (key: string, ev: MouseEvent): void => {
+  const openUnresPop = (key: string, ev: Event): void => {
+    const mouse = ev as MouseEvent
     const injectors = GRAPH.nodes.filter((n: any) => n.inject.includes(key))
     const inj = injectors.slice(0, 6).map((n: any) => n.label).join(', ') + (injectors.length > 6 ? ' …' : '')
     // best-effort ring lookup: the topo-provider row that watched this key
@@ -2287,8 +2291,8 @@ export function mountSchematic(container: HTMLElement): () => void {
     pop.querySelectorAll<HTMLButtonElement>('button[data-entry]').forEach((btn) => {
       btn.onclick = () => queueEnable(btn.dataset.entry as string)
     })
-    pop.style.left = Math.min(window.innerWidth - 372, ev.clientX + 12) + 'px'
-    pop.style.top = Math.max(8, Math.min(window.innerHeight - 240, ev.clientY + 12)) + 'px'
+    pop.style.left = Math.min(window.innerWidth - 372, mouse.clientX + 12) + 'px'
+    pop.style.top = Math.max(8, Math.min(window.innerHeight - 240, mouse.clientY + 12)) + 'px'
     pop.classList.add('on')
   }
 
@@ -2428,6 +2432,18 @@ export function mountSchematic(container: HTMLElement): () => void {
   /** The right drawer: config-edit mode, or the pending preview. */
   const renderDrawer = (): void => {
     const drawer = $('.editDrawer'), scrim = $('.editScrim')
+    // Re-localizing rebuilds the drawer. Preserve the editor's interaction
+    // state as well as its text so a language switch is invisible to the
+    // user's cursor and scroll position.
+    const oldSource = drawer.querySelector<HTMLTextAreaElement>('.ySrc')
+    const editorView = oldSource === null ? null : {
+      focused: document.activeElement === oldSource,
+      start: oldSource.selectionStart,
+      end: oldSource.selectionEnd,
+      direction: oldSource.selectionDirection,
+      top: oldSource.scrollTop,
+      left: oldSource.scrollLeft,
+    }
     const open = editOn && (configEditFor !== null || draftPreview !== null || disabledList)
     drawer.classList.toggle('on', open)
     scrim.classList.toggle('on', open)
@@ -2511,6 +2527,15 @@ export function mountSchematic(container: HTMLElement): () => void {
       })
       ;(drawer.querySelector('.yReset') as HTMLElement).onclick = () => { ta.value = raw; cfgDrafts.delete(edId); paint() }
       paint()
+      if (editorView !== null) {
+        ta.setSelectionRange(editorView.start, editorView.end, editorView.direction)
+        ta.scrollTop = editorView.top
+        ta.scrollLeft = editorView.left
+        hl.scrollTop = editorView.top
+        hl.scrollLeft = editorView.left
+        gutter.scrollTop = editorView.top
+        if (editorView.focused) ta.focus({ preventScroll: true })
+      }
       const go = (): void => {
         const text = ta.value
         if (text.trim() === '') { toast(t('eCfgEmpty')); return }
@@ -2578,7 +2603,7 @@ export function mountSchematic(container: HTMLElement): () => void {
         ? ' (' + e.changes.map((c: string) => t(c === 'disabled' ? 'eChangeDisabled' : 'eChangeConfig')).join(' · ') + ')' : ''
       return `<li class="dRow ${e.kind}"><b>${esc(e.id)}</b><span>${label}${change}</span></li>`
     }
-    const dangerIds = [...new Set((p.warnings ?? []).filter((w: any) => w.level === 'danger').flatMap((w: any) => w.ids ?? []))]
+    const dangerIds: string[] = [...new Set<string>((p.warnings ?? []).filter((w: any) => w.level === 'danger').flatMap((w: any) => w.ids ?? []))]
     const confirmed = dangerIds.length === 0 || dangerIds.every((id) => confirmText.split(/[\s,，]+/).includes(id))
     const diff = lineDiff(p.blockYamlBefore ?? '', p.blockYamlAfter ?? '')
     drawer.innerHTML = `
@@ -3307,18 +3332,47 @@ export function mountSchematic(container: HTMLElement): () => void {
   // ------- events -------
   $('.search').addEventListener('input', (e) => { state.q = (e.target as HTMLInputElement).value.trim().toLowerCase(); render() })
   $('.crumb').addEventListener('click', exitScope)
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { state.scope ? exitScope() : (state.sel = null, render()) }
-  }, sig)
-  // popover dismissal: pointerdown (capture) so clicking another unresolved
-  // pill closes-then-reopens cleanly, and Escape (capture, stopped) so the
-  // first press only closes the popover — the selection-exit handler above
-  // is bubble-phase and would otherwise fire on the same keystroke
+  // Popover dismissal: pointerdown (capture) so clicking another unresolved
+  // pill closes-then-reopens cleanly.
   document.addEventListener('pointerdown', (e) => {
     if (pop.classList.contains('on') && !pop.contains(e.target as Node)) closePop()
   }, { ...sig, capture: true })
+  // One capture-phase Escape stack keeps nested surfaces deterministic:
+  // unresolved-key popover → drawer/prompt → scoped view → selection.
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && pop.classList.contains('on')) { e.stopPropagation(); closePop() }
+    if (e.key !== 'Escape') return
+    if (pop.classList.contains('on')) {
+      e.preventDefault(); e.stopPropagation(); closePop(); return
+    }
+    if ($('.editDrawer').classList.contains('on')) {
+      e.preventDefault(); e.stopPropagation()
+      if (configEditFor !== null) {
+        if (cfgAskBack) {
+          cfgAskBack = false
+          renderDrawer()
+          ;($('.editDrawer').querySelector('.ySrc') as HTMLElement | null)?.focus()
+          return
+        }
+        const edId = configEditFor
+        const raw = entryById.get(edId)?.config?.raw ?? ''
+        const source = $('.editDrawer').querySelector<HTMLTextAreaElement>('.ySrc')
+        if (source !== null) cfgDrafts.set(edId, source.value)
+        if ((cfgDrafts.get(edId) ?? raw) !== raw) {
+          cfgAskBack = true
+          renderDrawer()
+          ;($('.editDrawer').querySelector('.askResume') as HTMLElement | null)?.focus()
+        } else {
+          configEditFor = null
+          renderDrawer()
+        }
+        return
+      }
+      if (draftPreview !== null) resetDraft()
+      else { disabledList = false; renderDrawer() }
+      return
+    }
+    if (state.scope) exitScope()
+    else { state.sel = null; render() }
   }, { ...sig, capture: true })
   container.querySelectorAll<HTMLButtonElement>('.tabBtn').forEach((btn) => {
     btn.addEventListener('click', () => {
