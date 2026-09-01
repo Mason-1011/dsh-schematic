@@ -54,6 +54,8 @@ const PANEL_H = 124
 const MIN_W = 152
 const MIN_H = 72
 const SIZE_KEY = 'sch.mini.size.v2'
+/** v0.3.2 and earlier stored the same WxH pair under this key; carried over once. */
+const SIZE_KEY_V1 = 'sch.mini.size'
 /** Persisted free-placement origin; absent while docked to the card. */
 const POS_KEY = 'sch.mini.pos'
 /** v0.2.22 stored one corner-scale factor; migrated on first load. */
@@ -481,7 +483,7 @@ export function mountMiniTopology(t: (key: 'miniTitle' | 'tipLinks') => string, 
   const fitW = (w: number): number => Math.min(window.innerWidth - 4, Math.max(MIN_W, w))
   const fitH = (h: number): number => Math.min(window.innerHeight - 4, Math.max(MIN_H, h))
   try {
-    const raw = localStorage.getItem(SIZE_KEY)
+    const raw = localStorage.getItem(SIZE_KEY) ?? localStorage.getItem(SIZE_KEY_V1)
     if (raw !== null) {
       const m = /^(\d+)x(\d+)$/.exec(raw)
       if (m !== null) {
