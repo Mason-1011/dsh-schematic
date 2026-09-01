@@ -49,8 +49,9 @@ Shipped so far (details per version in the [changelog](CHANGELOG.md)):
 - **Stats** — a per-plugin monitoring table over this instance's live window: rows, tool calls and failures, tool time (sum + max), LLM completions, and what each plugin has in flight right now.
 
 **Composer-side star map** — a miniature of the expanded mesh floating beside the chat input.
-- One dot per package in a deterministic force-relaxed galaxy; dots light with the viewed conversation's real activity; hover raises a plugin card, double-click opens the full viewer.
-- Free placement (drag anywhere, re-docks beside the card), free resizing (viewport is the only ceiling), starfield tints by module hash, deep-space backdrop with a live opacity dial (mouse wheel or Settings).
+- One star per package in a deterministic force-relaxed galaxy, with a sparse curved gravity skeleton instead of the full edge hairball. Hover reveals that package's one-hop constellation.
+- Real service access lights the exact consumer → provider lane, sends one photon along it, then leaves a short frequency-weighted afterglow; events without a trustworthy second endpoint light only their owning star.
+- Free placement (drag anywhere, re-docks beside the card), free resizing (viewport is the only ceiling), theme-aware glass sky with a live opacity dial (mouse wheel or Settings).
 
 **Composition workbench** (v0.3.0) — the ✎ toggle in the header, **off by default**: off, the page is exactly the read-only viewer; on, the graph becomes the editor.
 - **Preview everything first.** Queued edits render as ghosts on the graph (strikethrough + fade for what goes, dashed + `?` for what arrives), the drawer shows a per-entry diff, the exact managed-block YAML before/after as a line diff, and structure-aware warnings (a service key losing its only provider, a config field your edit drops, a `!!js` expression that a whole-config replace would freeze into a literal).
@@ -130,7 +131,7 @@ To uninstall cleanly, also drop the `schematic` row from `dsh.profile.bundles` (
 ## Usage
 
 - **Viewer** (`/schematic`) — switch tabs or deep-link with `?tab=journey|domains|table`; expand every group at once with `?expand=all`; toggle EN/中文 from the header.
-- **Star map** — drag the panel anywhere; drag the bottom-right grip to resize; scroll the mouse wheel over it to tune the backdrop (0 = fully transparent); hover a dot for the plugin's card; double-click to open the viewer fully expanded.
+- **Star map** — drag the panel anywhere; drag the bottom-right grip to resize; scroll the mouse wheel over it to tune the backdrop (0 = fully transparent); hover a star for its card and one-hop lanes; double-click, or focus it and press Enter/Space, to open the viewer fully expanded.
 - **Settings** → *Plugin topology* — opens the viewer; the backdrop slider two-way syncs with the wheel.
 - **Timeline** — the replay toggle pages back through the selected session's history; the stats toggle swaps in the per-plugin count table (polled only while open).
 - **Workbench** — the header's ✎ toggles edit mode (off by default). In edit mode: a plugin's panel offers disable/enable and an inline config editor; a cluster card offers provider swap per seam; the drawer previews the queued batch (entry diff + YAML diff + warnings) with apply / rollback / clear. Danger moves (disabling schematic itself) ask for the entry id to be typed in. Disabled entries stay recoverable after their node leaves the graph — a ⏻ on the unmounted unit's timeline row, the 已停用 filter chip's standing list, and the unresolved-key popover all queue the same previewed enable; none of them flips edit mode on for you.

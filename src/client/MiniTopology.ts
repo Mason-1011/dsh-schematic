@@ -44,16 +44,16 @@ const CAT_VAR: Record<string, string> = {
 }
 
 /** Constellation geometry: viewBox size (width fixed, height follows aspect). */
-const W = 208
-const H = 32
-/** Panel height on screen; the CSS below reads the same number. */
-const PANEL_H = 30
+const W = 240
+const H = 104
+/** Default panel height on screen; a real sky needs vertical depth. */
+const PANEL_H = 124
 /** Free-resize floor (CSS px) and persistence key for the corner grip; the
     ceiling is the viewport itself — the panel can grow to a full-screen star
     map, never past the window. */
-const MIN_W = 120
-const MIN_H = 24
-const SIZE_KEY = 'sch.mini.size'
+const MIN_W = 152
+const MIN_H = 72
+const SIZE_KEY = 'sch.mini.size.v2'
 /** Persisted free-placement origin; absent while docked to the card. */
 const POS_KEY = 'sch.mini.pos'
 /** v0.2.22 stored one corner-scale factor; migrated on first load. */
@@ -71,70 +71,97 @@ const POLL_MS = 1200
 
 export const MINI_TOPOLOGY_CSS = `
 .schMini {
-  /* Family palette: light-dark() follows the SPA's color-scheme on <html>, so
-     the panel matches the app theme even when it disagrees with the OS. */
-  --mc1: light-dark(#2a78d6, #3987e5); --mc2: light-dark(#eb6834, #d95926);
-  --mc3: light-dark(#1baf7a, #199e70); --mc4: light-dark(#eda100, #c98500);
-  --mc5: light-dark(#e87ba4, #d55181); --mc6: light-dark(#008300, #0a930a);
-  --mc7: light-dark(#4a3aa7, #9085e9); --mc8: light-dark(#e34948, #e66767);
-  /* Star tints: a muted color-temperature spread so uncategorized packages
-     read as a starfield instead of a gray dot matrix. */
-  --star1: light-dark(#3b6ea8, #9fc0e8); --star2: light-dark(#5a6474, #aeb8c8);
-  --star3: light-dark(#7a7263, #d8d0c0); --star4: light-dark(#946f2f, #cf9f56);
-  --star5: light-dark(#9c5f57, #d4918a); --star6: light-dark(#6b5a96, #a99bd6);
+  /* Paired celestial tokens: light mode is an icy chart on pale glass, dark
+     mode is the same sky at night. light-dark() follows the SPA's effective
+     color-scheme, including its in-app override of the OS preference. */
+  --mc1: light-dark(#2f6fa8, #8ec5ff); --mc2: light-dark(#ad5d3f, #ffb18d);
+  --mc3: light-dark(#237d68, #7ee7c2); --mc4: light-dark(#966507, #ffd47d);
+  --mc5: light-dark(#9d5578, #f4a8c5); --mc6: light-dark(#477745, #86d985);
+  --mc7: light-dark(#6255a0, #b5a9ff); --mc8: light-dark(#a44e50, #ff9999);
+  --star1: light-dark(#4e7094, #b9d7ff); --star2: light-dark(#66748a, #d1dcf0);
+  --star3: light-dark(#807762, #fff6df); --star4: light-dark(#8c672e, #ffd89a);
+  --star5: light-dark(#915c58, #ffc0b8); --star6: light-dark(#685b91, #c9bfff);
+  --mini-surface: light-dark(#f5f8fd, #050817);
+  --mini-nebula-a: light-dark(rgba(91, 126, 199, 0.28), #293a78);
+  --mini-nebula-b: light-dark(rgba(156, 107, 178, 0.2), #44245f);
+  --mini-nebula-c: light-dark(rgba(101, 130, 176, 0.2), #17233f);
+  --mini-text: light-dark(#56677e, #94a3b8);
+  --mini-dust: light-dark(#496d96, #dbeafe);
+  --mini-lane: light-dark(#55708f, #7890bd);
+  --mini-lane-near: light-dark(#3f638c, #9ab5e6);
+  --mini-lane-warm: light-dark(#2d78a7, #78c9f5);
+  --mini-lane-live: light-dark(#1d5fa5, #dff7ff);
+  --mini-photon-core: light-dark(#164f91, #f5fbff);
+  --mini-photon-glow: light-dark(#3b82c4, #7dd3fc);
+  --mini-shadow: light-dark(rgba(30, 41, 59, 0.14), rgba(2, 6, 23, 0.34));
+  --mini-sheen: light-dark(rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.11));
+  --mini-border: light-dark(rgba(71, 85, 105, 0.16), rgba(148, 163, 184, 0.14));
   position: fixed; z-index: 12;
-  cursor: grab; border-radius: 8px; overflow: hidden; user-select: none;
-  color: var(--dsw-alias-label-secondary, #888);
-  /* Deep-space backdrop: both layers scale with --bgA (the wheel-adjusted
-     opacity), so 0 restores the fully transparent panel. */
-  background-color: color-mix(in srgb, light-dark(#f2f5fa, #0a0f1c) calc(var(--bgA, 0.88) * 100%), transparent);
-  background-image: radial-gradient(130% 110% at 50% 42%, color-mix(in srgb, light-dark(#ffffff, #1c2740) calc(var(--bgA, 0.88) * 60%), transparent), transparent 68%);
-  /* Blur rides the same dial: at --bgA 0 the panel must be fully inert — a
-     fixed backdrop-filter would keep frosting the page behind a "transparent"
-     panel. */
-  backdrop-filter: blur(calc(3px * var(--bgA, 0.88)));
-  box-shadow: inset 0 0 0 1px light-dark(rgba(15, 23, 42, 0.1), rgba(148, 163, 184, 0.22));
-  animation: schMiniIn 0.8s ease;
+  cursor: grab; border-radius: 14px; overflow: hidden; user-select: none;
+  color: var(--mini-text);
+  background-color: color-mix(in srgb, var(--mini-surface) calc(var(--bgA, 0.88) * 100%), transparent);
+  background-image:
+    radial-gradient(90% 125% at 14% 12%, color-mix(in srgb, var(--mini-nebula-a) calc(var(--bgA, 0.88) * 26%), transparent), transparent 64%),
+    radial-gradient(85% 120% at 86% 88%, color-mix(in srgb, var(--mini-nebula-b) calc(var(--bgA, 0.88) * 19%), transparent), transparent 70%),
+    radial-gradient(120% 100% at 52% 46%, color-mix(in srgb, var(--mini-nebula-c) calc(var(--bgA, 0.88) * 36%), transparent), transparent 72%);
+  backdrop-filter: blur(calc(14px * var(--bgA, 0.88))) saturate(120%);
+  box-shadow:
+    0 18px 52px color-mix(in srgb, var(--mini-shadow) calc(var(--bgA, 0.88) * 100%), transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--mini-sheen) calc(var(--bgA, 0.88) * 100%), transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--mini-border) calc(var(--bgA, 0.88) * 100%), transparent);
+  animation: schMiniIn 0.36s cubic-bezier(0.16, 1, 0.3, 1);
 }
+.schMini:focus-visible { outline: 2px solid light-dark(#2563a6, #93c5fd); outline-offset: 3px; }
 .schMini svg { display: block; width: 100%; height: 100%; }
 /* The constellation's own layer: render() replaces only this subtree, so the
    grip sibling never leaves the document (an element removed from the
    document loses pointer capture, which would strand a resize drag). */
 .schMiniStage { position: absolute; inset: 0; }
-.schMini line { stroke: currentColor; stroke-opacity: 0.16; stroke-width: 0.5; }
-/* Idle dots are hollow rings at a degree-scaled brightness (--m: hubs shine,
-   leaves dim); lighting fills the ring and blooms a glow. */
-.schMini circle {
-  fill: none; stroke: var(--c, currentColor); stroke-opacity: 0.9; stroke-width: 0.5;
-  opacity: calc(0.5 + 0.5 * var(--m, 1));
-  transition: opacity 0.3s ease, transform 0.3s ease, filter 0.3s ease, fill 0.3s ease;
-  transform-box: fill-box; transform-origin: center;
+.schMiniDust { fill: var(--mini-dust); pointer-events: none; }
+.schMiniLane {
+  fill: none; stroke: var(--mini-lane); stroke-linecap: round; stroke-width: 0.42;
+  opacity: 0; transition: opacity 0.32s ease, stroke 0.22s ease, stroke-width 0.22s ease, filter 0.22s ease;
+  pointer-events: none;
 }
-.schMini circle.on {
-  fill: var(--c, currentColor); opacity: 1; stroke-width: 0.8;
-  transform: scale(1.5);
-  filter: drop-shadow(0 0 2px var(--c, currentColor)) drop-shadow(0 0 5px var(--c, currentColor));
+.schMiniLane.base { opacity: 0.075; }
+.schMiniLane.near { opacity: 0.34; stroke: var(--mini-lane-near); stroke-width: 0.62; }
+.schMiniLane.warm { opacity: calc(0.22 + 0.3 * var(--heat, 0.5)); stroke: var(--mini-lane-warm); stroke-width: calc(0.55px + 0.42px * var(--heat, 0.5)); filter: drop-shadow(0 0 2px color-mix(in srgb, var(--mini-photon-glow) 44%, transparent)); }
+.schMiniLane.live { opacity: 0.92; stroke: var(--mini-lane-live); stroke-width: 1.05; filter: drop-shadow(0 0 2px var(--mini-photon-glow)) drop-shadow(0 0 5px color-mix(in srgb, var(--mini-photon-glow) 72%, transparent)); }
+/* Idle stars now sit in a genuinely quiet magnitude range: leaves are 14%
+   and the largest hubs top out at 42%. Runtime activity jumps to full opacity
+   instead of inheriting that dimming, so state remains unmistakable. */
+.schMiniStar { opacity: calc(0.14 + 0.28 * var(--m, 1)); transition: opacity 0.24s ease; }
+.schMiniStar.on, .schMiniStar.hot { opacity: 1; }
+.schMiniCore, .schMiniHalo { transform-box: fill-box; transform-origin: center; pointer-events: none; }
+.schMiniCore {
+  fill: color-mix(in srgb, var(--c, #dbeafe) 88%, white 12%);
+  stroke: light-dark(rgba(30, 41, 59, 0.38), rgba(255, 255, 255, 0.72)); stroke-width: 0.28;
+  transition: transform 0.24s cubic-bezier(0.16, 1, 0.3, 1), filter 0.24s ease, opacity 0.24s ease;
 }
-.schMini circle.hot {
-  fill: var(--c, currentColor); stroke-width: 0.8;
-  filter: drop-shadow(0 0 2px var(--c, currentColor)) drop-shadow(0 0 5px var(--c, currentColor)) drop-shadow(0 0 11px var(--c, currentColor));
-  animation: schMiniBreath 1.5s ease-in-out infinite;
+.schMiniHalo {
+  fill: var(--c, #dbeafe); opacity: calc(0.012 + 0.045 * var(--m, 1)); filter: blur(0.7px);
+  transition: transform 0.3s ease, opacity 0.3s ease;
 }
+.schMiniStar.on .schMiniCore { transform: scale(1.1); filter: drop-shadow(0 0 2px var(--c, #dbeafe)) drop-shadow(0 0 5px var(--c, #dbeafe)); }
+.schMiniStar.on .schMiniHalo { opacity: 0.42; transform: scale(1.16); }
+.schMiniStar.hot .schMiniCore { filter: drop-shadow(0 0 2px var(--mini-photon-core)) drop-shadow(0 0 6px var(--c, #dbeafe)); animation: schMiniBreath 2.8s ease-in-out infinite; }
+.schMiniStar.hot .schMiniHalo { opacity: 0.64; transform: scale(1.2); }
+.schMiniPhoton { fill: var(--mini-photon-core); filter: drop-shadow(0 0 1px var(--mini-photon-core)) drop-shadow(0 0 4px var(--mini-photon-glow)); pointer-events: none; }
 .schMini.drag { cursor: grabbing; }
 .schMiniGrip {
   position: absolute; right: 0; bottom: 0; width: 14px; height: 14px;
-  cursor: nwse-resize; opacity: 0.35; touch-action: none;
+  cursor: nwse-resize; opacity: 0; touch-action: none; transition: opacity 0.16s ease;
 }
-.schMiniGrip:hover { opacity: 0.85; }
+.schMini:hover .schMiniGrip, .schMiniGrip:hover { opacity: 0.72; }
 .schMiniGrip::before {
   content: ''; position: absolute; inset: 3px;
   background: repeating-linear-gradient(135deg, currentColor 0 1px, transparent 1px 4px);
 }
 /* One-shot expanding ring when a dot lights; removed on animationend. */
 .schMiniPing {
-  fill: none; stroke-width: 0.9; pointer-events: none;
+  fill: none; stroke-width: 0.65; pointer-events: none;
   transform-box: fill-box; transform-origin: center;
-  animation: schMiniPing 0.8s ease-out forwards;
+  animation: schMiniPing 0.65s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 /* Transient percentage readout while the wheel adjusts the backdrop. */
 .schMiniBg {
@@ -146,22 +173,23 @@ export const MINI_TOPOLOGY_CSS = `
    document.body (the panel clips overflow) and is inert to the pointer. */
 .schMiniTip {
   position: fixed; z-index: 13; pointer-events: none; max-width: 260px;
-  padding: 8px 10px; border-radius: 8px;
-  background: light-dark(#ffffff, #141d33);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16), inset 0 0 0 1px light-dark(rgba(15, 23, 42, 0.08), rgba(148, 163, 184, 0.24));
-  color: var(--dsw-alias-label-secondary, #888);
+  padding: 9px 11px; border-radius: 11px;
+  background: light-dark(rgba(249, 251, 255, 0.96), rgba(8, 13, 29, 0.94)); backdrop-filter: blur(14px);
+  box-shadow: 0 12px 32px light-dark(rgba(30, 41, 59, 0.16), rgba(2, 6, 23, 0.38)), inset 0 1px 0 light-dark(rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.1)), inset 0 0 0 1px light-dark(rgba(71, 85, 105, 0.16), rgba(148, 163, 184, 0.16));
+  color: light-dark(#52637a, #aab9d2);
   font: 12px/1.55 -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
 }
-.schMiniTip .nm { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--dsw-alias-label-primary, #333); }
+.schMiniTip .nm { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: light-dark(#172033, #f1f5f9); }
 .schMiniTip .sw { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .schMiniTip .md { margin-top: 2px; font: 10px/1.4 ui-monospace, monospace; opacity: 0.75; word-break: break-all; }
 .schMiniTip .ds { margin-top: 5px; }
 .schMiniTip .lg { margin-top: 5px; font-size: 10px; opacity: 0.65; }
-@keyframes schMiniPing { from { transform: scale(1); opacity: 0.85; } to { transform: scale(3); opacity: 0; } }
-/* The twinkle breathes brightness as well as size — opacity pulses the whole
-   lit dot + halo, which reads as a flash at any panel scale. */
-@keyframes schMiniBreath { 0%, 100% { transform: scale(1.6); opacity: 0.8; } 50% { transform: scale(2.3); opacity: 1; } }
-@keyframes schMiniIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }`
+@keyframes schMiniPing { from { transform: scale(1); opacity: 0.7; } to { transform: scale(2.35); opacity: 0; } }
+@keyframes schMiniBreath { 0%, 100% { transform: scale(1); opacity: 0.88; } 50% { transform: scale(1.12); opacity: 1; } }
+@keyframes schMiniIn { from { opacity: 0; transform: translateY(5px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .schMini, .schMini *, .schMiniTip { animation: none !important; transition-duration: 0.01ms !important; }
+}`
 
 /**
  * The conversation the SPA itself is viewing, from its persisted selection
@@ -191,6 +219,17 @@ function findCard(): HTMLElement | null {
 /** One hoverable dot in viewBox coordinates; `d` is its edge count. */
 interface Star { x: number; y: number; r: number; d: number; module: string }
 
+/** One aggregated consumer → provider service lane. */
+interface Lane {
+  from: string
+  to: string
+  keys: string[]
+  path: string
+  base: boolean
+}
+
+interface MiniLayout { svg: string; stars: Star[]; lanes: Lane[] }
+
 /** Minimal escaper for graph-sourced strings going into the hover card. */
 function esc(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c)
@@ -211,7 +250,7 @@ function esc(s: string): string {
  * insertion — a map built from a detached parse would toggle classes on
  * orphaned nodes).
  */
-function layout(graph: any, vh: number): { svg: string; stars: Star[] } {
+function layout(graph: any, vh: number): MiniLayout {
   const nodes: any[] = (graph.nodes ?? []).filter((n: any) => typeof n.module === 'string')
   const deg = new Map<string, number>()
   for (const e of graph.edges ?? []) {
@@ -246,7 +285,7 @@ function layout(graph: any, vh: number): { svg: string; stars: Star[] } {
     const b = idx.get(String(e.to))
     if (a !== undefined && b !== undefined) springs.push([a, b])
   }
-  const rad = units.map((n) => 1.05 + 1.15 * Math.sqrt(Math.min(1, (deg.get(String(n.id)) ?? 0) / maxDeg)))
+  const rad = units.map((n) => 0.72 + 1.18 * Math.sqrt(Math.min(1, (deg.get(String(n.id)) ?? 0) / maxDeg)))
   // Repulsion ramps up with panel height: a 32-tall strip has no vertical room
   // to absorb it (strong forces jam dots into the wall clamps), while a tall
   // panel needs them — plus the radius-aware term — to give hubs breathing room.
@@ -307,12 +346,69 @@ function layout(graph: any, vh: number): { svg: string; stars: Star[] } {
   }
   const pos = new Map<string, [number, number]>()
   units.forEach((n, i) => pos.set(String(n.id), [px[i], py[i]]))
-  let lines = ''
+
+  /** Collapse repeated mounted entries into one module point, matching the
+      miniature's module-level runtime attribution. */
+  const modulePos = new Map<string, { x: number; y: number; n: number }>()
+  for (const n of units) {
+    const p = pos.get(String(n.id))
+    if (p === undefined) continue
+    const module = String(n.module)
+    const prev = modulePos.get(module) ?? { x: 0, y: 0, n: 0 }
+    prev.x += p[0]; prev.y += p[1]; prev.n++
+    modulePos.set(module, prev)
+  }
+  for (const p of modulePos.values()) { p.x /= p.n; p.y /= p.n }
+
+  const byId = new Map(units.map((n) => [String(n.id), n]))
+  const laneGroups = new Map<string, { from: string; to: string; keys: Set<string>; score: number }>()
   for (const e of graph.edges ?? []) {
-    const a = pos.get(String(e.from))
-    const b = pos.get(String(e.to))
+    const fromNode = byId.get(String(e.from))
+    const toNode = byId.get(String(e.to))
+    if (fromNode === undefined || toNode === undefined) continue
+    const from = String(fromNode.module)
+    const to = String(toNode.module)
+    if (from === to) continue
+    const id = `${from}\u0000${to}`
+    const lane = laneGroups.get(id) ?? { from, to, keys: new Set<string>(), score: 0 }
+    for (const key of Array.isArray(e.keys) ? e.keys : []) lane.keys.add(String(key))
+    lane.score += (deg.get(String(e.from)) ?? 0) + (deg.get(String(e.to)) ?? 0) + lane.keys.size * 2
+    laneGroups.set(id, lane)
+  }
+  const ranked = [...laneGroups.values()].sort((a, b) => b.score - a.score || a.from.localeCompare(b.from) || a.to.localeCompare(b.to))
+  const baseCount = Math.min(ranked.length, Math.max(8, Math.ceil(ranked.length * 0.2)))
+  const baseIds = new Set(ranked.slice(0, baseCount).map((lane) => `${lane.from}\u0000${lane.to}`))
+  const lanes: Lane[] = []
+  for (const lane of ranked) {
+    const a = modulePos.get(lane.from)
+    const b = modulePos.get(lane.to)
     if (a === undefined || b === undefined) continue
-    lines += `<line x1="${a[0].toFixed(1)}" y1="${a[1].toFixed(1)}" x2="${b[0].toFixed(1)}" y2="${b[1].toFixed(1)}"/>`
+    const dx = b.x - a.x
+    const dy = b.y - a.y
+    const distance = Math.hypot(dx, dy) || 1
+    const seed = hash01(`${lane.from}>${lane.to}`)
+    const bend = Math.min(10, 2.5 + distance * 0.09) * (seed < 0.5 ? -1 : 1) * (0.72 + seed * 0.56)
+    const cx = (a.x + b.x) / 2 - (dy / distance) * bend
+    const cy = (a.y + b.y) / 2 + (dx / distance) * bend
+    const point = (x: number, y: number): string => `${x.toFixed(1)} ${y.toFixed(1)}`
+    lanes.push({
+      from: lane.from,
+      to: lane.to,
+      keys: [...lane.keys],
+      path: `M ${point(a.x, a.y)} Q ${point(cx, cy)} ${point(b.x, b.y)}`,
+      base: baseIds.has(`${lane.from}\u0000${lane.to}`),
+    })
+  }
+  const laneMarkup = lanes.map((lane, i) =>
+    `<path class="schMiniLane${lane.base ? ' base' : ''}" data-lane="${i}" pathLength="1" d="${lane.path}"/>`).join('')
+
+  let dust = ''
+  for (let i = 0; i < 54; i++) {
+    const x = 2 + hash01(`dust-x-${i}`) * (W - 4)
+    const y = 2 + hash01(`dust-y-${i}`) * (VH - 4)
+    const r = 0.12 + hash01(`dust-r-${i}`) * 0.32
+    const opacity = 0.04 + hash01(`dust-o-${i}`) * 0.13
+    dust += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(2)}" opacity="${opacity.toFixed(2)}"/>`
   }
   let circles = ''
   const stars: Star[] = []
@@ -323,11 +419,16 @@ function layout(graph: any, vh: number): { svg: string; stars: Star[] } {
     // page ink; every dot carries its magnitude for the brightness ramp.
     const c = v ?? `--star${1 + Math.floor(hash01(String(n.module)) * 6)}`
     const m = Math.sqrt(Math.min(1, (deg.get(String(n.id)) ?? 0) / maxDeg)).toFixed(2)
-    circles += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${rad[i].toFixed(2)}" data-module="${n.module}" style="--c: var(${c}); --m: ${m}"/>`
+    const rr = rad[i].toFixed(2)
+    const halo = (rad[i] * 2.8).toFixed(2)
+    circles += `<g class="schMiniStar" data-module="${esc(String(n.module))}" style="--c: var(${c}); --m: ${m}">` +
+      `<circle class="schMiniHalo" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${halo}"/>` +
+      `<circle class="schMiniCore" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${rr}"/></g>`
     stars.push({ x, y, r: rad[i], d: deg.get(String(n.id)) ?? 0, module: String(n.module) })
   })
-  const svg = `<svg viewBox="0 0 ${W} ${VH.toFixed(1)}" preserveAspectRatio="xMidYMid meet">${lines}${circles}</svg>`
-  return { svg, stars }
+  const svg = `<svg viewBox="0 0 ${W} ${VH.toFixed(1)}" preserveAspectRatio="xMidYMid meet">` +
+    `<g class="schMiniDust">${dust}</g><g class="schMiniLanes">${laneMarkup}</g><g class="schMiniStars">${circles}</g></svg>`
+  return { svg, stars, lanes }
 }
 
 /**
@@ -340,8 +441,9 @@ function layout(graph: any, vh: number): { svg: string; stars: Star[] } {
  * lives directly under document.body, outside the SPA's React tree, so
  * re-renders never churn it. The bottom-right grip resizes the panel freely
  * (width and height independent, persisted per browser) and the galaxy
- * re-flows to the new aspect; dots are hollow rings that fill and glow when
- * lit. Hovering a dot raises a card naming the package and its description.
+ * re-flows to the new aspect; plugin stars and service lanes brighten with
+ * real traffic. Hovering a star reveals its local constellation and raises a
+ * card naming the package and its description.
  * @param t locale seat for the panel title and hover-card meta line.
  * @param lang active locale thunk; Chinese hover cards reuse the viewer
  * page's shared description translations.
@@ -352,11 +454,18 @@ export function mountMiniTopology(t: (key: 'miniTitle' | 'tipLinks') => string, 
   const label = t('miniTitle')
   host.className = 'schMini'
   host.title = label
-  host.setAttribute('role', 'img')
+  host.setAttribute('role', 'button')
   host.setAttribute('aria-label', label)
+  host.tabIndex = 0
   host.style.display = 'none'
-  host.addEventListener('dblclick', () => {
+  const openViewer = (): void => {
     window.open('/schematic?tab=domains&expand=all', '_blank', 'noopener')
+  }
+  host.addEventListener('dblclick', openViewer)
+  host.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return
+    e.preventDefault()
+    openViewer()
   })
   document.body.appendChild(host)
 
@@ -562,11 +671,17 @@ export function mountMiniTopology(t: (key: 'miniTitle' | 'tipLinks') => string, 
   let dotsByModule = new Map<string, Element[]>()
   /** Dot table for hover hit-testing, in the viewBox of the last render. */
   let stars: Star[] = []
+  /** Aggregated consumer → provider lanes and their live SVG paths. */
+  let lanes: Lane[] = []
+  let laneEls: SVGPathElement[] = []
+  let laneByTraffic = new Map<string, { lane: Lane; el: SVGPathElement }[]>()
   /** module → graph node, the hover card's name/description source. */
   let nodeByModule = new Map<string, any>()
   /** ctx key → provider modules, for lighting both ends of a service read. */
   let keyOwners = new Map<string, string[]>()
   const active = new Map<string, { until: number; strong: boolean }>()
+  const laneActivity = new Map<SVGPathElement, { until: number; liveUntil: number; count: number }>()
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
   let currentSession = readCurrentSession()
 
   /** Modules whose dots are currently lit — dark→lit transitions ripple once. */
@@ -574,11 +689,13 @@ export function mountMiniTopology(t: (key: 'miniTitle' | 'tipLinks') => string, 
   /** One-shot expanding ring at a freshly lit dot, in its own stroke color. */
   const ripple = (el: Element): void => {
     const svg = stage.querySelector('svg')
-    const color = getComputedStyle(el).stroke
-    if (svg === null || color === '' || color === 'none') return
+    const core = el.querySelector('.schMiniCore')
+    if (svg === null || core === null) return
+    const color = getComputedStyle(core).fill
+    if (color === '' || color === 'none') return
     const ping = document.createElementNS('http://www.w3.org/2000/svg', 'circle')
     ping.setAttribute('class', 'schMiniPing')
-    for (const a of ['cx', 'cy', 'r']) ping.setAttribute(a, el.getAttribute(a) ?? '')
+    for (const a of ['cx', 'cy', 'r']) ping.setAttribute(a, core.getAttribute(a) ?? '')
     ping.style.stroke = color
     ping.addEventListener('animationend', () => ping.remove())
     svg.appendChild(ping)
@@ -597,6 +714,51 @@ export function mountMiniTopology(t: (key: 'miniTitle' | 'tipLinks') => string, 
         el.classList.toggle('hot', lit && (info?.strong ?? false))
       }
     }
+  }
+  const paintLanes = (): void => {
+    const now = Date.now()
+    for (const el of laneEls) {
+      const info = laneActivity.get(el)
+      const alive = info !== undefined && info.until >= now
+      el.classList.toggle('live', alive && info.liveUntil >= now)
+      el.classList.toggle('warm', alive && info.liveUntil < now)
+      if (alive) el.style.setProperty('--heat', Math.min(1, 0.28 + info.count * 0.13).toFixed(2))
+      else el.style.removeProperty('--heat')
+    }
+  }
+  const focusLanes = (module: string): void => {
+    lanes.forEach((lane, i) => laneEls[i]?.classList.toggle('near', module !== '' && (lane.from === module || lane.to === module)))
+  }
+  const emitPhoton = (path: string): void => {
+    if (reducedMotion.matches) return
+    const svg = stage.querySelector('svg')
+    if (svg === null) return
+    const photons = [...svg.querySelectorAll('.schMiniPhoton')]
+    if (photons.length >= 12) photons[0]?.remove()
+    const photon = document.createElementNS('http://www.w3.org/2000/svg', 'circle')
+    photon.setAttribute('class', 'schMiniPhoton')
+    photon.setAttribute('r', '0.82')
+    const motion = document.createElementNS('http://www.w3.org/2000/svg', 'animateMotion')
+    motion.setAttribute('dur', '680ms')
+    motion.setAttribute('path', path)
+    motion.setAttribute('fill', 'freeze')
+    photon.appendChild(motion)
+    svg.appendChild(photon)
+    window.setTimeout(() => photon.remove(), 820)
+  }
+  /** graph edges and traffic both follow consumer → provider. */
+  const trafficLaneKey = (consumer: string, provider: string, key: string): string => `${consumer}\u0000${provider}\u0000${key}`
+  const touchLane = (consumer: string, provider: string, key: string, animate: boolean): void => {
+    const matches = laneByTraffic.get(trafficLaneKey(consumer, provider, key)) ?? []
+    const now = Date.now()
+    for (const match of matches) {
+      const prev = laneActivity.get(match.el)
+      const count = animate && prev !== undefined && prev.until >= now ? Math.min(6, prev.count + 1) : (prev?.count ?? 1)
+      const liveUntil = animate ? now + 850 : (prev?.liveUntil ?? 0)
+      laneActivity.set(match.el, { until: now + TTL_MS, liveUntil, count })
+      if (animate) emitPhoton(match.lane.path)
+    }
+    if (matches.length > 0) paintLanes()
   }
   const touch = (module: unknown, strong: boolean): void => {
     if (typeof module !== 'string' || module === '') return
@@ -655,10 +817,24 @@ export function mountMiniTopology(t: (key: 'miniTitle' | 'tipLinks') => string, 
     const out = layout(lastGraph, drawnVh)
     stage.innerHTML = out.svg
     stars = out.stars
-    // Index the circles AFTER insertion: the live nodes are the only ones
+    lanes = out.lanes
+    laneActivity.clear()
+    laneEls = [...stage.querySelectorAll<SVGPathElement>('.schMiniLane[data-lane]')]
+    laneByTraffic = new Map<string, { lane: Lane; el: SVGPathElement }[]>()
+    lanes.forEach((lane, i) => {
+      const el = laneEls[i]
+      if (el === undefined) return
+      for (const key of lane.keys) {
+        const id = trafficLaneKey(lane.from, lane.to, key)
+        const list = laneByTraffic.get(id) ?? []
+        list.push({ lane, el })
+        laneByTraffic.set(id, list)
+      }
+    })
+    // Index the star groups AFTER insertion: the live nodes are the only ones
     // whose classes paint.
     dotsByModule = new Map<string, Element[]>()
-    for (const el of [...host.querySelectorAll('circle[data-module]')]) {
+    for (const el of [...host.querySelectorAll('.schMiniStar[data-module]')]) {
       const module = el.getAttribute('data-module') ?? ''
       const list = dotsByModule.get(module) ?? []
       list.push(el)
@@ -673,11 +849,12 @@ export function mountMiniTopology(t: (key: 'miniTitle' | 'tipLinks') => string, 
     for (const n of lastGraph.nodes ?? []) {
       for (const key of n.provides ?? []) {
         const list = keyOwners.get(key) ?? []
-        if (typeof n.module === 'string') list.push(n.module)
+        if (typeof n.module === 'string' && !list.includes(n.module)) list.push(n.module)
         keyOwners.set(key, list)
       }
     }
     paint()
+    paintLanes()
   }
 
   // ------- hover card: name + explanation for the dot under the pointer -------
@@ -696,6 +873,7 @@ export function mountMiniTopology(t: (key: 'miniTitle' | 'tipLinks') => string, 
   /** The star whose card is up; '' while hidden. */
   let tipStar: Star | null = null
   function hideTip(): void {
+    focusLanes('')
     if (tipStar === null) return
     tipStar = null
     tip.style.display = 'none'
@@ -706,7 +884,8 @@ export function mountMiniTopology(t: (key: 'miniTitle' | 'tipLinks') => string, 
   function fillTip(s: Star): void {
     const node = nodeByModule.get(s.module)
     const dot = dotsByModule.get(s.module)?.[0]
-    const swatch = dot === undefined ? 'transparent' : getComputedStyle(dot).stroke
+    const core = dot?.querySelector('.schMiniCore')
+    const swatch = core === null || core === undefined ? 'transparent' : getComputedStyle(core).fill
     const name = typeof node?.label === 'string' && node.label !== '' ? node.label : s.module
     let html = `<div class="nm"><i class="sw" style="background:${swatch}"></i>${esc(name)}</div>`
     html += `<div class="md">${esc(s.module)}</div>`
@@ -764,6 +943,7 @@ export function mountMiniTopology(t: (key: 'miniTitle' | 'tipLinks') => string, 
     if (s === null) { hideTip(); return }
     if (tipStar?.module !== s.module) {
       tipStar = s
+      focusLanes(s.module)
       debug.tip = s.module
       // Blank the native panel tooltip while the card is up — the two would
       // stack over the same pointer.
@@ -786,7 +966,7 @@ export function mountMiniTopology(t: (key: 'miniTitle' | 'tipLinks') => string, 
   const applyGraph = (graph: any): void => {
     const next = JSON.stringify([
       (graph.nodes ?? []).map((n: any) => [n.id, n.module, n.category]),
-      (graph.edges ?? []).map((e: any) => [e.from, e.to]),
+      (graph.edges ?? []).map((e: any) => [e.from, e.to, e.keys]),
     ])
     if (next === signature) return
     signature = next
@@ -804,6 +984,7 @@ export function mountMiniTopology(t: (key: 'miniTitle' | 'tipLinks') => string, 
 
   /** mini.json poll: states every beat, entries diffed on the sequence cursor. */
   let since = -1
+  let previousTraffic = new Set<string>()
   const pollMini = (): void => {
     if (document.hidden) return
     void fetch(`/schematic/mini.json?since=${Math.max(0, since)}`, { signal: ac.signal })
@@ -813,6 +994,7 @@ export function mountMiniTopology(t: (key: 'miniTitle' | 'tipLinks') => string, 
         debug.ok = 1
         debug.polls++
         const cursor = typeof snap.cursor === 'number' ? snap.cursor : 0
+        const adopting = since < 0
         // First poll only adopts the cursor: the states below light anything
         // already running, without replaying the whole tail as flashes.
         if (since >= 0) {
@@ -824,10 +1006,18 @@ export function mountMiniTopology(t: (key: 'miniTitle' | 'tipLinks') => string, 
         }
         since = cursor
         for (const s of snap.sessions ?? []) hydrate(s)
+        const nextTraffic = new Set<string>()
         for (const r of snap.traffic ?? []) {
-          if (typeof r.m === 'string' && r.m !== '') touch(r.m, false)
-          for (const owner of keyOwners.get(r.key) ?? []) touch(owner, false)
+          if (typeof r.m !== 'string' || r.m === '' || typeof r.key !== 'string') continue
+          const trafficId = `${r.m}\u0000${r.key}`
+          nextTraffic.add(trafficId)
+          touch(r.m, false)
+          for (const owner of keyOwners.get(r.key) ?? []) {
+            touch(owner, false)
+            touchLane(r.m, owner, r.key, !adopting && !previousTraffic.has(trafficId))
+          }
         }
+        previousTraffic = nextTraffic
         debug.active = active.size
         debug.dots = dotsByModule.size
       })
@@ -844,6 +1034,12 @@ export function mountMiniTopology(t: (key: 'miniTitle' | 'tipLinks') => string, 
       if (!info.strong && info.until < now) { active.delete(module); dirty = true }
     }
     if (dirty) paint()
+    let lanesDirty = false
+    for (const [el, info] of laneActivity) {
+      if (info.until < now) { laneActivity.delete(el); lanesDirty = true }
+      else if (info.liveUntil < now && el.classList.contains('live')) lanesDirty = true
+    }
+    if (lanesDirty) paintLanes()
   }, 600)
 
   /** Adopt a placement-clamped size; skipping no-op ticks keeps the 800ms
@@ -863,7 +1059,10 @@ export function mountMiniTopology(t: (key: 'miniTitle' | 'tipLinks') => string, 
     if (next !== currentSession) {
       currentSession = next
       active.clear()
+      laneActivity.clear()
+      previousTraffic.clear()
       paint()
+      paintLanes()
       pollMini()
     }
     if (freePos !== null) {
