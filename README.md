@@ -19,7 +19,7 @@ dsh plugin --profile web add dsh-schematic
 
 ## Status
 
-**v0.3.0 is available now.** The live topology viewer and the composition workbench are both shipped and published to npm as [`dsh-schematic@0.3.0`](https://www.npmjs.com/package/dsh-schematic). The preset workbench and seam-aware market panel are planned for v0.4.
+**v0.3.3 is available now.** The live topology viewer and the composition workbench are both shipped and published to npm as [`dsh-schematic@0.3.3`](https://www.npmjs.com/package/dsh-schematic). The preset workbench and seam-aware market panel are planned for v0.4.
 
 ## What this is
 

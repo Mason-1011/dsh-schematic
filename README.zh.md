@@ -19,7 +19,7 @@ dsh plugin --profile web add dsh-schematic
 
 ## 状态
 
-**v0.3.0 现已发布。**实时拓扑查看器与组合工作台均已交付,并以 [`dsh-schematic@0.3.0`](https://www.npmjs.com/package/dsh-schematic) 发布到 npm。preset 工作台与接缝感知市场面板计划在 v0.4 交付。
+**v0.3.3 现已发布。**实时拓扑查看器与组合工作台均已交付,并以 [`dsh-schematic@0.3.3`](https://www.npmjs.com/package/dsh-schematic) 发布到 npm。preset 工作台与接缝感知市场面板计划在 v0.4 交付。
 
 ## 这是什么
 
