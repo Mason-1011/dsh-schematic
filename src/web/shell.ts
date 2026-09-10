@@ -32,7 +32,7 @@ export function appShell(t: (key: string) => string): string {
       <span class="contextRule"></span><span class="contextLabel">${t('systemLive')}</span>
     </div>
     <div class="blueprintContext"><span>${t('blueprintKicker')}</span><b class="blueprintContextName">${t('blueprintNone')}</b></div>
-    <div class="activityContext"><span>${t('activityKicker')}</span><b>${t('activityNow')}</b></div>
+    <div class="activityContext"><span>${t('activityKicker')}</span><b>${t('activityNow')}</b><span class="contextRule"></span><button class="signalArrange blueprintWrite">${t('activityArrange')}</button></div>
   </section>
   <div class="filters"></div>
   <main class="systemWorkspace">
@@ -47,6 +47,6 @@ export function appShell(t: (key: string) => string): string {
     <div class="actList"></div>
   </div>
   <footer><span class="meta"></span><span class="spacer" style="flex:1"></span><button class="zoomOut" aria-label="${t('zoomOut')}">−</button><button class="zoomIn" aria-label="${t('zoomIn')}">+</button><button class="zoomFit">${t('fit')}</button><button class="expBtn" aria-pressed="false" title="${t('expAllTitle')}">${t('expandAll')}</button><button class="autoBtn" aria-pressed="true" title="${t('autoTitle')}">⏸</button><button class="refresh" title="${t('refreshTitle')}">⟳</button></footer>
-  <div class="toast" role="status" aria-live="polite"></div><div class="tooltip"></div><div class="schPop"></div><div class="editScrim"></div><aside class="editDrawer"></aside>
+  <div class="toast" role="status" aria-live="polite"></div><div class="tooltip"></div><div class="schPop"></div><div class="editScrim"></div><aside class="editDrawer"></aside><div class="signalLayoutLayer" hidden></div>
   <div class="tourLayer" hidden><div class="tourSpot" aria-hidden="true"></div><section class="tourCard" role="dialog" aria-modal="false" aria-labelledby="tourTitle"><span class="tourStep"></span><h2 id="tourTitle"></h2><p></p><div class="tourHint"></div><button class="tourSkip"></button></section></div>`
 }

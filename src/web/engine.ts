@@ -23,6 +23,7 @@ declare const __SCH_BUILD__: string | undefined
 import { DESIGN_CSS } from './design.ts'
 import { appShell } from './shell.ts'
 import { BLUEPRINT_CSS, mountBlueprintWorkspace, type BlueprintWorkspaceController } from './blueprint-workspace.ts'
+import { mountActivityLayoutWorkspace, type JourneyGroupView } from './activity-layout-workspace.ts'
 
 type Lang = 'en' | 'zh'
 
@@ -40,6 +41,7 @@ const T: Record<string, { en: string; zh: string }> = {
   blueprintNone:   { en: 'No blueprint selected', zh: '未选择蓝图' },
   activityKicker:  { en: 'Live signal', zh: '实时信号' },
   activityNow:     { en: 'What is happening now', zh: '现在发生了什么' },
+  activityArrange: { en: 'Arrange signals', zh: '编排信号' },
   activityEyebrow: { en: 'OBSERVATION WINDOW', zh: '观察窗口' },
   activityTitle:   { en: 'The system, in motion.', zh: '系统正在如何流动' },
   activityDesc:    { en: 'Follow the active session, then inspect the exact plugins behind each event.', zh: '跟随当前会话，再下钻到每个事件背后的插件。' },
@@ -426,7 +428,7 @@ const STAGES: {
 ]
 
 /** Assign every node to its journey stage (first match wins). */
-function stageOf(n: any): string {
+function builtinStageOf(n: any): string {
   const has = (k: string): boolean => n.inject.includes(k)
   for (const s of STAGES) if (s.match(n, has)) return s.id
   return 'support'
@@ -1056,6 +1058,7 @@ export function mountSchematic(container: HTMLElement): () => void {
   const originOk = (n: any): boolean => state.originFocus === null || (n.origin ?? 'runtime') === state.originFocus
 
   let GRAPH: any = null
+  let activityLayoutWorkspace: ReturnType<typeof mountActivityLayoutWorkspace> | null = null
   let byId = new Map<string, any>()
   let clusterById = new Map<string, any>()
   let keyOwners = new Map<string, any[]>()
@@ -1408,7 +1411,16 @@ export function mountSchematic(container: HTMLElement): () => void {
    *  sidecar stages on a parallel row beneath, keyed by what they exchange. */
   function renderJourney(): void {
     if (GRAPH === null) return
-    const stageById = new Map<string, string>(GRAPH.nodes.map((n: any) => [n.id, stageOf(n)]))
+    const arrangement = activityLayoutWorkspace?.journey()
+    let stages: JourneyGroupView[] = arrangement?.groups.length
+      ? arrangement.groups
+      : STAGES.map((stage) => ({ id: stage.id, title: t(stage.title), description: t(stage.desc), lane: FLOW.includes(stage.id) ? 'flow' : 'side', css: stage.css }))
+    const stageFor = arrangement?.stageOf ?? builtinStageOf
+    const stageById = new Map<string, string>(GRAPH.nodes.map((n: any) => [n.id, stageFor(n)]))
+    const unassigned = GRAPH.nodes.filter((n: any) => stageById.get(n.id) === 'unassigned')
+    if (unassigned.length > 0) stages = [...stages, { id: 'unassigned', title: lang === 'zh' ? '未分配' : 'Unassigned', description: lang === 'zh' ? '新出现或尚未明确归属的插件。' : 'New or not-yet-classified plugins.', lane: 'side', css: '--baseline' }]
+    const flowIds = stages.filter((stage) => stage.lane === 'flow').map((stage) => stage.id)
+    const sideIds = stages.filter((stage) => stage.lane === 'side').map((stage) => stage.id)
     const membersOf = (sid: string): any[] => GRAPH.nodes
       .filter((n: any) => stageById.get(n.id) === sid)
       .sort((a: any, b: any) => (a.rank - b.rank) || nodeLabel(a).localeCompare(nodeLabel(b)))
@@ -1426,20 +1438,20 @@ export function mountSchematic(container: HTMLElement): () => void {
       const keys = new Set<string>()
       for (const e of GRAPH.edges) {
         const fs = stageById.get(e.from), ts = stageById.get(e.to)
-        if ((fs === sid && ts !== undefined && FLOW.includes(ts)) || (ts === sid && fs !== undefined && FLOW.includes(fs))) {
+        if ((fs === sid && ts !== undefined && flowIds.includes(ts)) || (ts === sid && fs !== undefined && flowIds.includes(fs))) {
           e.keys.forEach((k: string) => keys.add(k))
         }
       }
       return [...keys].sort()
     }
     const card = (sid: string, no: number, footer = ''): string => {
-      const stg = STAGES.find((s) => s.id === sid)!
+      const stg = stages.find((s) => s.id === sid)!
       const members = membersOf(sid)
       // width ∝ member count: heavy stages grow wide and short, so the rows
       // stay close in height and the fit-to-view scale stays readable
       return `<section class="stg" style="--c: var(${stg.css}); flex-grow: ${Math.max(1, members.length)}">
-        <header><span class="no">${String(no).padStart(2, '0')}</span><h3>${t(stg.title)}</h3><b>${members.length}</b></header>
-        <p class="d">${t(stg.desc)}</p>
+        <header><span class="no">${String(no).padStart(2, '0')}</span><h3>${esc(stg.title)}</h3><b>${members.length}</b></header>
+        <p class="d">${esc(stg.description)}</p>
         <div class="chips">${members.map((n: any) => {
           const c = catColor(n.category)
           const cls = ['pill', n.state === 'failed' ? 'fail' : '', state.sel === n.id ? 'sel' : '',
@@ -1449,22 +1461,25 @@ export function mountSchematic(container: HTMLElement): () => void {
         }).join('')}</div>${footer}</section>`
     }
     let flow = ''
-    FLOW.forEach((sid, i) => {
+    flowIds.forEach((sid, i) => {
       if (i > 0) {
-        const keys = crossKeys(FLOW[i - 1], sid)
+        const keys = crossKeys(flowIds[i - 1], sid)
         flow += `<div class="flow">${keys.length ? `<span class="keys">${keys.join(' ')}</span>` : ''}<span class="arr">→</span></div>`
       }
       flow += card(sid, i + 1)
     })
     let side = `<span class="sideTag">${t('sideTag')}</span>`
-    SIDE.forEach((sid, i) => {
+    sideIds.forEach((sid, i) => {
       const keys = sideKeys(sid)
       const footer = keys.length
         ? `<div class="xkeys"><b>↔</b> ${keys.slice(0, 8).map(esc).join(' · ')}${keys.length > 8 ? ` +${keys.length - 8}` : ''}</div>`
         : ''
-      side += card(sid, FLOW.length + i + 1, footer)
+      side += card(sid, flowIds.length + i + 1, footer)
     })
-    $('.journey').innerHTML = `<p class="hint">${t('journeyHint')}</p><div class="jr"><div class="jrZoom"><div class="jrFit"><div class="jrRow">${flow}</div><div class="jrRow side">${side}</div></div></div></div>`
+    const hint = arrangement?.customized === true
+      ? (lang === 'zh' ? '这是你定义的信号旅程；未分配项会显式留在旁路，等待归类。' : 'This is your signal journey; unassigned items stay visible until classified.')
+      : t('journeyHint')
+    $('.journey').innerHTML = `<p class="hint">${hint}</p><div class="jr"><div class="jrZoom"><div class="jrFit"><div class="jrRow">${flow}</div><div class="jrRow side">${side}</div></div></div></div>`
     $('.journey').querySelectorAll<HTMLElement>('.pill').forEach((chip) => {
       const n = byId.get(chip.dataset.id ?? '')
       if (n) bindHover(chip, n)
@@ -2623,6 +2638,15 @@ export function mountSchematic(container: HTMLElement): () => void {
     window.clearTimeout(toastTimer)
     toastTimer = window.setTimeout(() => toastEl.classList.remove('on'), 6000)
   }
+  activityLayoutWorkspace = mountActivityLayoutWorkspace({
+    layer: $('.signalLayoutLayer'),
+    button: $('.signalArrange') as HTMLButtonElement,
+    lang: () => lang,
+    nodes: () => GRAPH?.nodes ?? [],
+    builtinStageOf,
+    onChange: () => { if (GRAPH !== null && state.tab === 'journey') renderJourney() },
+    toast,
+  })
 
   // ------- composition edit (the graph is the editor) -------
   /**
@@ -4375,6 +4399,7 @@ export function mountSchematic(container: HTMLElement): () => void {
       button.textContent = t(button.dataset.space === 'system' ? 'navSystem' : button.dataset.space === 'blueprints' ? 'navBlueprints' : 'navActivity')
     })
     blueprintWorkspace?.relocalize()
+    activityLayoutWorkspace?.relocalize()
   }
   langToggle.addEventListener('click', () => {
     lang = lang === 'zh' ? 'en' : 'zh'
@@ -4429,6 +4454,9 @@ export function mountSchematic(container: HTMLElement): () => void {
   svg.addEventListener('click', () => { state.sel = null; render() })
   window.addEventListener('resize', () => render(), sig)
 
-  void load(true)
+  void Promise.all([
+    load(true),
+    activityLayoutWorkspace.load().catch((error) => toast(error instanceof Error ? error.message : String(error))),
+  ])
   return dispose
 }

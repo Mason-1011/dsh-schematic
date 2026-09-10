@@ -136,6 +136,11 @@ function dressNavIcon(label: () => string): () => void {
 
 /** Starter question for the ask-in-chat hand-off, in the SPA's active locale. */
 function questionOf(active: string, name: string, id: string): string {
+  if (id === 'schematic:activity-layout') {
+    return active === 'zh'
+      ? '请先读取我当前的 Schematic 活动信号编排和可用插件，然后通过提问了解我对系统的理解，和我一起重新设计分组、顺序与主流程/旁路。先给出方案，等我确认后再保存。'
+      : 'Read my current Schematic activity-signal arrangement and available plugins, then ask questions to understand my mental model and redesign the groups, order, and main/supporting lanes with me. Propose first; save only after I confirm.'
+  }
   return active === 'zh'
     ? `请介绍 dsh 里的插件「${name}」(${id}):它是做什么的、注入和提供了哪些服务、和其他插件是什么关系?`
     : `Explain the dsh plugin "${name}" (${id}): what it does, which services it injects/provides, and how it relates to other plugins.`

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { assertSupportedJsonSchema, validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
-import { blueprintToolDefs } from '../src/tools.ts'
+import { activityLayoutToolDef, blueprintManageToolDef, blueprintToolDefs, systemComposeToolDef } from '../src/tools.ts'
 import { normalizeEditConfig } from '../src/compose/config.ts'
 import type { ComposeDeps } from '../src/compose/routes.ts'
 
@@ -29,13 +29,30 @@ test('four schematic tools are defined with unique prefixed names', () => {
 })
 
 test('parameters and output schemas sit inside the registry\'s enforced JSON Schema subset', () => {
-  for (const def of defs) {
+  for (const def of [...defs, activityLayoutToolDef(ctxStub), blueprintManageToolDef(ctxStub, deps), systemComposeToolDef(ctxStub, deps)]) {
     // The registry rejects anything outside the subset at registration time;
     // asserting here keeps a future edit from shipping an unregistrable tool.
     assertSupportedJsonSchema(def.parameters)
     assert.doesNotThrow(() => assertObjectRoot(def.parameters), `${def.name}: parameters must be object-rooted`)
     assertSupportedJsonSchema(def.output.schema)
   }
+})
+
+test('activity arrangement tool exposes the same get/save/reset lifecycle as the UI', () => {
+  const activity = activityLayoutToolDef(ctxStub)
+  assert.equal(activity.name, 'schematic_activity_layout')
+  assert.match(activity.description, /Unassigned/)
+  assert.deepEqual(validateJsonSchemaValue(activity.parameters, {}), ['missing required property "value.action"'])
+  assert.deepEqual(validateJsonSchemaValue(activity.parameters, { action: 'get' }), [])
+})
+
+test('model automation covers the remaining blueprint and system UI actions', () => {
+  const manage = blueprintManageToolDef(ctxStub, deps)
+  const system = systemComposeToolDef(ctxStub, deps)
+  assert.deepEqual(validateJsonSchemaValue(manage.parameters, { action: 'rename', id: 'x', name: 'new' }), [])
+  assert.deepEqual(validateJsonSchemaValue(system.parameters, { action: 'preview', operations: [{ kind: 'disable', id: 'x' }] }), [])
+  assert.match(manage.description, /duplicate.*rename.*update-from-running.*delete/)
+  assert.match(system.description, /enable\/disable.*config.*swap/)
 })
 
 function assertObjectRoot(schema: unknown): void {

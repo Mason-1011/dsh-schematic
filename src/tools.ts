@@ -23,14 +23,18 @@ import { buildGraph } from './graph.ts'
 import { HttpError } from './llm.ts'
 import { isInstalled } from './compose/catalog.ts'
 import type { Composition } from './compose/layers.ts'
+import { resolveComposition } from './compose/layers.ts'
 import { buildComposeModel } from './compose/model.ts'
 import { buildPreview } from './compose/preview.ts'
-import { readPatchFile, writePatchAtomic } from './compose/block.ts'
-import { defaultBackupDir, makeBackup } from './compose/backup.ts'
+import { readManagedBlock, readPatchFile, removeManagedBlock, validatePatchFile, writePatchAtomic } from './compose/block.ts'
+import { defaultBackupDir, makeBackup, newestBackupText } from './compose/backup.ts'
 import type { ComposeDeps, UpdateFailure } from './compose/routes.ts'
+import { parseOps } from './compose/ops.ts'
 import {
-  currentBlueprintStatus, materializeBlueprint, requireEditableComp, saveBlueprintCore, storeOf,
+  adoptBlueprintEntries, capabilityOf, currentBlueprintStatus, materializeBlueprint, parseBlueprintDoc,
+  requireEditableComp, saveBlueprintCore, storeOf,
 } from './compose/blueprints.ts'
+import { ActivityLayoutStore, defaultActivityLayoutFile } from './activity/layout.ts'
 
 /** How long the switch tool waits for a hot-reload rejection before calling the reload clean. */
 const RELOAD_WATCH_MS = 3_000
@@ -285,6 +289,231 @@ export function blueprintToolDefs(ctx: Context, deps: ComposeDeps): ToolDefiniti
   return [plugins, list, save, switchTool]
 }
 
+/** Model-side twin of the Activity workspace's signal arranger. */
+export function activityLayoutToolDef(ctx: Context): ToolDefinition {
+  return {
+    name: 'schematic_activity_layout',
+    description:
+      'Read, save, or reset the Activity tab live-signal arrangement for the running profile. '
+      + 'This is the exact persistent layout used by the UI. For conversational arrangement, first '
+      + 'call action=get (it also returns availablePlugins), discuss the user\'s mental model, then save only after '
+      + 'they approve the proposed groups. Group order is journey order; lane=flow is the main row and '
+      + 'lane=side is the supporting row. Every plugin id may appear in at most one group. Plugins omitted '
+      + 'from all groups appear under Unassigned, making newly installed plugins visible instead of guessing. '
+      + 'Reset restores the built-in eight-group template and should be confirmed with the user.',
+    parameters: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['get', 'save', 'reset'],
+          description: 'Operation to perform.',
+        },
+        layout: {
+          type: 'object',
+          description: 'Required for save. The complete replacement layout returned by get, edited as desired.',
+          properties: {
+            schema: { type: 'number', description: 'Must be 1.' },
+            name: str('Layout name, 1–80 characters.'),
+            updatedAt: { type: 'string', description: 'Optional prior timestamp. Omit when get returned null; the server replaces it on save.' },
+            groups: {
+              type: 'array',
+              description: '1–20 ordered groups.',
+              items: {
+                type: 'object',
+                properties: {
+                  id: str('Stable lowercase id using letters, digits, and hyphens.'),
+                  label: {
+                    type: 'object',
+                    properties: { en: str('English label.'), zh: str('Chinese label.') },
+                    required: ['en', 'zh'],
+                  },
+                  description: {
+                    type: 'object',
+                    properties: { en: str('English explanation; may be empty.'), zh: str('Chinese explanation; may be empty.') },
+                    required: ['en', 'zh'],
+                  },
+                  lane: { type: 'string', enum: ['flow', 'side'], description: 'Main journey or supporting row.' },
+                  color: { type: 'string', enum: ['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8'], description: 'Accent token.' },
+                  memberIds: { type: 'array', items: { type: 'string' }, description: 'Explicit graph node ids assigned to this group.' },
+                },
+                required: ['id', 'label', 'description', 'lane', 'color', 'memberIds'],
+              },
+            },
+          },
+          required: ['schema', 'name', 'groups'],
+        },
+        confirmReset: {
+          type: 'boolean',
+          description: 'Must be true for reset after confirming with the user.',
+        },
+      },
+      required: ['action'],
+    },
+    output: { schema: {}, render: renderJson },
+    execute: async (args) => {
+      const raw = args as { action?: unknown, layout?: unknown, confirmReset?: unknown } | null
+      const comp = await resolveComposition(ctx)
+      const store = new ActivityLayoutStore(defaultActivityLayoutFile(comp.profile.name))
+      if (raw?.action === 'get') {
+        const graph = buildGraph(ctx)
+        return {
+          ...store.read(),
+          availablePlugins: graph.nodes.map((node) => ({
+            id: node.id, label: node.label ?? node.id, provides: node.provides, inject: node.inject, category: node.category,
+          })),
+        }
+      }
+      if (raw?.action === 'save') return { layout: store.save(raw.layout), customized: true }
+      if (raw?.action === 'reset') {
+        if (raw.confirmReset !== true) throw new HttpError(422, '重置活动编排前必须让用户确认,然后传 confirmReset=true')
+        return { layout: store.reset(), customized: false }
+      }
+      throw new HttpError(400, 'action 必须是 get|save|reset')
+    },
+  }
+}
+
+/** Remaining blueprint lifecycle actions exposed by the UI, in one explicit command surface. */
+export function blueprintManageToolDef(ctx: Context, deps: ComposeDeps): ToolDefinition {
+  return {
+    name: 'schematic_blueprint_manage',
+    description:
+      'Manage saved schematic blueprints with the same profile-scoped store as the UI. Supports get, '
+      + 'duplicate, rename, update-from-running, adopt-unmanaged, export, import, and delete. Use list first '
+      + 'to resolve ids; get before editing; require explicit user confirmation before delete. save and switch '
+      + 'remain dedicated tools because they are the common and safety-sensitive paths.',
+    parameters: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['get', 'duplicate', 'rename', 'update-from-running', 'adopt-unmanaged', 'export', 'import', 'delete'], description: 'Lifecycle action.' },
+        id: str('Blueprint id; required except import.'),
+        name: str('New name for rename or duplicate.'),
+        yaml: str('Blueprint YAML for import.'),
+        entryIds: { type: 'array', items: { type: 'string' }, description: 'Unmanaged entry ids to adopt.' },
+        confirmDelete: { type: 'boolean', description: 'Must be true for delete after confirming with the user.' },
+      },
+      required: ['action'],
+    },
+    output: { schema: {}, render: renderJson },
+    execute: async (args) => {
+      const raw = args as { action?: unknown, id?: unknown, name?: unknown, yaml?: unknown, entryIds?: unknown, confirmDelete?: unknown } | null
+      const action = raw?.action
+      const comp = await requireEditableComp(ctx, deps)
+      const store = storeOf(comp)
+      if (action === 'import') {
+        if (typeof raw?.yaml !== 'string' || raw.yaml.trim() === '') throw new HttpError(400, 'yaml 必须是非空字符串')
+        let parsed: unknown
+        try { parsed = comp.dialect.load(raw.yaml) } catch (error) { throw new HttpError(400, `YAML 解析失败:${error instanceof Error ? error.message : String(error)}`) }
+        return { blueprint: store.save({ ...parseBlueprintDoc(parsed), savedAt: new Date().toISOString() }) }
+      }
+      if (typeof raw?.id !== 'string' || raw.id === '') throw new HttpError(400, 'id 必须是非空字符串')
+      const doc = store.read(raw.id)
+      if (action === 'get') {
+        const model = buildComposeModel(ctx, comp, deps.editConfig.protected)
+        const world = new Set(doc.world)
+        return {
+          document: doc,
+          entries: model.entries.map((entry) => ({ ...entry, capability: capabilityOf(entry) })),
+          unmanaged: model.entries.filter((entry) => !world.has(entry.id) && entry.protected === null),
+          yaml: store.yamlOf(raw.id),
+        }
+      }
+      if (action === 'export') return { filename: `${doc.name}.blueprint.yml`, yaml: store.yamlOf(raw.id) }
+      if (action === 'rename' || action === 'duplicate') {
+        if (typeof raw.name !== 'string' || raw.name.trim() === '' || raw.name.length > 80) throw new HttpError(400, 'name 必须是 1–80 字符的字符串')
+        return { blueprint: store.save({ ...doc, name: raw.name.trim(), savedAt: new Date().toISOString() }, action === 'rename' ? raw.id : undefined) }
+      }
+      if (action === 'update-from-running') {
+        return await saveBlueprintCore(ctx, deps, { name: doc.name, desc: doc.desc, includeSchematic: doc.includeSchematic, id: raw.id })
+      }
+      if (action === 'adopt-unmanaged') {
+        if (!Array.isArray(raw.entryIds) || raw.entryIds.some((id) => typeof id !== 'string' || id === '')) throw new HttpError(400, 'entryIds 必须是非空字符串数组')
+        const model = buildComposeModel(ctx, comp, deps.editConfig.protected)
+        return { blueprint: store.save(adoptBlueprintEntries(doc, model.entries, [...new Set(raw.entryIds as string[])], comp.dialect), raw.id) }
+      }
+      if (action === 'delete') {
+        if (raw.confirmDelete !== true) throw new HttpError(422, '删除蓝图前必须让用户确认,然后传 confirmDelete=true')
+        store.remove(raw.id)
+        return { deleted: raw.id }
+      }
+      throw new HttpError(400, 'action 不合法')
+    },
+  }
+}
+
+/** The graph editor's persistent system actions, with preview and confirmation gates. */
+export function systemComposeToolDef(ctx: Context, deps: ComposeDeps): ToolDefinition {
+  return {
+    name: 'schematic_system_compose',
+    description:
+      'Inspect, dry-run, or apply the same live composition changes available in the Schematic System UI: '
+      + 'enable/disable a plugin, edit YAML config, insert a plugin, or swap a capability provider. Also '
+      + 'supports rollback and clearing Schematic\'s managed block. Always preview first and explain warnings; '
+      + 'apply needs every danger entry id in confirmIds. Rollback and clear require explicit user confirmation.',
+    parameters: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['inspect', 'preview', 'apply', 'rollback', 'clear'], description: 'System action.' },
+        operations: {
+          type: 'array', description: 'Operations for preview/apply, in order.', items: {
+            type: 'object', properties: {
+              kind: { type: 'string', enum: ['disable', 'enable', 'setConfig', 'insert', 'swap'], description: 'Operation kind.' },
+              id: str('Target/new entry id.'), name: str('Package name for insert.'), config: str('Complete YAML mapping for config.'),
+              seam: str('Capability key for swap.'), from: str('Existing provider id for swap.'),
+              to: { type: 'object', properties: { id: str('Existing or new target id.'), name: str('Package name when inserting.'), config: str('Optional YAML config.') } },
+            }, required: ['kind'],
+          },
+        },
+        confirmIds: { type: 'array', items: { type: 'string' }, description: 'Danger-tier ids explicitly confirmed by the user.' },
+        confirmDestructive: { type: 'boolean', description: 'Must be true for rollback or clear after user confirmation.' },
+      },
+      required: ['action'],
+    },
+    output: { schema: {}, render: renderJson },
+    execute: async (args) => {
+      const raw = args as { action?: unknown, operations?: unknown, confirmIds?: unknown, confirmDestructive?: unknown } | null
+      const action = raw?.action
+      if (action === 'rollback') {
+        if (raw?.confirmDestructive !== true) throw new HttpError(422, '回滚前必须让用户确认,然后传 confirmDestructive=true')
+        const comp = await resolveComposition(ctx)
+        if (!deps.editConfig.enabled) throw new HttpError(503, '组合编辑已关闭')
+        const { file, text } = newestBackupText(deps.editConfig.backupDir ?? defaultBackupDir())
+        validatePatchFile(text, comp.dialect)
+        const backup = makeBackup(comp.profile.patchPath, deps.editConfig.backupDir ?? defaultBackupDir(), deps.editConfig.backupKeep, 'rollback')
+        writePatchAtomic(comp.profile.patchPath, text)
+        return { restored: file, backup }
+      }
+      const comp = await requireEditableComp(ctx, deps)
+      const model = buildComposeModel(ctx, comp, deps.editConfig.protected)
+      if (action === 'inspect') return { profile: comp.profile, entries: model.entries, seams: model.seams, blockYaml: model.blockYaml }
+      if (action === 'clear') {
+        if (raw?.confirmDestructive !== true) throw new HttpError(422, '清空受管块前必须让用户确认,然后传 confirmDestructive=true')
+        const block = readManagedBlock(comp.userText, comp.dialect)
+        if (block.startLine === -1) return { cleared: true, removedRowCount: 0, backup: null }
+        if (readPatchFile(comp.profile.patchPath) !== comp.userText) throw new HttpError(409, '补丁文件已变化,请重新检查')
+        const backup = makeBackup(comp.profile.patchPath, deps.editConfig.backupDir ?? defaultBackupDir(), deps.editConfig.backupKeep, 'clear')
+        writePatchAtomic(comp.profile.patchPath, removeManagedBlock(comp.userText, comp.dialect))
+        return { cleared: true, removedRowCount: block.rows.length, backup }
+      }
+      const ops = parseOps(raw?.operations)
+      const preview = buildPreview(ctx, comp, ops, deps.editConfig.protected)
+      if (action === 'preview') return preview
+      if (action !== 'apply') throw new HttpError(400, 'action 不合法')
+      const confirms = raw?.confirmIds
+      if (confirms !== undefined && (!Array.isArray(confirms) || confirms.some((id) => typeof id !== 'string'))) throw new HttpError(400, 'confirmIds 必须是字符串数组')
+      const confirmed = new Set((confirms ?? []) as string[])
+      const danger = [...new Set(preview.warnings.filter((warning) => warning.level === 'danger').flatMap((warning) => warning.ids ?? []))]
+      const missing = danger.filter((id) => !confirmed.has(id))
+      if (missing.length > 0) throw new HttpError(422, `危险操作需要逐个确认:${missing.join('、')}`)
+      if (readPatchFile(comp.profile.patchPath) !== comp.userText) throw new HttpError(409, '补丁文件已变化,请重新预览')
+      const backup = makeBackup(comp.profile.patchPath, deps.editConfig.backupDir ?? defaultBackupDir(), deps.editConfig.backupKeep, 'apply')
+      writePatchAtomic(comp.profile.patchPath, preview.filePreview)
+      return { applied: true, backup, preview }
+    },
+  }
+}
+
 /**
  * Register the four schematic tools. Register nothing (and say so once) when
  * edit is disabled — the tools write through the same config gate as the UI.
@@ -294,11 +523,13 @@ export function blueprintToolDefs(ctx: Context, deps: ComposeDeps): ToolDefiniti
  * the service is core — the 'tools' inject in index.ts fails fast if it vanishes.
  */
 export function registerBlueprintTools(ctx: Context, deps: ComposeDeps): void {
+  const activity = activityLayoutToolDef(ctx)
+  ctx.effect(() => ctx.tools.register(activity), `dsh-schematic: tool ${activity.name}`)
   if (!deps.editConfig.enabled) {
-    ctx.logger.info('[dsh-schematic] edit disabled (config.edit.enabled=false); model tools not registered')
+    ctx.logger.info('[dsh-schematic] edit disabled (config.edit.enabled=false); blueprint model tools not registered')
     return
   }
-  for (const def of blueprintToolDefs(ctx, deps)) {
+  for (const def of [...blueprintToolDefs(ctx, deps), blueprintManageToolDef(ctx, deps), systemComposeToolDef(ctx, deps)]) {
     ctx.effect(() => ctx.tools.register(def), `dsh-schematic: tool ${def.name}`)
   }
 }

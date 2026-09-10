@@ -1,7 +1,7 @@
 {
   "name": "dsh-schematic",
-  "version": "0.5.1",
-  "description": "Visual control plane for DeepSeek Harness — inspect live plugin wiring, trace runtime activity, and safely compose reusable blueprints.",
+  "version": "0.6.0",
+  "description": "Human-and-agent control plane for DeepSeek Harness — visualize live wiring, trace activity, and safely automate plugin blueprints.",
   "keywords": [
     "dsh",
     "deepseek-harness",
@@ -16,7 +16,9 @@
     "observability",
     "developer-tools",
     "plugin-system",
-    "blueprint"
+    "blueprint",
+    "agent-tools",
+    "human-in-the-loop"
   ],
   "license": "MIT",
   "type": "module",

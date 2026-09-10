@@ -1,6 +1,6 @@
 # dsh-schematic
 
-> The visual control plane for DeepSeek Harness.
+> One control plane for humans and agents running DeepSeek Harness.
 
 [![npm](https://img.shields.io/npm/v/dsh-schematic.svg)](https://www.npmjs.com/package/dsh-schematic)
 [![CI](https://github.com/Mason-1011/dsh-schematic/actions/workflows/ci.yml/badge.svg)](https://github.com/Mason-1011/dsh-schematic/actions/workflows/ci.yml)
@@ -9,9 +9,9 @@
 
 **English** · [简体中文](README.zh.md)
 
-Your agent is not a black box. It is a live graph of models, tools, memory, policy, workflows, and the services connecting them.
+Your agent is not a black box. It is a live graph of models, tools, memory, policy, workflows, and the services connecting them. Humans need to see and shape that graph; agents need safe, typed ways to operate it.
 
-**dsh-schematic makes that graph visible—and safely editable.** See who provides every capability, follow a request through the runtime, and save working plugin combinations as reusable blueprints.
+**dsh-schematic gives both operators the same control plane.** People get a full-screen visual workspace. Agents get native dsh tools for the same persistent operations. Both work from the same live state, validation rules, previews, backups, and guarded write pipeline.
 
 ```sh
 dsh plugin --profile web add dsh-schematic
@@ -21,13 +21,21 @@ dsh web
 
 ![dsh-schematic showing live plugin topology and its composition workbench](docs/assets/dsh-schematic-demo.gif)
 
-## One app, three questions
+## One system, two operators
+
+| Human operator | Agent operator | Shared foundation |
+| --- | --- | --- |
+| Explore topology, edit blueprints, arrange Activity, and review every change visually. | Inspect, compose, switch, organize, and recover through `schematic_*` tools in conversation. | One runtime graph, one set of stores, one validation model, and the same safety boundaries. |
+
+Every persistent action exposed to a person has a model-facing counterpart. This is not a separate “AI automation mode”: humans and agents can hand work back and forth without translating intent into a second configuration system.
+
+## Three workspaces, three questions
 
 | Workspace | The question it answers | What you can do |
 | --- | --- | --- |
 | **System** | What is my agent made of right now? | Explore the live topology or inventory, inspect dependencies, configure plugins, toggle entries, and replace providers. |
 | **Blueprints** | How do I make this setup repeatable? | Compose by capability, save local drafts, import/export YAML, review drift, and switch whole plugin combinations safely. |
-| **Activity** | What just happened—and who did it? | Follow session events and request journeys, filter noise, inspect failures and latency, and drill into per-plugin statistics. |
+| **Activity** | What just happened—and who did it? | Follow session events and request journeys, arrange signals into your own groups and lanes, filter noise, and inspect failures or latency. |
 
 The result is part observability console, part composition workbench: a place to understand the system before changing it.
 
@@ -39,6 +47,7 @@ The result is part observability console, part composition workbench: a place to
 - **Every risky change earns a preview.** You see structural warnings, member diffs, and the exact managed-block YAML before anything is written.
 - **It stays readable under pressure.** Event storms are folded into counted rows, internal service-read noise is suppressed, and motion respects `prefers-reduced-motion`.
 - **English and 中文 are first-class.** The app translates plugin descriptions through the host's configured model route while keeping identifiers intact.
+- **Human and agent actions stay symmetrical.** The UI and `schematic_*` tools share the same plans, validation, confirmation gates, backups, and stale-state protection.
 
 ## Editing without crossing your fingers
 
@@ -68,16 +77,18 @@ That distinction lets a blueprint survive harness upgrades:
 
 Blueprints live as readable schema-2 YAML under `~/.dsh/schematic/blueprints/`. Existing schema-1 presets migrate idempotently and remain untouched as a read-only backup.
 
-## Built into the conversation too
+## The Agent uses the same control plane
 
-dsh-schematic registers model-facing tools when editing is enabled:
+dsh-schematic registers model-facing tools for every persistent UI action; Activity arrangement remains available even when composition editing is disabled:
 
 - `schematic_plugins` — inspect the composition tree and available capabilities;
 - `schematic_blueprint_list` — list blueprints and current drift;
-- `schematic_blueprint_save` — curate and save a blueprint;
-- `schematic_blueprint_switch` — run the same preview, backup, apply, and reload-verification pipeline as the UI.
+- `schematic_blueprint_save` / `schematic_blueprint_switch` — curate, save, preview, back up, and safely switch;
+- `schematic_blueprint_manage` — inspect, duplicate, rename, update, import/export, adopt unmanaged entries, or delete;
+- `schematic_system_compose` — inspect, preview, apply, roll back, or clear live composition changes;
+- `schematic_activity_layout` — collaboratively arrange Activity groups, order, lanes, descriptions, colors, and plugin membership.
 
-So “save me a lean coding setup and switch to it” can be a conversation—not a scavenger hunt through config files.
+So “save me a lean coding setup, switch to it, and group its runtime signals by responsibility” can be a conversation—not a scavenger hunt through config files. The Agent can inspect first, present the same preview a person would review, ask for confirmation where required, and leave the result ready for visual inspection.
 
 <details>
 <summary><strong>More of what ships</strong></summary>

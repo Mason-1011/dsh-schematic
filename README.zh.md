@@ -1,6 +1,6 @@
 # dsh-schematic
 
-> DeepSeek Harness 的可视化控制台。
+> 同时面向人类与 Agent 的 DeepSeek Harness 控制面。
 
 [![npm](https://img.shields.io/npm/v/dsh-schematic.svg)](https://www.npmjs.com/package/dsh-schematic)
 [![CI](https://github.com/Mason-1011/dsh-schematic/actions/workflows/ci.yml/badge.svg)](https://github.com/Mason-1011/dsh-schematic/actions/workflows/ci.yml)
@@ -9,9 +9,9 @@
 
 [English](README.md) · **简体中文**
 
-你的 Agent 不是黑盒。它是一张由模型、工具、记忆、安全策略、工作流和服务接线组成的实时网络。
+你的 Agent 不是黑盒。它是一张由模型、工具、记忆、安全策略、工作流和服务接线组成的实时网络。人需要看见并塑造它，Agent 也需要安全、结构化地操作它。
 
-**dsh-schematic 把这张图画出来，也让你安全地改动它。** 看清每项能力由谁提供，追踪一次请求经过了哪些插件，再把好用的插件组合存成可复用蓝图。
+**dsh-schematic 让人类和 Agent 共用同一套控制面。** 人类使用全屏可视化工作区，Agent 通过 dsh 原生工具完成同样的持久化操作；双方共享实时状态、校验规则、变更预览、备份和受保护写入管线。
 
 ```sh
 dsh plugin --profile web add dsh-schematic
@@ -21,13 +21,21 @@ dsh web
 
 ![dsh-schematic 的实时插件拓扑与组合工作台](docs/assets/dsh-schematic-demo.gif)
 
-## 一个应用，回答三个问题
+## 一套系统，两类操作者
+
+| 人类操作者 | Agent 操作者 | 共同底座 |
+| --- | --- | --- |
+| 可视化探索拓扑、编辑蓝图、编排活动，并逐项审查改动。 | 在对话中通过 `schematic_*` 工具检查、组合、切换、整理和恢复。 | 同一张运行图、同一组存储、同一套校验与安全边界。 |
+
+界面里每个会持久化的操作，都有对应的模型操作能力。这不是另一套“AI 自动化模式”：人和 Agent 可以随时接力，不需要在两种配置体系之间翻译意图。
+
+## 三个工作区，回答三个问题
 
 | 工作区 | 它回答什么 | 你可以做什么 |
 | --- | --- | --- |
 | **系统** | 我的 Agent 此刻到底由什么组成？ | 浏览实时拓扑或组件清单，检查依赖，配置、启停插件，并替换能力提供方。 |
 | **蓝图** | 如何让这套组合可复用？ | 按能力组装，自动保存本地草稿，导入/导出 YAML，查看偏离，并安全切换整套插件组合。 |
-| **活动** | 刚才发生了什么，是谁做的？ | 跟随会话事件与请求 Journey，过滤噪声，检查失败和耗时，下钻插件统计。 |
+| **活动** | 刚才发生了什么，是谁做的？ | 跟随会话事件与请求 Journey，按自己的理解编排信号分组与主/旁路，过滤噪声并检查失败或耗时。 |
 
 它既是可观测控制台，也是组合工作台：先把系统看明白，再动手改变它。
 
@@ -39,6 +47,7 @@ dsh web
 - **每个危险改动都必须先接受审查。** 写入前展示结构警告、成员差异以及受管块的精确 YAML。
 - **高压下也保持可读。** 事件风暴合并为计数行，内部 service-read 噪声被过滤，动画遵守 `prefers-reduced-motion`。
 - **中英文都是一等公民。** 插件描述通过宿主配置的模型路由翻译，标识符始终保持原样。
+- **人类操作与 Agent 操作保持对称。** 界面和 `schematic_*` 工具共享计划、校验、确认门槛、备份与陈旧状态保护。
 
 ## 改接线，不靠祈祷
 
@@ -68,16 +77,18 @@ Schematic 只写当前 profile `cordis.patch.yml` 中标记清楚的受管块，
 
 蓝图以可读的 schema-2 YAML 存在 `~/.dsh/schematic/blueprints/`。旧 schema-1 预设会幂等迁移，原文件完整保留为只读备份。
 
-## 对话里也能操作
+## Agent 使用的是同一套控制面
 
-启用编辑后，dsh-schematic 会注册四个模型工具：
+启用编辑后，dsh-schematic 会注册覆盖网页持久化操作的模型工具；活动编排工具始终可用：
 
 - `schematic_plugins`——检查组合树和可用能力；
 - `schematic_blueprint_list`——列出蓝图和当前偏离；
-- `schematic_blueprint_save`——组建并保存蓝图；
-- `schematic_blueprint_switch`——走与 UI 完全相同的预览、备份、应用和热重载验证管线。
+- `schematic_blueprint_save` / `schematic_blueprint_switch`——组建、保存、预览、备份并安全切换；
+- `schematic_blueprint_manage`——查看、复制、重命名、更新、导入导出、纳入未管理项或删除；
+- `schematic_system_compose`——查看、预览、应用、回滚或清理当前系统组合变更；
+- `schematic_activity_layout`——通过对话协作编排活动分组、顺序、主/旁路、说明、颜色与插件归属。
 
-于是，“帮我保存一套精简的编程配置并切过去”可以是一句对话，而不是一次配置文件考古。
+于是，“帮我保存一套精简的编程配置，切过去，再按职责整理运行信号”可以是一句对话，而不是一次配置文件考古。Agent 可以先检查、展示与人类界面相同的预览，在必要时请求确认，最后把结果留在界面中供人继续审查。
 
 <details>
 <summary><strong>展开查看完整能力</strong></summary>

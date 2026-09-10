@@ -24,6 +24,7 @@ import { translateBatch, normalizeTranslateConfig, handleTranslateApi, HttpError
 import { send, sendJson, readJsonBody } from './http.ts'
 import { applyActivity } from './activity/index.ts'
 import { journalRows } from './activity/replay.ts'
+import { handleActivityLayoutGet, handleActivityLayoutPost } from './activity/layout.ts'
 import { normalizeEditConfig } from './compose/config.ts'
 import { handleComposeGet, handleComposePost, type ComposeDeps, type UpdateFailure } from './compose/routes.ts'
 import { handleBlueprintDetail, handleBlueprintsGet, handleBlueprintsExport, handleBlueprintsPost } from './compose/blueprints.ts'
@@ -246,6 +247,9 @@ export function apply(ctx: Context, config: SchConfig = {}): void {
           // structural-signature gate would freeze growing counters.
           return sendJson(res, 200, activity.collector.statsSnapshot())
         }
+        if (sub === '/activity-layout') {
+          return await handleActivityLayoutGet(ctx, res)
+        }
         if (sub === '/compose.json') {
           return await handleComposeGet(ctx, res, composeDeps)
         }
@@ -268,6 +272,9 @@ export function apply(ctx: Context, config: SchConfig = {}): void {
       }
       if (req.method === 'POST' && sub.startsWith('/blueprints')) {
         return await handleBlueprintsPost(ctx, req, sub, res, composeDeps)
+      }
+      if (req.method === 'POST' && sub.startsWith('/activity-layout/')) {
+        return await handleActivityLayoutPost(ctx, req, sub, res)
       }
       if (req.method === 'POST' && sub.startsWith('/api/')) {
         return await handleApi(ctx, req, sub, res, translateOverride)
