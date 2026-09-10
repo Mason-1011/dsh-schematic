@@ -1,7 +1,7 @@
 {
   "name": "dsh-schematic",
-  "version": "0.5.0",
-  "description": "Live plugin-topology viewer for DeepSeek Harness: the wiring diagram of every mounted plugin, its runtime activity, a composer-side star map — and a composition workbench that edits the wiring on the graph itself (previewed, validated, backed up, reversible).",
+  "version": "0.5.1",
+  "description": "Visual control plane for DeepSeek Harness — inspect live plugin wiring, trace runtime activity, and safely compose reusable blueprints.",
   "keywords": [
     "dsh",
     "deepseek-harness",
@@ -12,7 +12,11 @@
     "plugin-visualizer",
     "schematic",
     "plugin-manager",
-    "agent-harness"
+    "agent-harness",
+    "observability",
+    "developer-tools",
+    "plugin-system",
+    "blueprint"
   ],
   "license": "MIT",
   "type": "module",
