@@ -18,6 +18,7 @@ import { readManagedBlock, removeManagedBlock, spliceManagedBlock, validatePatch
 import { listBackups, defaultBackupDir, makeBackup, newestBackupText, type BackupInfo } from './backup.ts'
 import { parseOps, type Op } from './ops.ts'
 import { buildPreview } from './preview.ts'
+import { currentBlueprintStatus, storeOf } from './blueprints.ts'
 import type { EditConfig } from './config.ts'
 
 /** One recorded harness reload failure (from the hmr/config-update-failed listener). */
@@ -66,6 +67,7 @@ export async function handleComposeGet(ctx: Context, res: ServerResponse, deps: 
       entries: [],
       seams: [],
       blockYaml: '',
+      blueprint: null,
       backups,
       lastError,
       editable: false,
@@ -86,6 +88,9 @@ export async function handleComposeGet(ctx: Context, res: ServerResponse, deps: 
     entries: model.entries,
     seams: model.seams,
     blockYaml: model.blockYaml,
+    // The current-blueprint pointer and its divergence ride the same refresh
+    // cycle as the model; the blueprints list itself is GET /blueprints.
+    blueprint: currentBlueprintStatus(storeOf(comp), comp, model),
     backups,
     lastError,
     editable: true,

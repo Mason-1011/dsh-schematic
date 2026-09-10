@@ -116,6 +116,21 @@ const SNAPSHOT_TAIL = 40
 const MINI_TAIL = 120
 /** Service-read rows stay mini-visible for this window (poll cadence + slack). */
 const MINI_TRAFFIC_MS = 2600
+/**
+ * Identical consecutive 'action' rows arriving within this window coalesce
+ * into one counting row: host-side storms (transient scopes re-registering
+ * tool layers) re-fire tools/change hundreds of times per second, and one
+ * honest "tools/change ×N" row beats N rows flooding ring, wire, and page.
+ */
+const ACTION_COALESCE_MS = 2000
+/** While coalescing, the counting row re-broadcasts at most this often. */
+const ACTION_FLUSH_MS = 200
+/**
+ * tools/change re-resolves tool-owner attribution, which is a full graph
+ * build. Bursts arm a trailing debounce instead of rebuilding per event —
+ * the /graph.json poll stays the self-healing path either way.
+ */
+const TOOL_CHANGE_DEBOUNCE_MS = 500
 
 /** The callId a tool/result answers, from the tool message's source. */
 function toolResultCallId(data: unknown): string | undefined {
@@ -177,6 +192,12 @@ export class ActivityCollector {
   private readonly wfLiveAt = new Map<string, number>()
   /** Module specifiers currently in the graph, for tool-owner resolution. */
   private mountedModules = new Set<string>()
+  /** Armed by tools/change; fires once a burst settles to rebuild attribution. */
+  private toolRescanTimer: ReturnType<typeof setTimeout> | undefined
+  /** Armed while a burst coalesces; re-broadcasts the counting row at flush cadence. */
+  private actionFlushTimer: ReturnType<typeof setTimeout> | undefined
+  /** Live fold target per action key (`module name`): the ring row a same-action burst counts into. */
+  private readonly actionFold = new Map<string, TimelineEntry>()
   /** 0 until the first noteTopo primes the structural baseline. */
   private topoPrimedAt = 0
   /** Settled structural baseline: node id → what a diff needs to remember. */
@@ -259,9 +280,53 @@ export class ActivityCollector {
 
   /** Record one host-scope action and broadcast it to the sinks. */
   noteAction(entry: TimelineEntry): void {
+    if (entry.kind === 'action') {
+      // Bursts of the same action — a host-side storm interleaves
+      // tools/change with its system-prompt/change echo — fold into that
+      // action's own latest ring row: the count keeps the total honest while
+      // ring, wire, and timeline stay readable. First-seen fields (a leading
+      // durationMs, an isError) stay as the burst opened it.
+      const key = `${entry.module ?? ''} ${entry.name ?? ''}`
+      const row = this.actionFold.get(key)
+      if (row !== undefined && entry.time - row.time <= ACTION_COALESCE_MS) {
+        row.count = (row.count ?? 1) + 1
+        row.time = entry.time
+        this.armActionFlush()
+        return
+      }
+      entry.seq = ++this.seqCounter
+      this.actions.push(entry)
+      this.actionFold.set(key, entry)
+      if (this.actions.length > TIMELINE_CAP) {
+        const evicted = this.actions.splice(0, this.actions.length - TIMELINE_CAP)
+        for (const gone of evicted) {
+          const goneKey = `${gone.module ?? ''} ${gone.name ?? ''}`
+          if (this.actionFold.get(goneKey) === gone) this.actionFold.delete(goneKey)
+        }
+      }
+      this.broadcast(entry)
+      return
+    }
     entry.seq = ++this.seqCounter
     this.actions.push(entry)
     if (this.actions.length > TIMELINE_CAP) this.actions.splice(0, this.actions.length - TIMELINE_CAP)
+    this.broadcast(entry)
+  }
+
+  /** Re-broadcast the counting rows at flush cadence while a burst folds. */
+  private armActionFlush(): void {
+    if (this.actionFlushTimer !== undefined) return
+    this.actionFlushTimer = setTimeout(() => {
+      this.actionFlushTimer = undefined
+      for (const row of this.actionFold.values()) {
+        if ((row.count ?? 1) > 1) this.broadcast(row)
+      }
+    }, ACTION_FLUSH_MS)
+    this.actionFlushTimer.unref()
+  }
+
+  /** Fan one entry out to every subscribed sink; a broken sink never stops the feed. */
+  private broadcast(entry: TimelineEntry): void {
     for (const listener of this.listeners) {
       try { listener.onAction(entry) } catch { /* a broken sink never stops the feed */ }
     }
@@ -482,20 +547,52 @@ export class ActivityCollector {
     // 1. unit mount/unmount — entry-origin only: runtime mounts churn with
     //    every agent session and their story already rides attribution rows.
     const rowedIds = new Set<string>()
+    type NodeChange = { id: string; rec: { label: string; module: string | null; origin: 'entry' | 'runtime'; state: string | null; error: string | null } }
+    const added: NodeChange[] = []
+    const removed: NodeChange[] = []
     for (const id of [...nextNodes.keys()].filter((id) => !this.topoNodes.has(id)).sort()) {
       const rec = nextNodes.get(id)!
       if (rec.origin !== 'entry') continue
       rowedIds.add(id)
       this.journal?.write({ ev: 'topo-node', id, label: rec.label, module: rec.module, origin: rec.origin, added: true })
-      this.noteAction({ time: now, kind: 'topo', module: rec.module, name: rec.label, snippet: '+', entry: id.replace(/^include:/, '') })
+      added.push({ id, rec })
     }
     for (const id of [...this.topoNodes.keys()].filter((id) => !nextNodes.has(id)).sort()) {
       const rec = this.topoNodes.get(id)!
       if (rec.origin !== 'entry') continue
       rowedIds.add(id)
       this.journal?.write({ ev: 'topo-node', id, label: rec.label, module: rec.module, origin: rec.origin, added: false })
-      this.noteAction({ time: now, kind: 'topo', module: rec.module, name: rec.label, snippet: '-', entry: id.replace(/^include:/, '') })
+      removed.push({ id, rec })
     }
+    // A transient include/agent-preset scope can mount or dispose dozens of
+    // entry-backed children in one settled snapshot. The journal keeps every
+    // child for forensics; the live feed names the parent once with an honest
+    // count, so one lifecycle transition cannot occupy the whole viewport.
+    const emitNodeChanges = (changes: NodeChange[], marker: '+' | '-'): void => {
+      const scoped = new Map<string, NodeChange[]>()
+      const loose: NodeChange[] = []
+      for (const change of changes) {
+        const entry = change.id.replace(/^include:/, '')
+        const colon = entry.indexOf(':')
+        if (colon <= 0) loose.push(change)
+        else {
+          const scope = entry.slice(0, colon)
+          const group = scoped.get(scope) ?? []
+          group.push(change)
+          scoped.set(scope, group)
+        }
+      }
+      for (const [scope, group] of scoped) {
+        if (group.length >= 4) {
+          this.noteAction({ time: now, kind: 'topo', module: null, name: scope, snippet: marker, count: group.length })
+        } else loose.push(...group)
+      }
+      for (const { id, rec } of loose.sort((a, b) => a.id.localeCompare(b.id))) {
+        this.noteAction({ time: now, kind: 'topo', module: rec.module, name: rec.label, snippet: marker, entry: id.replace(/^include:/, '') })
+      }
+    }
+    emitNodeChanges(added, '+')
+    emitNodeChanges(removed, '-')
     // a provider row is redundant when the unit it names already got its own
     // mount/unmount row in this same diff (disabling a 10-key provider must
     // not emit 11 rows that say the same thing)
@@ -607,11 +704,12 @@ export class ActivityCollector {
       ...Object.keys(LIVE_ACTION).map((name) =>
         on(name, (() => {
           // Tool (un)registration shifts the graph: re-resolve owners against
-          // it now, so live attribution never waits for a viewer's /graph.json
-          // poll (late-mounting tool plugins otherwise attribute to null).
-          if (name === 'tools/change') {
-            try { this.mountedModules = graphModuleNames(ctx) } catch { /* a failed graph build keeps the last set */ }
-          }
+          // it once the burst settles, so live attribution never waits for a
+          // viewer's /graph.json poll (late-mounting tool plugins otherwise
+          // attribute to null). Rebuilding per event would make a host-side
+          // mount storm — hundreds of tools/change per second — spend almost
+          // all its CPU inside this observer's graph builds.
+          if (name === 'tools/change') this.armToolRescan()
           this.noteAction({ time: Date.now(), kind: 'action', module: LIVE_ACTION[name], name })
         }) as (...args: never[]) => void)),
     )
@@ -667,10 +765,26 @@ export class ActivityCollector {
     )
     return () => {
       for (const dispose of this.disposers.splice(0)) dispose()
+      if (this.toolRescanTimer !== undefined) clearTimeout(this.toolRescanTimer)
+      if (this.actionFlushTimer !== undefined) clearTimeout(this.actionFlushTimer)
       for (const rec of this.recs.values()) {
         if (rec.timer !== undefined) clearTimeout(rec.timer)
       }
     }
+  }
+
+  /**
+   * Re-resolve tool-owner attribution once tools/change stops firing: the
+   * rebuild is a full graph build, and a storm of transient scopes re-registering
+   * tool layers must not turn this observer into the hot path.
+   */
+  private armToolRescan(): void {
+    if (this.toolRescanTimer !== undefined) return
+    this.toolRescanTimer = setTimeout(() => {
+      this.toolRescanTimer = undefined
+      try { this.mountedModules = graphModuleNames(this.ctx) } catch { /* a failed graph build keeps the last set */ }
+    }, TOOL_CHANGE_DEBOUNCE_MS)
+    this.toolRescanTimer.unref()
   }
 
   /** Fold a pre-existing session's log (boot adoption) into state + timeline tail. */

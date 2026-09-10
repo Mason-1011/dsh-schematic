@@ -19,13 +19,15 @@ import { seamAlternatives, seamOfModule, type SeamAlternative } from './catalog.
 export interface ModelEntry {
   id: string
   name: string
+  /** Package/runtime description used by contextual editors and inspectors. */
+  desc: string | null
   /** Loader group path (':'-joined), null at root. */
   groupPath: string | null
   disabled: boolean
   /** 'js-expr' = disabled is a `!!js` node the loader interpolates per boot. */
   disabledSource: 'literal' | 'js-expr' | null
   origin: { layer: 'bundle' | 'user' | 'home' | 'overlay', label: string, managed: boolean }
-  config: { raw: string, jsExprFields: string[] } | null
+  config: { raw: string, value?: unknown, jsExprFields: string[] } | null
   live: { state: string | null, provides: string[], inject: string[] } | null
   protected: { tier: 'danger' | 'warn', reason: string } | null
 }
@@ -142,12 +144,14 @@ export function buildComposeModel(
     const config = row.config !== undefined && row.config !== null && typeof row.config === 'object' && !Array.isArray(row.config)
       ? {
           raw: comp.dialect.dump(row.config).trimEnd(),
+          value: row.config,
           jsExprFields: jsExprFields(row.config as Record<string, unknown>),
         }
       : null
     return {
       id,
       name: String(row.name),
+      desc: node?.desc ?? null,
       groupPath,
       // Live truth first: a mounted fiber is not disabled, whatever the raw
       // row says (a `!!js` disabled only resolves per-boot). Without a fiber,

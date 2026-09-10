@@ -91,6 +91,12 @@ export interface TimelineEntry {
    * on it; SSE consumers can ignore it.
    */
   seq?: number
+  /**
+   * How many events this row stands for: identical action bursts fold in
+   * place, while a topology row can summarize one scoped child lifecycle
+   * batch. Absent when the row represents exactly one event.
+   */
+  count?: number
 }
 
 /**

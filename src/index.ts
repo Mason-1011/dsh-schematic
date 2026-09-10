@@ -20,15 +20,17 @@ import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import { buildGraph, graphModuleNames } from './graph.ts'
 import { provideSchematic } from './service.ts'
-import { translateBatch, HttpError } from './llm.ts'
+import { translateBatch, normalizeTranslateConfig, handleTranslateApi, HttpError, type TranslateOverride } from './llm.ts'
 import { send, sendJson, readJsonBody } from './http.ts'
 import { applyActivity } from './activity/index.ts'
 import { journalRows } from './activity/replay.ts'
 import { normalizeEditConfig } from './compose/config.ts'
 import { handleComposeGet, handleComposePost, type ComposeDeps, type UpdateFailure } from './compose/routes.ts'
+import { handleBlueprintDetail, handleBlueprintsGet, handleBlueprintsExport, handleBlueprintsPost } from './compose/blueprints.ts'
+import { registerBlueprintTools } from './tools.ts'
 
 export const name = 'dsh-schematic'
-export const inject = ['loader', 'webServer']
+export const inject = ['loader', 'webServer', 'tools']
 
 /** Structural slice of the webServer service (out-of-tree: no type import). */
 interface WebRouteReg {
@@ -136,7 +138,16 @@ async function handleHistory(
   return sendJson(res, 200, { rows, hasMore: response.result.value.hasMore, nextBeforeSeq })
 }
 
-async function handleApi(ctx: Context, req: IncomingMessage, sub: string, res: ServerResponse): Promise<void> {
+async function handleApi(
+  ctx: Context,
+  req: IncomingMessage,
+  sub: string,
+  res: ServerResponse,
+  translateOverride: TranslateOverride | null,
+): Promise<void> {
+  if (sub.startsWith('/api/translate/')) {
+    return await handleTranslateApi(ctx, req, sub.slice('/api/translate'.length), res, translateOverride)
+  }
   if (sub !== '/api/translate-batch') {
     send(res, 404, 'text/plain', 'not found')
     return
@@ -147,12 +158,13 @@ async function handleApi(ctx: Context, req: IncomingMessage, sub: string, res: S
     || texts.some((s) => typeof s !== 'string' || s.length === 0 || s.length > MAX_BATCH_ITEM_CHARS)) {
     throw new HttpError(400, `texts 必须是 1–${MAX_BATCH_ITEMS} 条、每条 1–${MAX_BATCH_ITEM_CHARS} 字符的字符串数组`)
   }
-  return sendJson(res, 200, { zh: await translateBatch(ctx, texts) })
+  return sendJson(res, 200, { zh: await translateBatch(ctx, texts, translateOverride) })
 }
 
-/** Plugin config as declared in the schematic loader row (`config.edit`). */
+/** Plugin config as declared in the schematic loader row (`config.edit`, `config.translate`). */
 export interface SchConfig {
   edit?: unknown
+  translate?: unknown
 }
 
 export function apply(ctx: Context, config: SchConfig = {}): void {
@@ -165,6 +177,9 @@ export function apply(ctx: Context, config: SchConfig = {}): void {
   const clientDir = fileURLToPath(new URL('./../dist/', import.meta.url))
 
   const editConfig = normalizeEditConfig(config.edit)
+  // Translation's own model choice, if any: reference-only (provider + model);
+  // the key stays in the harness credential store, never in this config.
+  const translateOverride = normalizeTranslateConfig(config.translate)
   // The harness's own hot-reload failure signal, made visible at
   // compose.json.lastError: one entry per watched patch file, newest-last.
   const updateFailures = new Map<string, UpdateFailure>()
@@ -179,6 +194,10 @@ export function apply(ctx: Context, config: SchConfig = {}): void {
     })
   })
   const composeDeps: ComposeDeps = { editConfig, updateFailures }
+
+  // The conversation-side door to the blueprint workbench: same cores, same
+  // config gate as the HTTP routes (registers nothing when edit is off).
+  registerBlueprintTools(ctx, composeDeps)
 
   const activity = applyActivity(ctx)
   // Tool attribution resolves against the module set the boot prime inside
@@ -230,13 +249,28 @@ export function apply(ctx: Context, config: SchConfig = {}): void {
         if (sub === '/compose.json') {
           return await handleComposeGet(ctx, res, composeDeps)
         }
+        if (sub === '/blueprints') {
+          return await handleBlueprintsGet(ctx, res, composeDeps)
+        }
+        if (sub === '/blueprints/detail') {
+          return await handleBlueprintDetail(ctx, new URL(req.url ?? '/', 'http://x'), res, composeDeps)
+        }
+        if (sub === '/blueprints/export') {
+          return await handleBlueprintsExport(ctx, new URL(req.url ?? '/', 'http://x'), res, composeDeps)
+        }
+        if (sub.startsWith('/api/translate/')) {
+          return await handleTranslateApi(ctx, req, sub.slice('/api/translate'.length), res, translateOverride)
+        }
         return send(res, 404, 'text/plain', 'not found')
       }
       if (req.method === 'POST' && sub.startsWith('/compose/')) {
         return await handleComposePost(ctx, req, sub, res, composeDeps)
       }
+      if (req.method === 'POST' && sub.startsWith('/blueprints')) {
+        return await handleBlueprintsPost(ctx, req, sub, res, composeDeps)
+      }
       if (req.method === 'POST' && sub.startsWith('/api/')) {
-        return await handleApi(ctx, req, sub, res)
+        return await handleApi(ctx, req, sub, res, translateOverride)
       }
       send(res, 405, 'text/plain', 'method not allowed')
     } catch (err) {

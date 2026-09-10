@@ -20,10 +20,33 @@
 /** Build timestamp injected via esbuild `define` (scripts/build-client.mjs). */
 declare const __SCH_BUILD__: string | undefined
 
+import { DESIGN_CSS } from './design.ts'
+import { appShell } from './shell.ts'
+import { BLUEPRINT_CSS, mountBlueprintWorkspace, type BlueprintWorkspaceController } from './blueprint-workspace.ts'
+
 type Lang = 'en' | 'zh'
 
 /** Bilingual chrome dictionary; t(key, params) interpolates {name} tokens. */
 const T: Record<string, { en: string; zh: string }> = {
+  navLabel:        { en: 'Primary navigation', zh: '主导航' },
+  navSystem:       { en: 'System', zh: '系统' },
+  navBlueprints:   { en: 'Blueprints', zh: '蓝图' },
+  navActivity:     { en: 'Activity', zh: '活动' },
+  systemViews:     { en: 'System views', zh: '系统视图' },
+  systemTopology:  { en: 'Topology', zh: '拓扑' },
+  systemInventory: { en: 'Components', zh: '组件清单' },
+  systemLive:      { en: 'Live process wiring', zh: '当前进程实时接线' },
+  blueprintKicker: { en: 'Composition blueprint', zh: '组合蓝图' },
+  blueprintNone:   { en: 'No blueprint selected', zh: '未选择蓝图' },
+  activityKicker:  { en: 'Live signal', zh: '实时信号' },
+  activityNow:     { en: 'What is happening now', zh: '现在发生了什么' },
+  activityEyebrow: { en: 'OBSERVATION WINDOW', zh: '观察窗口' },
+  activityTitle:   { en: 'The system, in motion.', zh: '系统正在如何流动' },
+  activityDesc:    { en: 'Follow the active session, then inspect the exact plugins behind each event.', zh: '跟随当前会话，再下钻到每个事件背后的插件。' },
+  helpTitle:       { en: 'Open the welcome guide', zh: '打开欢迎向导' },
+  themeTitle:      { en: 'Toggle light and dark theme', zh: '切换亮色与暗色主题' },
+  zoomIn:         { en: 'Zoom in', zh: '放大' },
+  zoomOut:        { en: 'Zoom out', zh: '缩小' },
   subtitle:        { en: '/ live topology', zh: '/ 实时拓扑' },
   overview:        { en: '‹ overview', zh: '‹ 总览' },
   loading:         { en: 'loading…', zh: '加载中…' },
@@ -31,6 +54,31 @@ const T: Record<string, { en: string; zh: string }> = {
   table:           { en: 'table', zh: '表格' },
   langTitle:       { en: 'switch to Chinese', zh: '切换到英文' },
   trans:           { en: 'translating {d}/{n}…', zh: '翻译中 {d}/{n}…' },
+  transFail:       { en: 'translation unavailable: {m} — click for settings', zh: '翻译不可用:{m},点击设置' },
+  transNoLlm:      { en: 'the host mounts no llm service', zh: '宿主没有挂载 llm 服务' },
+  transNoKey:      { en: 'no API key stored for {p}', zh: '{p} 没有存 API key' },
+  transCooldown:   { en: 'the last round failed; retrying later', zh: '上一轮失败,稍后自动重试' },
+  transSetTitle:   { en: 'translation settings', zh: '翻译设置' },
+  transNote:       { en: 'The page language switch translates plugin descriptions through a model call. Pick the route it should use and store its key.', zh: '整页语言切换由模型调用翻译插件描述。选择它应当使用的路由,并保存该路由的 key。' },
+  transEffective:  { en: 'current: {p} / {m} ({s})', zh: '当前:{p} / {m}({s})' },
+  transSrcOverride: { en: 'override', zh: '覆写' },
+  transSrcDefault: { en: 'host default', zh: '宿主默认' },
+  transProvider:   { en: 'provider', zh: '路由' },
+  transModel:      { en: 'model', zh: '模型' },
+  transSaveModel:  { en: 'save model choice', zh: '保存模型选择' },
+  transClearModel: { en: 'clear override', zh: '清除覆写' },
+  transQueued:     { en: 'queued — press Apply in the preview drawer; the plugin reloads with the new config', zh: '已排队——在预览抽屉点「应用」,插件将带着新配置热重载' },
+  transNoOverride: { en: 'no override set — already on the host default', zh: '没有设置覆写,当前已是宿主默认' },
+  transBadId:      { en: 'provider/model ids may only use letters, digits, dot, underscore, dash', zh: 'provider/model 只能含字母、数字、点、下划线、连字符' },
+  transKeyLabel:   { en: 'API key', zh: 'API key' },
+  transKeyPh:      { en: 'paste the route\'s API key', zh: '粘贴该路由的 API key' },
+  transKeyStateOk: { en: 'key configured ({s})', zh: 'key 已配置({s})' },
+  transKeyStateNo: { en: 'no key stored under {r}', zh: '{r} 之下未存 key' },
+  transSaveKey:    { en: 'save key', zh: '保存 key' },
+  transProbing:    { en: 'probing with one real call…', zh: '正在用一次真实调用探测…' },
+  transProbeOk:    { en: 'key works — translation probe returned', zh: 'key 可用——翻译探测返回' },
+  transProbeFail:  { en: 'probe failed: {m}', zh: '探测失败:{m}' },
+  transKeyStoredNote: { en: 'The key goes to the harness credential store (same place as the Models page); this plugin never keeps or echoes it.', zh: 'key 写入 harness 凭据库(与 Models 页同一去处);本插件不留存、不回显。' },
   emptyDetail:     { en: 'Click anything for details (groups included); double-click a group to open it.', zh: '点击任意元素(含分组)查看详情;双击分组进入。' },
   fit:             { en: 'fit', zh: '适配' },
   refreshTitle:    { en: 'Re-fetch the live snapshot', zh: '重新拉取实时快照' },
@@ -76,6 +124,7 @@ const T: Record<string, { en: string; zh: string }> = {
   metaLine:        { en: 'live snapshot · {t} · source: this dsh process', zh: '实时快照 · {t} · 来源:当前 dsh 进程' },
   loadFail:        { en: 'failed to load /schematic/graph.json — is the plugin mounted?', zh: '加载 /schematic/graph.json 失败——插件挂载了吗?' },
   originLbl:       { en: 'origin:', zh: '来源:' },
+  catChipTitle:    { en: 'isolating filter — click to keep only this group on the canvas; click again to show all', zh: '聚焦筛选——点击后画布只保留这一组,再点一次恢复全部' },
   extKeys:         { en: 'host/unresolved keys', zh: '宿主/未解析键' },
   tipHostKey:      { en: 'host-provided: the launcher provides this key before the tree mounts', zh: '宿主提供:启动器在插件树挂载前就提供了这个键' },
   tipUnresKey:     { en: 'unresolved: nothing provides this key in this process — injectors read undefined', zh: '未解析:本进程里没有任何提供方——注入方读到 undefined' },
@@ -91,7 +140,7 @@ const T: Record<string, { en: string; zh: string }> = {
   stgGw:           { en: 'Connection & gateway', zh: '连接与网关' },
   stgGwD:          { en: 'The wire between browser and process: fetch/RPC gateway.', zh: '浏览器与 dsh 进程之间的通道:fetch/RPC 网关。' },
   stgSess:         { en: 'Sessions & agent loop', zh: '会话与代理循环' },
-  stgSessD:        { en: 'Session service, agents, the loop itself, approvals, presets.', zh: '会话服务、代理、主循环本体、审批与预设。' },
+  stgSessD:        { en: 'Session service, agents, the loop itself, approvals, blueprints.', zh: '会话服务、代理、主循环本体、审批与蓝图。' },
   stgCtx:          { en: 'Context assembly', zh: '上下文组装' },
   stgCtxD:         { en: 'System prompt, skills catalog, compaction, request context.', zh: '系统提示、技能目录、压缩、请求上下文。' },
   stgModel:        { en: 'Model call', zh: '模型调用' },
@@ -163,7 +212,7 @@ const T: Record<string, { en: string; zh: string }> = {
   topoOn:          { en: 'mounted', zh: '已挂载' },
   topoOff:         { en: 'unmounted', zh: '已卸载' },
   actSvc:          { en: 'service access', zh: '服务访问' },
-  actSvcTitle:     { en: 'show service-access rows: which package actually accessed which ctx service key (the provide/inject wiring in use)', zh: '显示服务访问行:哪个包真的访问了哪个 ctx 服务键(实际发生作用的提供/注入接线)' },
+  actSvcTitle:     { en: 'Optional diagnostics: aggregate which package accessed each ctx service key (off by default to keep the activity feed focused)', zh: '可选诊断：聚合显示各插件访问过的 ctx 服务键（默认关闭，避免淹没主要活动）' },
   recvLine:        { en: 'session/event broadcast → {n} in-listeners', zh: 'session/event 广播 → {n} 个插件在听' },
   recvNames:       { en: 'listeners of the session-event broadcast (from the live event bus)', zh: '会话事件广播的接收插件(来自运行中的事件总线)' },
   dtListens:       { en: 'listens to', zh: '监听事件' },
@@ -178,6 +227,9 @@ const T: Record<string, { en: string; zh: string }> = {
   eRolledBack:     { en: 'rolled back to {f}', zh: '已回滚到 {f}' },
   eNoBackups:      { en: 'nothing to roll back to', zh: '没有可回滚的备份' },
   eApplied:        { en: 'applied — harness reloading…', zh: '已应用——harness 正在热重载…' },
+  eSchematicOffline: { en: 'Blueprint applied. Schematic is going offline as requested; restore it from another profile or by editing the config.', zh: '蓝图已应用。Schematic 正按蓝图要求离线；可从其他 profile 或手工配置恢复。' },
+  eAutoRolledBack: { en: 'Reload failed. The backup was restored automatically and the previous system is running.', zh: '热重载失败。已自动恢复备份，旧系统继续运行。' },
+  eRollbackVerifyFail: { en: 'Reload and automatic rollback both failed. Use the backup path shown in the critical panel.', zh: '热重载与自动回滚均失败。请使用危急面板显示的备份路径。' },
   eApplyFail:      { en: 'apply failed: {m}', zh: '应用失败:{m}' },
   ePreviewFail:    { en: 'preview failed: {m}', zh: '预览失败:{m}' },
   eStale:          { en: 'the patch file changed elsewhere — model refreshed, please retry', zh: 'patch 文件被其他方修改——模型已刷新,请重试' },
@@ -265,6 +317,46 @@ const T: Record<string, { en: string; zh: string }> = {
   pkEnableAlt:     { en: 'enable {p}', zh: '启用 {p}' },
   pkFromRing:      { en: 'from a recent topology row', zh: '来自最近一条拓扑行' },
   pkNone:          { en: 'no recovery is known from here — the ✎ disabled list covers every disabled entry', zh: '这里无从恢复——✎ 的「已停用」列表列出了全部已停用条目' },
+  // v0.4 blueprints: named wiring compositions, switched through the same
+  // preview→apply drawer as every other edit
+  pChip:           { en: 'blueprints', zh: '蓝图' },
+  pChipTitle:      { en: 'named wiring blueprints — save, switch, import, export', zh: '命名的接线蓝图——保存、切换、导入、导出' },
+  pListTitle:      { en: 'blueprints · {n}', zh: '蓝图 · {n}' },
+  pHint:           { en: 'members = the enabled, unprotected entries at save time; protected core plugins never join a blueprint and are never disabled by a switch. Entries that appear after a save stay as they are — the switch report names them.', zh: '成员 = 保存时启用中的非保护条目;受保护的核心插件不入蓝图、永不被切换停用。保存之后新出现的条目保持现状——切换报告会点名。' },
+  pEmpty:          { en: 'no blueprints yet — save the current wiring as the first one', zh: '还没有蓝图——把当前接线另存为第一个' },
+  pNamePh:         { en: 'blueprint name', zh: '蓝图名称' },
+  pSaveAs:         { en: 'save current as blueprint', zh: '另存为蓝图' },
+  pSaved:          { en: 'saved — {n} member(s)', zh: '已保存——{n} 个成员' },
+  pSwitch:         { en: 'switch', zh: '切换' },
+  pRealign:        { en: 'realign', zh: '回到蓝图' },
+  pOnBlueprint:       { en: 'the composed tree already matches this blueprint — nothing to queue', zh: '组合树已与该蓝图一致——无需排队任何操作' },
+  pOverwriteTip:   { en: 'overwrite this blueprint with the current wiring', zh: '用当前接线覆盖保存该蓝图' },
+  pOverwritten:    { en: 'blueprint overwritten — {n} member(s)', zh: '蓝图已覆盖——{n} 个成员' },
+  pDeleteConfirm:  { en: 'delete?', zh: '删除?' },
+  pDeleted:        { en: 'blueprint deleted', zh: '蓝图已删除' },
+  pImport:         { en: 'import YAML', zh: '导入 YAML' },
+  pImportPh:       { en: 'paste a blueprint YAML here', zh: '把蓝图 YAML 粘贴到这里' },
+  pImportGo:       { en: 'import', zh: '导入' },
+  pImported:       { en: 'imported — {n} member(s)', zh: '已导入——{n} 个成员' },
+  pCurrent:        { en: 'current', zh: '当前' },
+  pDiverged:       { en: 'diverged · {n} pending', zh: '已偏离 · {n} 项待应用' },
+  pBlocked:        { en: 'switch blocked', zh: '切换受阻' },
+  pMembers:        { en: 'members', zh: '个成员' },
+  pDraftBusy:      { en: 'discard or apply the current draft first — a blueprint switch previews as its own batch', zh: '请先丢弃或应用当前草稿——蓝图切换独立成批预览' },
+  pReportLbl:      { en: 'switch report', zh: '切换报告' },
+  pReportNew:      { en: '{n} entries appeared after this blueprint was saved and stay exactly as they are: {ids}', zh: '保存该蓝图后新出现的 {n} 个条目保持现状:{ids}' },
+  pReportRenamed:  { en: 'member ids now bound to a different package (left untouched): {ids}', zh: '成员 id 现在指向别的包(保持不动):{ids}' },
+  // v0.4.1 table curation: pick members on the table tab, save with or without the pick
+  pickToggle:      { en: 'curate a blueprint', zh: '勾选组建蓝图' },
+  pickCount:       { en: 'picked {n} (incl. {m} disabled)', zh: '已选 {n}(含 {m} 个已停用)' },
+  pickAllOn:       { en: 'pick all enabled', zh: '全选启用' },
+  pickClear:       { en: 'clear', zh: '清空' },
+  pickSave:        { en: 'save pick ({n})', zh: '存勾选为蓝图' },
+  pickSaveCur:     { en: 'save current wiring', zh: '存当前接线' },
+  pickDisabledLbl: { en: 'disabled entries (can join a blueprint):', zh: '已停用条目(可入蓝图):' },
+  pickProtRow:     { en: 'protected core — blueprints never govern it', zh: '受保护核心——蓝图不治理' },
+  pickRuntimeRow:  { en: 'runtime unit — no composition entry', zh: 'runtime 单元——无组合条目' },
+  pickSkipped:     { en: 'not in the blueprint (protected or unknown): {ids}', zh: '未入蓝图(受保护或不存在):{ids}' },
 }
 
 const CATS = [
@@ -319,8 +411,8 @@ const STAGES: {
   {
     id: 'sess', title: 'stgSess', desc: 'stgSessD', css: '--s7',
     match: (n, has) => !['compaction', 'skill', 'context', 'system', 'spill'].includes(n.group)
-      && (['sessions', 'agents', 'subagents', 'agentLoop', 'approval', 'permissionPresets'].some((k) => n.provides.includes(k) || has(k))
-        || ['agent', 'core', 'preset', 'subagent', 'guard', 'interaction'].includes(n.group)),
+      && (['sessions', 'agents', 'subagents', 'agentLoop', 'approval', 'permissionBlueprints'].some((k) => n.provides.includes(k) || has(k))
+        || ['agent', 'core', 'blueprint', 'subagent', 'guard', 'interaction'].includes(n.group)),
   },
   {
     id: 'ctx', title: 'stgCtx', desc: 'stgCtxD', css: '--s4',
@@ -387,6 +479,7 @@ const CSS = `
 .sch .stats { color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .sch .trans { color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .sch .trans:empty { display: none; }
+.sch .trans.fail { color: var(--s8); cursor: pointer; text-decoration: underline dotted; }
 .sch header .spacer { flex: 1; }
 .sch input[type="search"], .sch button, .sch select {
   font: inherit; color: var(--ink-1); background: var(--surface-1);
@@ -410,7 +503,9 @@ const CSS = `
 .sch .chip .dot.ext { background: transparent; border: 1.5px dashed var(--ink-3); }
 .sch .chip .dot.plain { background: var(--ink-3); }
 .sch .chip.off { opacity: 0.38; }
+.sch .chip.focus { border-color: color-mix(in oklab, var(--c, var(--ink-2)) 55%, var(--border)); }
 .sch .chip b { color: var(--ink-1); font-weight: 600; }
+.sch header .chip { padding: 4px 10px; }
 .sch main { flex: 1; display: flex; min-height: 0; }
 .sch .stage { flex: 1; min-width: 0; position: relative; }
 .sch svg.graph { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; }
@@ -707,6 +802,16 @@ const CSS = `
 .sch .schPop button { font-size: 11.5px; border: 1px solid var(--border); background: none;
   color: var(--ink-1); border-radius: 6px; padding: 2px 9px; cursor: pointer; }
 .sch .schPop button:hover { border-color: var(--ink-3); }
+.sch .schPop .tpTitle { font-weight: 650; margin-bottom: 4px; }
+.sch .schPop .tpNote { color: var(--ink-3); font-size: 11px; margin: 4px 0; }
+.sch .schPop .tpCur { color: var(--ink-2); font: 11px ui-monospace, Menlo, monospace; margin: 6px 0; word-break: break-all; }
+.sch .schPop .tpRow { display: flex; align-items: center; gap: 6px; margin: 5px 0; }
+.sch .schPop .tpRow .tpLbl { color: var(--ink-3); min-width: 52px; }
+.sch .schPop .tpRow select, .sch .schPop .tpRow input { flex: 1; min-width: 0;
+  font: 11.5px ui-monospace, Menlo, monospace; color: var(--ink-1); background: var(--surface-1);
+  border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; }
+.sch .schPop .tpBtns { display: flex; gap: 6px; margin: 6px 0; }
+.sch .schPop .tpKeyState { color: var(--ink-3); font-size: 11px; margin: 2px 0 4px; }
 .sch .schPop .pkRow .badge { font-size: 10px; padding: 1px 7px; border-radius: 999px;
   border: 1px solid var(--border); color: var(--ink-3); white-space: nowrap; }
 .sch .editDrawer .dRow.dis { align-items: center; }
@@ -715,6 +820,46 @@ const CSS = `
 .sch .editDrawer .dRow.dis button { font-size: 11.5px; border: 1px solid var(--border); background: none;
   color: var(--ink-1); border-radius: 6px; padding: 2px 9px; cursor: pointer; }
 .sch .editDrawer .dRow.dis button:hover { border-color: var(--ink-3); }
+/* v0.4 blueprints: chip accent while diverged, panel rows, save/import forms, switch report */
+.sch .chip.pDiv { border-color: color-mix(in oklab, var(--s4) 60%, transparent); }
+/* v0.4.1 table curation: sticky pick bar + checkbox column */
+.sch .tableView .pickBar { position: sticky; top: -12px; z-index: 2; display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap; padding: 0 0 8px; background: var(--surface-1); border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+.sch .tableView .pickBar .pickToggle { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); cursor: pointer; }
+.sch .tableView .pickBar .pickCount { color: var(--ink-3); font-size: 11.5px; }
+.sch .tableView .pickBar button, .sch .tableView .pickBar .pickName { font-size: 11.5px; padding: 3px 9px;
+  border: 1px solid var(--border); border-radius: 6px; background: none; color: var(--ink-1); cursor: pointer; }
+.sch .tableView .pickBar button:hover { border-color: var(--ink-3); }
+.sch .tableView .pickBar .pickName { cursor: text; width: 130px; }
+.sch .tableView .pickBar .pickSave { color: var(--s4); border-color: color-mix(in oklab, var(--s4) 50%, transparent); }
+.sch .tableView .pickBar .pickDis { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; width: 100%; }
+.sch .tableView .pickBar .pickDis .lbl { color: var(--ink-3); font-size: 11px; }
+.sch .tableView .pickBar .pickDis .chip { font-size: 11px; padding: 1px 8px; }
+.sch .tableView td.pickCell { width: 24px; text-align: center; }
+.sch .editDrawer .dRow.blueprint { flex-direction: column; align-items: stretch; padding: 5px 0; }
+.sch .editDrawer .dRow.blueprint .pMain { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.sch .editDrawer .dRow.blueprint .pMeta { color: var(--ink-3); font-size: 10.5px; }
+.sch .editDrawer .dRow.blueprint .badge { font-size: 10px; padding: 1px 7px; border-radius: 999px;
+  border: 1px solid var(--border); color: var(--ink-3); white-space: nowrap; }
+.sch .editDrawer .dRow.blueprint .badge.cur { color: var(--ink-1); border-color: var(--ink-3); }
+.sch .editDrawer .dRow.blueprint .badge.div { color: var(--s4); border-color: var(--s4); }
+.sch .editDrawer .dRow.blueprint .pBtns { display: flex; gap: 6px; margin-top: 4px; }
+.sch .editDrawer .dRow.blueprint .pBtns button { font-size: 11px; border: 1px solid var(--border); background: none;
+  color: var(--ink-1); border-radius: 6px; padding: 2px 9px; cursor: pointer; }
+.sch .editDrawer .dRow.blueprint .pBtns button:hover { border-color: var(--ink-3); }
+.sch .editDrawer .dRow.blueprint .pBtns button.arm { color: var(--s8); border-color: color-mix(in oklab, var(--s8) 45%, transparent); }
+.sch .editDrawer .pSaveRow { display: flex; gap: 6px; margin: 6px 0 2px; }
+.sch .editDrawer .pNameIn { flex: 1; min-width: 0; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px;
+  background: none; color: var(--ink-1); font-size: 12px; }
+.sch .editDrawer .pImportRow { margin-top: 8px; }
+.sch .editDrawer .pImport { display: none; margin-top: 6px; }
+.sch .editDrawer .pImport.on { display: block; }
+.sch .editDrawer .pImportTa { width: 100%; box-sizing: border-box; min-height: 90px; padding: 6px 8px;
+  border: 1px solid var(--border); border-radius: 6px; background: none; color: var(--ink-1);
+  font: 11px/1.5 ui-monospace, Menlo, monospace; }
+.sch .editDrawer .pReport { margin: 4px 0 6px; padding: 6px 9px; border: 1px dashed var(--border); border-radius: 8px;
+  background: color-mix(in oklab, var(--page) 92%, var(--ink-3)); }
+.sch .editDrawer .pReport h4 { margin: 0 0 2px; }
 `
 
 /** Idempotent stylesheet injection. */
@@ -722,7 +867,7 @@ function injectStyles(): void {
   if (document.querySelector('style[data-schematic-css]') === null) {
     const tag = document.createElement('style')
     tag.dataset.schematicCss = ''
-    tag.textContent = CSS
+    tag.textContent = CSS + DESIGN_CSS + BLUEPRINT_CSS
     document.head.appendChild(tag)
   }
 }
@@ -734,6 +879,10 @@ function injectStyles(): void {
  */
 export function mountSchematic(container: HTMLElement): () => void {
   injectStyles()
+  try {
+    const storedTheme = localStorage.getItem('sch.theme')
+    if (storedTheme === 'light' || storedTheme === 'dark') document.documentElement.dataset.theme = storedTheme
+  } catch { /* storage unavailable: keep following the operating system */ }
   const ac = new AbortController()
   const sig = { signal: ac.signal }
   let disposed = false
@@ -743,15 +892,46 @@ export function mountSchematic(container: HTMLElement): () => void {
   try {
     if (localStorage.getItem('sch.lang') === 'zh') lang = 'zh'
   } catch { /* storage unavailable: English only, toggle still works in-memory */ }
+  // storage key holding the timestamp of the last wholly failed translation round
+  const zhFaultKey = 'sch.zhfault'
+  /** The failed round's reason ('' when healthy): shown on .trans, persisted
+   *  beside the fault marker so a reload still explains itself. */
+  let zhFailMsg = ''
+  /** /api/translate/status.json snapshot; null before the first fetch or when
+   *  the fetch itself errors — unknown state never blocks a round, the round
+   *  is what tells the truth. */
+  let transStatus: {
+    override: { provider: string, model: string } | null
+    effective: { provider: string, model: string } | null
+    llmMounted: boolean
+    credentials: { ref: string, configured: boolean, source?: string, writable: boolean } | null
+  } | null = null
+  /** Re-fetch the translate status; the settings popover and the zh precheck share it. */
+  const refreshTransStatus = async (): Promise<void> => {
+    try {
+      const r = await fetch('/schematic/api/translate/status.json', { cache: 'no-store' })
+      transStatus = r.ok ? await r.json() : null
+    } catch { transStatus = null }
+  }
+  /** Why translation cannot work right now, or null when nothing says it can't. */
+  const transUnusableReason = (): string | null => {
+    if (lang !== 'zh' || transStatus === null) return null
+    if (!transStatus.llmMounted) return t('transNoLlm')
+    if (transStatus.credentials !== null && !transStatus.credentials.configured) {
+      return t('transNoKey', { p: transStatus.credentials.ref })
+    }
+    return null
+  }
   // ?lang=zh|en deep link overrides the stored choice and persists it
   const qLang = new URLSearchParams(location.search).get('lang')
   if (qLang === 'zh' || qLang === 'en') {
     lang = qLang
     try { localStorage.setItem('sch.lang', lang) } catch { /* storage unavailable: this page only */ }
+    try { localStorage.removeItem(zhFaultKey) } catch { /* storage unavailable */ } // explicit ask: translation may retry now
   }
   // ?tab=journey|domains|table deep link picks the landing tab
   const qTab = new URLSearchParams(location.search).get('tab')
-  const bootTab: 'journey' | 'domains' | 'table' = qTab === 'domains' || qTab === 'table' ? qTab : 'journey'
+  const bootTab: 'journey' | 'domains' | 'table' = qTab === 'journey' || qTab === 'table' ? qTab : 'domains'
   const t = (key: string, params?: Record<string, string | number>): string => {
     let s = T[key]?.[lang] ?? key
     if (params) for (const [k, v] of Object.entries(params)) s = s.replaceAll(`{${k}}`, String(v))
@@ -778,6 +958,7 @@ export function mountSchematic(container: HTMLElement): () => void {
     try { localStorage.setItem('sch.zhmap', JSON.stringify([...zhMap])) } catch { /* quota exceeded: skip persisting */ }
   }
   const pendingZh = new Set<string>()
+  const blueprintZhTexts = new Set<string>()
   let zhTexts: string[] = []
   let zhTotal = 0
   /** Language-resolved description: English until the batch lands. */
@@ -787,6 +968,15 @@ export function mountSchematic(container: HTMLElement): () => void {
   }
   const updateTransLabel = (): void => {
     const el = $('.trans')
+    if (lang === 'zh' && zhFailMsg !== '') {
+      // the honest notice: what broke, clickable into the settings that fix it
+      el.textContent = t('transFail', { m: zhFailMsg })
+      el.classList.add('fail')
+      el.title = t('transSetTitle')
+      return
+    }
+    el.classList.remove('fail')
+    el.title = ''
     if (lang !== 'zh' || zhTotal === 0) { el.textContent = ''; return }
     const done = zhTexts.filter((s) => zhMap.has(s)).length
     if (done >= zhTotal) { el.textContent = ''; return }
@@ -794,60 +984,11 @@ export function mountSchematic(container: HTMLElement): () => void {
   }
 
   // ------- shell -------
-  const html = `
-<header>
-  <h1>dsh-schematic <span class="subtitle">${t('subtitle')}</span></h1>
-  <span class="tabs">
-    <button class="tabBtn" data-tab="journey" aria-pressed="true">${t('tabJourney')}</button>
-    <button class="tabBtn" data-tab="domains" aria-pressed="false">${t('tabDomains')}</button>
-    <button class="tabBtn" data-tab="table" aria-pressed="false">${t('tabTable')}</button>
-  </span>
-  <button class="crumb">${t('overview')}</button>
-  <span class="stats">${t('loading')}</span>
-  <span class="trans"></span>
-  <span class="spacer"></span>
-  <select class="sessSel" title="${t('sessSelTitle')}"></select>
-  <input type="search" class="search" placeholder="${t('searchPh')}">
-  <button class="editBtn" aria-pressed="false" title="${t('editTitle')}">✎</button>
-  <button class="langToggle" title="${t('langTitle')}">中</button>
-  <button class="themeToggle">◐</button>
-</header>
-<div class="editBanner"></div>
-<div class="filters"></div>
-<main>
-  <div class="journey"></div>
-  <div class="stage"><svg class="graph" xmlns="http://www.w3.org/2000/svg"><g class="world"></g></svg></div>
-  <div class="tableView"></div>
-  <aside class="detail"><p class="empty">${t('emptyDetail')}</p></aside>
-</main>
-<div class="actbar">
-  <div class="actHead">
-    <span class="runDot"></span><b class="actSess">—</b><span class="actState"></span><span class="recv"></span>
-    <span class="spacer" style="flex:1"></span>
-    <button class="chip subBtn" aria-pressed="false" title="${t('actSubTitle')}">${t('actSub')}</button>
-    <button class="chip svcBtn" aria-pressed="true" title="${t('actSvcTitle')}">${t('actSvc')}</button>
-    <button class="chip repBtn" aria-pressed="false" title="${t('actRepTitle')}">${t('actRep')}</button>
-    <button class="chip statBtn" aria-pressed="false" title="${t('actStatsTitle')}">${t('actStats')}</button>
-    <span class="legend">${t('actLiveHint')}</span>
-    <button class="actFold" aria-pressed="true">▾</button>
-  </div>
-  <div class="actList"></div>
-</div>
-<footer>
-  <span class="meta"></span>
-  <span class="spacer" style="flex:1"></span>
-  <button class="zoomOut">−</button><button class="zoomIn">+</button><button class="zoomFit">${t('fit')}</button><button class="expBtn" aria-pressed="false" title="${t('expAllTitle')}">${t('expandAll')}</button>
-  <button class="autoBtn" aria-pressed="true" title="${t('autoTitle')}">⏸</button>
-  <button class="refresh" title="${t('refreshTitle')}">⟳</button>
-</footer>
-<div class="toast"></div>
-<div class="tooltip"></div>
-<div class="schPop"></div>
-<div class="editScrim"></div>
-<aside class="editDrawer"></aside>`
+  const html = appShell(t)
   container.classList.add('sch')
   container.innerHTML = html
   container.dataset.tab = bootTab
+  container.dataset.space = bootTab === 'journey' ? 'activity' : 'system'
   const $ = (sel: string): HTMLElement => container.querySelector(sel) as HTMLElement
   const svg = $('svg.graph') as unknown as SVGSVGElement
   const world = $('g.world') as unknown as SVGGElement
@@ -891,9 +1032,10 @@ export function mountSchematic(container: HTMLElement): () => void {
 
   // ------- state -------
   const state = {
-    cats: new Set(CATS.map((c) => c.id)),
-    other: true, ext: true,
-    origins: new Set(['entry', 'runtime']),
+    /** Isolating pill filters: null shows everything with the chip at rest; an id spotlights one group. */
+    catFocus: null as string | null,
+    originFocus: null as string | null,
+    ext: true,
     q: '', sel: null as string | null, scope: null as string | null,
     /** Overview group cards dissolved into member pills (unit ids). */
     expanded: new Set<string>(),
@@ -911,7 +1053,7 @@ export function mountSchematic(container: HTMLElement): () => void {
     const hay = [n.id, n.dir, n.label ?? '', n.module ?? '', n.state ?? '', ...n.provides, ...n.inject].join(' ').toLowerCase()
     return hay.includes(state.q)
   }
-  const originOk = (n: any): boolean => state.origins.has(n.origin ?? 'runtime')
+  const originOk = (n: any): boolean => state.originFocus === null || (n.origin ?? 'runtime') === state.originFocus
 
   let GRAPH: any = null
   let byId = new Map<string, any>()
@@ -955,7 +1097,7 @@ export function mountSchematic(container: HTMLElement): () => void {
     (CATS.findIndex((c) => c.id === a.cat) - CATS.findIndex((c) => c.id === b.cat)) || a.label.localeCompare(b.label)
 
   const visibleNode = (n: any): boolean =>
-    (state.cats.has(n.category) || (n.category === 'other' && state.other))
+    (state.catFocus === null || n.category === state.catFocus)
     && originOk(n) && matchNode(n)
 
   function placeUnits(units: any[], xStart: number) {
@@ -1135,11 +1277,13 @@ export function mountSchematic(container: HTMLElement): () => void {
       }
     }
     const spineList = GRAPH.nodes.filter((n: any) => !n.cluster && n.spine)
-    if (spineList.some(memberShown)) {
+    const spineShown = spineList.filter(memberShown)
+    // a focused category keeps a card alive while any of its members matches —
+    // cards are mixed-category, so a majority rule would hide focused pills
+    if (spineShown.length > 0 && (state.catFocus === null || spineList.some((n: any): boolean => n.category === state.catFocus))) {
       expandable.push('spine')
-      const shown = spineList.filter(memberShown)
-      for (const n of shown) nodeGroup.set(n.id, 'spine')
-      if (state.expanded.has('spine')) shown.forEach(pushNode)
+      for (const n of spineShown) nodeGroup.set(n.id, 'spine')
+      if (state.expanded.has('spine')) spineShown.forEach(pushNode)
       else pushCard({
         id: 'spine', label: `core · ${spineList.length}`, cat: 'core-spine',
         rank: Math.min(...spineList.map((n: any) => n.rank)), kind: 'family', family: { members: spineList },
@@ -1152,11 +1296,12 @@ export function mountSchematic(container: HTMLElement): () => void {
       }
       const shown = list.filter(memberShown)
       if (shown.length === 0) continue
+      const catCount = new Map<string, number>()
+      for (const n of shown) catCount.set(n.category, (catCount.get(n.category) ?? 0) + 1)
+      if (state.catFocus !== null && !catCount.has(state.catFocus)) continue
       expandable.push('fam:' + fam)
       for (const n of shown) nodeGroup.set(n.id, 'fam:' + fam)
       if (state.expanded.has('fam:' + fam)) { shown.forEach(pushNode); continue }
-      const catCount = new Map<string, number>()
-      for (const n of list) catCount.set(n.category, (catCount.get(n.category) ?? 0) + 1)
       const cat = [...catCount.entries()].sort((a, b) => b[1] - a[1])[0][0]
       pushCard({
         id: 'fam:' + fam, label: `${fam} · ${list.length}`, cat, rank: Math.min(...list.map((n: any) => n.rank)),
@@ -1164,9 +1309,8 @@ export function mountSchematic(container: HTMLElement): () => void {
       }, list)
     }
     for (const c of GRAPH.clusters) {
-      const catOk = state.cats.has(c.category) || (c.category === 'other' && state.other)
-      if (!catOk) continue
       const members = c.members.map((m: string) => byId.get(m))
+      if (state.catFocus !== null && !members.some((n: any): boolean => n?.category === state.catFocus)) continue
       const labelHit = state.q && c.label.toLowerCase().includes(state.q)
       const shown = members.filter(memberShown)
       if (!(shown.length > 0 || labelHit)) continue
@@ -1197,7 +1341,7 @@ export function mountSchematic(container: HTMLElement): () => void {
 
   function layoutScope() {
     const c = scopeTarget(state.scope ?? '')
-    const members = c.members.map((m: string) => byId.get(m)).filter((n: any) => originOk(n) && matchNode(n))
+    const members = c.members.map((m: string) => byId.get(m)).filter((n: any) => (state.catFocus === null || n.category === state.catFocus) && originOk(n) && matchNode(n))
     const memberIds = new Set(members.map((n: any) => n.id))
     const memberUnits = members.map((n: any) => ({ id: n.id, label: nodeLabel(n), cat: n.category, rank: n.rank, kind: 'node', node: n }))
 
@@ -1346,7 +1490,11 @@ export function mountSchematic(container: HTMLElement): () => void {
    * size so wrapping stays stable while reading.
    */
   function fitJourney(reset = false): void {
-    const jr = $('.jr') as HTMLElement
+    // The pane may not be mounted yet — ResizeObserver fires once on observe,
+    // which can land between boot and the first render (a crash there used to
+    // be the one red line on the console at page open).
+    const jr = $('.jr') as HTMLElement | null
+    if (jr === null) return
     const zoom = jr.querySelector(':scope > .jrZoom') as HTMLElement | null
     const fit = zoom?.querySelector(':scope > .jrFit') as HTMLElement | null
     if (zoom === null || fit === null) return
@@ -1488,10 +1636,13 @@ export function mountSchematic(container: HTMLElement): () => void {
    * itself, or a language toggle on that tab leaves both in the old language.
    */
   function updateCrumb(scoped: boolean, label?: string): void {
-    const crumb = $('.crumb')
-    crumb.classList.toggle('on', scoped)
-    crumb.textContent = t('overview')
-    $('.subtitle').textContent = scoped && label !== undefined ? `/ ${label}` : t('subtitle')
+    const crumb = container.querySelector<HTMLElement>('.crumb')
+    if (crumb !== null) {
+      crumb.classList.toggle('on', scoped)
+      crumb.textContent = t('overview')
+    }
+    const subtitle = container.querySelector<HTMLElement>('.subtitle')
+    if (subtitle !== null) subtitle.textContent = scoped && label !== undefined ? `/ ${label}` : t('subtitle')
   }
 
   function render(refit = false): void {
@@ -1961,56 +2112,360 @@ export function mountSchematic(container: HTMLElement): () => void {
   }
 
   function renderTable(L: any): void {
+    // Curation mode: a checkbox column + the sticky pick bar. Surgical state
+    // updates (checkbox/chip toggles repaint nothing) keep the name input's
+    // text alive; only the mode toggle itself re-renders the table.
+    const dis = (compose?.entries ?? []).filter((e: any): boolean => e.disabled)
+    const pickedDisabled = [...pickIds].filter((id) => dis.some((e: any) => e.id === id)).length
+    const updatePickCount = (): void => {
+      const el = $('.tableView .pickCount')
+      if (el !== null) el.textContent = t('pickCount', { n: pickIds.size, m: [...pickIds].filter((id) => dis.some((e: any) => e.id === id)).length })
+    }
+    const syncChecks = (): void => {
+      document.querySelectorAll<HTMLInputElement>('.tableView input[type="checkbox"][data-id]').forEach((c) => { c.checked = pickIds.has(c.dataset.id ?? '') })
+      document.querySelectorAll<HTMLElement>('.tableView .pickDisChip').forEach((c) => {
+        c.classList.toggle('focus', pickIds.has(c.dataset.id ?? ''))
+        c.classList.toggle('off', !pickIds.has(c.dataset.id ?? ''))
+      })
+      updatePickCount()
+    }
+    const savePick = async (withPick: boolean): Promise<void> => {
+      const name = ($('.tableView .pickName') as HTMLInputElement | null)?.value.trim() ?? ''
+      if (name === '') { toast(t('pNamePh')); return }
+      const r = await postBlueprints('save', withPick ? { name, memberIds: [...pickIds] } : { name })
+      if (r.status === 200) {
+        toast(t('pSaved', { n: r.json.blueprint.memberCount }))
+        if (Array.isArray(r.json.skipped) && r.json.skipped.length > 0) toast(t('pickSkipped', { ids: r.json.skipped.join(', ') }))
+        void fetchBlueprints()
+      } else toast(r.json?.error ?? t('eApplyFail', { m: r.status }))
+    }
     const rows = (state.scope ? L.members : GRAPH.nodes.filter(visibleNode))
       .sort((a: any, b: any) => (a.label ?? a.id).localeCompare(b.label ?? b.id))
       .map((n: any) => {
         const d = descOf(n)
-        return `<tr><td>${esc(n.label ?? n.id)}</td><td>${n.dir}</td><td>${n.state ?? '—'}</td><td>${n.form}</td>
+        const e = composeEntryOf(n)
+        let cb = ''
+        if (tablePick) {
+          if (e === null) cb = `<input type="checkbox" disabled title="${t('pickRuntimeRow')}">`
+          else if (e.protected !== null) cb = `<input type="checkbox" disabled title="${t('pickProtRow')}">`
+          else cb = `<input type="checkbox" data-id="${esc(e.id)}" ${pickIds.has(e.id) ? 'checked' : ''}>`
+        }
+        return `<tr>${tablePick ? `<td class="pickCell">${cb}</td>` : ''}<td>${esc(n.label ?? n.id)}</td><td>${n.dir}</td><td>${n.state ?? '—'}</td><td>${n.form}</td>
         <td>${n.cluster ? clusterById.get(n.cluster).label : '—'}</td>
         <td>${d ? esc(d) : '—'}</td>
         <td>${n.provides.join(', ')}</td><td>${n.inject.join(', ')}</td></tr>`
       }).join('')
-    $('.tableView').innerHTML =
-      `<table><thead><tr><th>${t('thUnit')}</th><th>${t('thEntry')}</th><th>${t('thState')}</th><th>${t('thForm')}</th><th>${t('thGroup')}</th><th>${t('thDesc')}</th><th>${t('thProvides')}</th><th>${t('thInject')}</th></tr></thead><tbody>${rows}</tbody></table>`
+    $('.tableView').innerHTML = `
+    <div class="pickBar">
+      <label class="pickToggle"><input type="checkbox" class="pickToggleIn" ${tablePick ? 'checked' : ''}>${t('pickToggle')}</label>
+      ${tablePick ? `
+      <span class="pickCount">${t('pickCount', { n: pickIds.size, m: pickedDisabled })}</span>
+      <button class="pickAll">${t('pickAllOn')}</button>
+      <button class="pickClear">${t('pickClear')}</button>
+      <input class="pickName" placeholder="${t('pNamePh')}" maxlength="80" value="${esc(pickNameDraft)}">
+      <button class="pickSave">${t('pickSave', { n: pickIds.size })}</button>
+      <button class="pickSaveCur">${t('pickSaveCur')}</button>
+      <div class="pickDis">
+        <span class="lbl">${t('pickDisabledLbl')}</span>
+        ${dis.length === 0 ? '<span class="lbl">—</span>' : dis.map((e: any) =>
+          `<span class="chip pickDisChip ${pickIds.has(e.id) ? 'focus' : 'off'}" data-id="${esc(e.id)}">${esc(e.id)}</span>`).join('')}
+      </div>` : ''}
+    </div>
+    <table><thead><tr>${tablePick ? `<th class="pickCell"></th>` : ''}<th>${t('thUnit')}</th><th>${t('thEntry')}</th><th>${t('thState')}</th><th>${t('thForm')}</th><th>${t('thGroup')}</th><th>${t('thDesc')}</th><th>${t('thProvides')}</th><th>${t('thInject')}</th></tr></thead><tbody>${rows}</tbody></table>`
+    ;($('.tableView .pickToggleIn') as HTMLInputElement | null)?.addEventListener('change', (ev) => {
+      tablePick = (ev.target as HTMLInputElement).checked
+      render()
+    })
+    ;($('.tableView .pickName') as HTMLInputElement | null)?.addEventListener('input', (ev) => {
+      pickNameDraft = (ev.target as HTMLInputElement).value
+    })
+    ;($('.tableView .pickAll') as HTMLElement | null)?.addEventListener('click', () => {
+      pickIds.clear()
+      for (const e of compose?.entries ?? []) if (!e.disabled && e.protected === null) pickIds.add(e.id)
+      syncChecks()
+    })
+    ;($('.tableView .pickClear') as HTMLElement | null)?.addEventListener('click', () => { pickIds.clear(); syncChecks() })
+    ;($('.tableView .pickSave') as HTMLElement | null)?.addEventListener('click', () => { void savePick(true) })
+    ;($('.tableView .pickSaveCur') as HTMLElement | null)?.addEventListener('click', () => { void savePick(false) })
+    document.querySelectorAll<HTMLElement>('.tableView .pickDisChip').forEach((c) => {
+      c.addEventListener('click', () => {
+        const id = c.dataset.id ?? ''
+        pickIds.has(id) ? pickIds.delete(id) : pickIds.add(id)
+        syncChecks()
+      })
+    })
+    document.querySelectorAll<HTMLInputElement>('.tableView input[type="checkbox"][data-id]').forEach((c) => {
+      c.addEventListener('change', () => {
+        const id = c.dataset.id ?? ''
+        c.checked ? pickIds.add(id) : pickIds.delete(id)
+        updatePickCount()
+      })
+    })
   }
 
   // ------- batch translation -------
+  /** A wholly failed round is remembered for this long: an unreachable provider
+   *  must not re-fire the full missing set on every reload — the chunks used to
+   *  pin every connection the browser allows per origin (six), and the page's
+   *  own fetches then queued behind them until a fresh tab would not load at
+   *  all. The marker is cleared by an explicit language toggle. */
+  const ZH_FAULT_MS = 10 * 60_000
+  /** At most this many translate requests in flight: the connection pool is
+   *  shared with the page's own fetches, so translation must never hold it all. */
+  const ZH_LANES = 2
+  /** Client-side deadline per request: frees the connection even when it is the
+   *  server side that is stuck (its own model deadline outlasts the page's). */
+  const ZH_REQ_MS = 25_000
   /** Kick off translation of every untranslated description (zh mode only). */
   function ensureZh(): void {
     if (lang !== 'zh' || GRAPH === null) { updateTransLabel(); return }
-    const texts = [...new Set(
-      [...GRAPH.nodes, ...GRAPH.clusters]
+    const texts = [...new Set([
+      ...[...GRAPH.nodes, ...GRAPH.clusters]
         .map((x: any) => x.desc)
         .filter((d: unknown): d is string => typeof d === 'string'),
-    )]
+      ...blueprintZhTexts,
+    ])]
     zhTotal = texts.length
     zhTexts = texts
     const missing = texts.filter((s) => !zhMap.has(s) && !pendingZh.has(s))
     updateTransLabel()
     if (missing.length === 0) return
+    const recordFault = (msg: string): void => {
+      zhFailMsg = msg
+      updateTransLabel()
+      blueprintWorkspace?.relocalize()
+      try { localStorage.setItem(zhFaultKey, JSON.stringify({ at: Date.now(), msg })) } catch { /* storage unavailable */ }
+    }
+    // the status precheck: when the server already knows translation cannot
+    // work, say so immediately instead of pinning connections for 20 s rounds
+    const precheck = transUnusableReason()
+    if (precheck !== null) { recordFault(precheck); return }
+    try {
+      const raw = localStorage.getItem(zhFaultKey)
+      const fault = raw === null ? null : JSON.parse(raw) as { at?: unknown, msg?: unknown } | number
+      const at = typeof fault === 'number' ? fault : typeof fault?.at === 'number' ? fault.at : null
+      if (at !== null && Date.now() < at + ZH_FAULT_MS) {
+        if (zhFailMsg === '') zhFailMsg = (typeof fault === 'object' && typeof fault?.msg === 'string' && fault.msg !== '') ? fault.msg : t('transCooldown')
+        updateTransLabel()
+        return
+      }
+    } catch { /* storage unavailable: this round only */ }
     missing.forEach((s) => pendingZh.add(s))
-    for (let i = 0; i < missing.length; i += 20) {
-      const chunk = missing.slice(i, i + 20)
-      void (async () => {
+    const chunks: string[][] = []
+    for (let i = 0; i < missing.length; i += 20) chunks.push(missing.slice(i, i + 20))
+    let landed = 0
+    let cursor = 0
+    const lane = async (): Promise<void> => {
+      while (cursor < chunks.length) {
+        const chunk = chunks[cursor++] as string[]
         try {
           const res = await fetch('/schematic/api/translate-batch', {
             method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ texts: chunk }),
+            signal: AbortSignal.timeout(ZH_REQ_MS),
           })
           const data = await res.json().catch(() => ({ error: '响应解析失败' }))
           if (!res.ok || !Array.isArray((data as any).zh) || (data as any).zh.length !== chunk.length) {
             throw new Error((data as any).error || ('HTTP ' + res.status))
           }
-          chunk.forEach((s, j) => { if (typeof (data as any).zh[j] === 'string') zhMap.set(s, (data as any).zh[j]) })
-        } catch { /* keep English for this chunk; retry on next toggle/reload */ }
-        finally {
+          chunk.forEach((s, j) => {
+            if (typeof (data as any).zh[j] === 'string') { zhMap.set(s, (data as any).zh[j]); landed++ }
+          })
+        } catch (err) {
+          // the server's reason becomes the notice the moment the whole round fails
+          zhFailMsg = err instanceof Error && err.message !== '' ? err.message : t('transCooldown')
+        } finally {
           chunk.forEach((s) => pendingZh.delete(s))
           persistZh()
           updateTransLabel()
           render()
           refreshDetail()
+          blueprintWorkspace?.relocalize()
         }
-      })()
+      }
     }
+    void (async () => {
+      await Promise.all(Array.from({ length: Math.min(ZH_LANES, chunks.length) }, () => lane()))
+      if (landed === 0 && chunks.length > 0) {
+        try { localStorage.setItem(zhFaultKey, JSON.stringify({ at: Date.now(), msg: zhFailMsg })) } catch { /* storage unavailable */ }
+      } else if (landed > 0) {
+        zhFailMsg = '' // partial success: translation works, no notice
+        updateTransLabel()
+      }
+    })()
+  }
+  /** Precheck-then-translate: the status fetch runs before the round so a
+   *  known-broken provider is named instantly (boot and language toggle). */
+  const ensureZhChecked = (): void => { void refreshTransStatus().then(ensureZh) }
+
+  // ------- translation settings popover -------
+  /** Model ids are spliced into YAML text: keep them to plain identifier shapes. */
+  const TRANS_ID = /^[A-Za-z0-9._-]+$/
+
+  /**
+   * Replace or remove one top-level mapping key in a small YAML text, leaving
+   * every other byte — comments, !!js expressions — exactly as typed: the same
+   * raw-text preservation the config editor gives, so saving a translate
+   * override never freezes a sibling expression.
+   */
+  const spliceTopKey = (text: string, key: string, block: string | null): string => {
+    const lines = text.split('\n')
+    const out: string[] = []
+    let skipping = false
+    let replaced = false
+    for (const line of lines) {
+      if (/^\S/.test(line)) {
+        skipping = line.startsWith(`${key}:`)
+        if (skipping) {
+          if (block !== null) out.push(block)
+          replaced = true
+          continue
+        }
+      }
+      if (skipping && line.trim() !== '') continue // child of the replaced/removed key
+      out.push(line)
+    }
+    if (block !== null && !replaced) {
+      let joined = out.join('\n')
+      if (joined !== '' && !joined.endsWith('\n')) joined += '\n'
+      return joined + block
+    }
+    return out.join('\n')
+  }
+
+  /** Queue config.translate through the ordinary setConfig pipeline (✎ + edit
+   *  config + preview drawer + backup): a benign self-edit that hot-reloads us. */
+  const queueTranslateConfig = (block: string | null): void => {
+    if (!editOn) { toast(t('eEditFirst')); return }
+    if (compose === null) { toast(t('eUnavailable')); return }
+    if (!compose.editable) { toast(t('eLocked', { r: compose.notEditableReason ?? '?' })); return }
+    const entry = entryById.get('schematic')
+    if (entry === undefined) { toast(t('rowGone', { id: 'schematic' })); return }
+    const raw: string = entry.config?.raw ?? ''
+    if (block === null && !/^translate:/m.test(raw)) { toast(t('transNoOverride')); return }
+    const next = spliceTopKey(raw, 'translate', block)
+    // '' is not a YAML mapping — the pipeline's empty config is '{}'
+    addOp({ kind: 'setConfig', id: 'schematic', config: next.trim() === '' ? '{}' : next })
+    closePop()
+    toast(t('transQueued'))
+  }
+
+  /** The notice's destination: model choice + key, one popover. */
+  const openTransPop = (x: number, y: number): void => {
+    void (async () => {
+      await refreshTransStatus()
+      // self-heal: a stale notice whose blocker is gone drops itself and retries
+      if (transUnusableReason() === null && zhFailMsg !== '') {
+        zhFailMsg = ''
+        try { localStorage.removeItem(zhFaultKey) } catch { /* storage unavailable */ }
+        updateTransLabel()
+        ensureZh()
+      }
+      let provs: { provider: string, displayName: string, declared: boolean, active: boolean }[] = []
+      try {
+        const r = await fetch('/schematic/api/translate/providers.json', { cache: 'no-store' })
+        if (r.ok) provs = (await r.json()).providers ?? []
+      } catch { /* the form still works from the effective selection alone */ }
+      const eff = transStatus?.effective ?? null
+      const override = transStatus?.override ?? null
+      const cred = transStatus?.credentials ?? null
+      const selProvider = eff?.provider ?? ''
+      pop.innerHTML = `
+      <div class="tpTitle">${t('transSetTitle')}</div>
+      <div class="tpNote">${t('transNote')}</div>
+      <div class="tpCur">${t('transEffective', {
+        p: esc(eff?.provider ?? '—'), m: esc(eff?.model ?? '—'),
+        s: override !== null ? t('transSrcOverride') : t('transSrcDefault') })}</div>
+      <div class="tpRow"><span class="tpLbl">${t('transProvider')}</span>
+        <select class="tpProv">${provs.map((p): string =>
+          `<option value="${esc(p.provider)}"${p.provider === selProvider ? ' selected' : ''}>${esc(p.displayName || p.provider)}</option>`).join('')
+          || `<option value="${esc(selProvider)}">${esc(selProvider)}</option>`}</select></div>
+      <div class="tpRow"><span class="tpLbl">${t('transModel')}</span>
+        <input class="tpModel" list="tpModels" value="${esc(eff?.model ?? '')}" spellcheck="false">
+        <datalist id="tpModels"></datalist></div>
+      <div class="tpBtns">
+        <button class="tpSave">${t('transSaveModel')}</button>
+        <button class="tpClear">${t('transClearModel')}</button>
+      </div>
+      <div class="tpRow"><span class="tpLbl">${t('transKeyLabel')}</span>
+        <input type="password" class="tpKeyIn" placeholder="${t('transKeyPh')}" autocomplete="off"></div>
+      <div class="tpKeyState">${cred === null ? '' : cred.configured
+        ? t('transKeyStateOk', { s: esc(cred.source ?? '?') })
+        : t('transKeyStateNo', { r: esc(cred.ref) })}</div>
+      <div class="tpBtns">
+        <button class="tpKeySave">${t('transSaveKey')}</button>
+      </div>
+      <div class="tpNote">${t('transKeyStoredNote')}</div>`
+      const provSel = pop.querySelector('.tpProv') as HTMLSelectElement
+      const modelIn = pop.querySelector('.tpModel') as HTMLInputElement
+      const keyIn = pop.querySelector('.tpKeyIn') as HTMLInputElement
+      const keyState = pop.querySelector('.tpKeyState') as HTMLElement
+      const fillModels = async (provider: string): Promise<void> => {
+        if (provider === '' || !TRANS_ID.test(provider)) return
+        try {
+          const r = await fetch(`/schematic/api/translate/models.json?provider=${encodeURIComponent(provider)}`, { cache: 'no-store' })
+          if (!r.ok) return
+          const data = await r.json() as { models?: { id: string }[] }
+          const dl = pop.querySelector('#tpModels')
+          if (dl !== null) dl.innerHTML = (data.models ?? []).map((m) => `<option value="${esc(m.id)}">`).join('')
+        } catch { /* datalist stays empty: the id can still be typed by hand */ }
+      }
+      void fillModels(selProvider)
+      provSel.addEventListener('change', () => { modelIn.value = ''; void fillModels(provSel.value) })
+      ;(pop.querySelector('.tpSave') as HTMLElement).onclick = () => {
+        const provider = provSel.value.trim()
+        const model = modelIn.value.trim()
+        if (!TRANS_ID.test(provider) || !TRANS_ID.test(model)) { toast(t('transBadId')); return }
+        queueTranslateConfig(`translate:\n  provider: ${provider}\n  model: ${model}`)
+      }
+      ;(pop.querySelector('.tpClear') as HTMLElement).onclick = () => queueTranslateConfig(null)
+      ;(pop.querySelector('.tpKeySave') as HTMLElement).onclick = () => {
+        void (async () => {
+          const value = keyIn.value
+          if (value === '') { toast(t('transKeyPh')); return }
+          try {
+            const r = await fetch('/schematic/api/translate/key', {
+              method: 'POST', headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ provider: provSel.value, value }),
+            })
+            const data = await r.json().catch(() => null) as { error?: string } | null
+            if (!r.ok) { toast(data?.error ?? `HTTP ${r.status}`); return }
+            keyIn.value = ''
+            await refreshTransStatus()
+            const now = transStatus?.credentials ?? null
+            keyState.textContent = now === null ? '' : now.configured
+              ? t('transKeyStateOk', { s: esc(now.source ?? '?') })
+              : t('transKeyStateNo', { r: esc(now.ref) })
+            // A stored key is the fix the notice names: drop the fault, then
+            // probe once through the real path — one tiny translate call. (No
+            // discovery-based test: catalog routes answer from the built-in
+            // registry and would pass a bogus key.)
+            zhFailMsg = ''
+            try { localStorage.removeItem(zhFaultKey) } catch { /* storage unavailable */ }
+            keyState.textContent = t('transProbing')
+            const probe = await fetch('/schematic/api/translate-batch', {
+              method: 'POST', headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ texts: ['schematic key probe'] }),
+              signal: AbortSignal.timeout(30_000),
+            }).catch(() => null)
+            if (probe !== null && probe.ok) {
+              toast(t('transProbeOk'))
+              updateTransLabel()
+              ensureZh()
+            } else {
+              const pdata = probe === null ? null : await probe.json().catch(() => null) as { error?: string } | null
+              const msg = pdata?.error ?? (probe === null ? t('netFail') : `HTTP ${probe.status}`)
+              zhFailMsg = msg
+              try { localStorage.setItem(zhFaultKey, JSON.stringify({ at: Date.now(), msg })) } catch { /* storage unavailable */ }
+              toast(t('transProbeFail', { m: msg }))
+              updateTransLabel()
+            }
+          } catch { toast(t('netFail')) }
+        })()
+      }
+      pop.style.left = Math.max(8, Math.min(window.innerWidth - 372, x + 12)) + 'px'
+      pop.style.top = Math.max(8, Math.min(window.innerHeight - 460, y + 12)) + 'px'
+      pop.classList.add('on')
+    })()
   }
 
   // ------- controls -------
@@ -2019,18 +2474,24 @@ export function mountSchematic(container: HTMLElement): () => void {
     const count = (id: string): number => GRAPH.nodes.filter((n: any) => n.category === id).length
     f.innerHTML = ''
     for (const c of CATS) {
-      const chip = document.createElement('span')
-      chip.className = 'chip' + (state.cats.has(c.id) ? '' : ' off')
+      const chip = document.createElement('button')
+      chip.type = 'button'
+      chip.className = 'chip' + (state.catFocus === c.id ? ' focus' : ' off')
+      chip.setAttribute('aria-pressed', String(state.catFocus === c.id))
       chip.style.setProperty('--c', `var(${c.css})`)
+      chip.title = t('catChipTitle')
       chip.innerHTML = `<span class="dot"></span>${catLabel(c.id)} <b>${count(c.id)}</b>`
-      chip.onclick = () => { state.cats.has(c.id) ? state.cats.delete(c.id) : state.cats.add(c.id); renderChips(); render() }
+      chip.onclick = () => { state.catFocus = state.catFocus === c.id ? null : c.id; renderChips(); render() }
       f.appendChild(chip)
     }
-    const other = document.createElement('span')
-    other.className = 'chip' + (state.other ? '' : ' off')
+    const other = document.createElement('button')
+    other.type = 'button'
+    other.className = 'chip' + (state.catFocus === 'other' ? ' focus' : ' off')
+    other.setAttribute('aria-pressed', String(state.catFocus === 'other'))
     other.style.setProperty('--c', 'var(--ink-3)')
+    other.title = t('catChipTitle')
     other.innerHTML = `<span class="dot"></span>${t('other')} <b>${GRAPH.nodes.filter((n: any) => n.category === 'other').length}</b>`
-    other.onclick = () => { state.other = !state.other; renderChips(); render() }
+    other.onclick = () => { state.catFocus = state.catFocus === 'other' ? null : 'other'; renderChips(); render() }
     f.appendChild(other)
 
     const sep = document.createElement('span')
@@ -2042,18 +2503,23 @@ export function mountSchematic(container: HTMLElement): () => void {
     f.appendChild(lbl)
     for (const [id, label] of [['entry', 'originEntry'], ['runtime', 'originRuntimeTip']] as const) {
       const n = GRAPH.nodes.filter((x: any) => (x.origin ?? 'runtime') === id).length
-      const chip = document.createElement('span')
-      chip.className = 'chip' + (state.origins.has(id) ? '' : ' off')
+      const chip = document.createElement('button')
+      chip.type = 'button'
+      chip.className = 'chip' + (state.originFocus === id ? ' focus' : ' off')
+      chip.setAttribute('aria-pressed', String(state.originFocus === id))
+      chip.title = t('catChipTitle')
       chip.innerHTML = `<span class="dot plain"></span>${t(label)} <b>${n}</b>`
-      chip.onclick = () => { state.origins.has(id) ? state.origins.delete(id) : state.origins.add(id); renderChips(); render() }
+      chip.onclick = () => { state.originFocus = state.originFocus === id ? null : id; renderChips(); render() }
       f.appendChild(chip)
     }
 
     const sep2 = document.createElement('span')
     sep2.className = 'sep'
     f.appendChild(sep2)
-    const ext = document.createElement('span')
+    const ext = document.createElement('button')
+    ext.type = 'button'
     ext.className = 'chip' + (state.ext ? '' : 'off')
+    ext.setAttribute('aria-pressed', String(state.ext))
     ext.innerHTML = `<span class="dot ext"></span>${t('extKeys')} <b>${GRAPH.hostKeys.length + GRAPH.unresolvedKeys.length}</b>`
     ext.onclick = () => { state.ext = !state.ext; renderChips(); render() }
     f.appendChild(ext)
@@ -2062,7 +2528,8 @@ export function mountSchematic(container: HTMLElement): () => void {
     // companion to the timeline's recovery rows, which age out of the ring
     if (editOn && compose !== null && compose.editable) {
       const dis = (compose.entries ?? []).filter((e: any): boolean => e.disabled)
-      const chip = document.createElement('span')
+      const chip = document.createElement('button')
+      chip.type = 'button'
       chip.className = 'chip'
       chip.title = t('eDisabledTitle')
       chip.setAttribute('aria-pressed', String(disabledList))
@@ -2128,7 +2595,8 @@ export function mountSchematic(container: HTMLElement): () => void {
     setMeta()
     renderChips()
     render(first)
-    ensureZh()
+    if (first) ensureZhChecked() // status precheck once at boot; later loads ride the cooldown
+    else ensureZh()
     refreshDetail()
     if (first) {
       // deep link: open a cluster directly via #cluster:<label> (URL-encoded)
@@ -2179,6 +2647,26 @@ export function mountSchematic(container: HTMLElement): () => void {
   /** Disabled-entries list open in the drawer — the standing recovery path
    *  timeline rows age out of (the SSE snapshot carries only 40 host actions). */
   let disabledList = false
+  /** Blueprint panel open in the drawer (the blueprint workbench's front door). */
+  let blueprintList = false
+  /** Table-tab curation mode: rows carry checkboxes, the pick bar is up. */
+  let tablePick = false
+  /** Curated member ids (compose entry ids) for the next save-from-pick. */
+  const pickIds = new Set<string>()
+  /** The pick bar's name input, kept across surgical re-syncs. */
+  let pickNameDraft = ''
+  /** Cached GET /blueprints rows; null until first opened. */
+  let blueprints: any[] | null = null
+  /** The import textarea unfolded. */
+  let blueprintImport = false
+  /** The materialization currently drafted: on a successful apply the current
+   *  pointer moves to this blueprint; any manual op after it cancels the
+   *  attribution (the batch is no longer a pure switch). */
+  let pendingBlueprint: { id: string, name: string, adopted: string[] } | null = null
+  /** The last materialize report, shown atop the preview drawer. */
+  let blueprintReport: any = null
+  let smartBlueprint = false
+  let blueprintWorkspace: BlueprintWorkspaceController | null = null
   const editBtn = $('.editBtn')
 
   const stripInc = (id: string): string => id.replace(/^include:/, '')
@@ -2193,13 +2681,53 @@ export function mountSchematic(container: HTMLElement): () => void {
     return { status: r.status, json: await r.json().catch(() => null) }
   }
 
+  // The blueprint workbench's door lives in the header and is not gated on ✎ —
+  // switching is a previewed, backed-up write either way; the server-side
+  // edit config is the only gate left (compose.editable hides the chip).
+  const pChipBtn = $('.pChipBtn') as HTMLElement
+  const renderBlueprintChip = (): void => {
+    const ps = compose?.blueprint ?? null
+    const div = ps !== null && ps.diverged
+    pChipBtn.className = 'chip pChipBtn' + (div ? ' pDiv' : '')
+    pChipBtn.title = div ? t('pDiverged', { n: ps.pendingOps }) : t('pChipTitle')
+    pChipBtn.setAttribute('aria-pressed', String(blueprintList))
+    pChipBtn.innerHTML = `<span class="dot plain"></span>${t('pChip')} <b>${blueprints === null ? '·' : String(blueprints.length)}</b>`
+    pChipBtn.style.display = compose !== null && !compose.editable ? 'none' : ''
+  }
+  pChipBtn.addEventListener('click', () => {
+    blueprintList = !blueprintList
+    if (blueprintList) void fetchBlueprints()
+    renderDrawer()
+  })
+
   const refreshCompose = async (): Promise<void> => {
     const seq = ++composeSeq
     let body: any = null
     try { body = await (await fetch('/schematic/compose.json', { cache: 'no-store' })).json() } catch { /* host older than the page */ }
-    if (seq !== composeSeq || !editOn) return
+    if (seq !== composeSeq) return
     compose = body
     entryById = new Map((compose?.entries ?? []).map((e: any): [string, any] => [e.id, e]))
+    const bpName = $('.blueprintContextName')
+    if (bpName !== null) bpName.textContent = compose?.blueprint?.name ?? t('blueprintNone')
+    const drift = $('.driftBanner')
+    if (drift !== null) {
+      const active = compose?.blueprint
+      drift.classList.toggle('on', active?.diverged === true)
+      drift.innerHTML = active?.diverged === true
+        ? `<b>${lang === 'zh' ? '已偏离' : 'DRIFTED'} · ${esc(active.name)}</b><span>${active.pendingOps} ${lang === 'zh' ? '项变化尚未写回蓝图' : 'live changes are not in the blueprint'}</span><span class="spacer" style="flex:1"></span><button class="driftReview">${lang === 'zh' ? '查看差异' : 'Review drift'}</button><button class="driftUpdate">${lang === 'zh' ? '选择性更新蓝图' : 'Update blueprint'}</button><button class="driftRestore">${lang === 'zh' ? '重新应用蓝图' : 'Reapply blueprint'}</button>`
+        : ''
+      const materialize = async (automatic: boolean): Promise<void> => {
+        const result = await postBlueprints('materialize', { id: active.id })
+        if (result.status === 200) { queueBlueprint(result.json.id, result.json.name, result.json.ops, result.json.report); smartBlueprint = automatic }
+        else toast(result.json?.error ?? String(result.status))
+      }
+      const review = drift.querySelector<HTMLButtonElement>('.driftReview'); if (review) review.onclick = () => { void materialize(false) }
+      const restore = drift.querySelector<HTMLButtonElement>('.driftRestore'); if (restore) restore.onclick = () => { void materialize(true) }
+      const update = drift.querySelector<HTMLButtonElement>('.driftUpdate'); if (update) update.onclick = () => {
+        container.dataset.space = 'blueprints'; container.querySelectorAll<HTMLButtonElement>('.spaceBtn').forEach((button) => button.toggleAttribute('aria-current', button.dataset.space === 'blueprints')); void blueprintWorkspace?.refresh()
+      }
+    }
+    renderBlueprintChip()
     if (GRAPH !== null) renderChips()
     renderEditChrome()
     refreshDetail()
@@ -2232,20 +2760,87 @@ export function mountSchematic(container: HTMLElement): () => void {
     void refreshCompose()
   }
 
-  /** Queue one operation, refresh the preview, open the drawer. */
+  /** Queue one operation, refresh the preview, open the drawer. A manual op
+   *  after a queued blueprint switch cancels the switch's attribution. */
   const addOp = (op: any): void => {
     if (compose === null || !compose.editable) return
     draftOps = [...draftOps, op]
     confirmText = ''
     configEditFor = null
+    pendingBlueprint = null
+    blueprintReport = null
+    smartBlueprint = false
     void runPreview()
   }
+
+  const postBlueprints = async (action: string, body: any): Promise<{ status: number; json: any }> => {
+    const r = await fetch('/schematic/blueprints/' + action, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    })
+    return { status: r.status, json: await r.json().catch(() => null) }
+  }
+
+  /** Refresh the cached list; the panel renders through renderDrawer(). */
+  const fetchBlueprints = async (): Promise<void> => {
+    try {
+      const r = await fetch('/schematic/blueprints', { cache: 'no-store' })
+      blueprints = r.ok ? ((await r.json()).blueprints ?? []) : []
+    } catch { blueprints = [] }
+    renderBlueprintChip()
+    renderDrawer()
+  }
+
+  /**
+   * Queue a materialized blueprint batch as its own draft: the whole switch
+   * previews as a unit through the same drawer, and a successful apply
+   * attributes the tree to that blueprint (the current pointer moves). The
+   * panel stays open underneath, so discarding the preview lands back on it.
+   */
+  const queueBlueprint = (id: string, name: string, ops: any[], report: any, adopted: string[] = []): void => {
+    if (compose === null || !compose.editable) return
+    if (draftOps.length > 0) { toast(t('pDraftBusy')); return }
+    if (ops.length === 0 && adopted.length > 0) {
+      void postBlueprints('adopt', { id, entryIds: adopted }).then(async (result) => {
+        if (result.status !== 200) return toast(result.json?.error ?? String(result.status))
+        await postBlueprints('current', { id })
+        void refreshCompose(); void blueprintWorkspace?.refresh()
+      })
+      return
+    }
+    draftOps = [...ops]
+    confirmText = ''
+    configEditFor = null
+    pendingBlueprint = { id, name, adopted }
+    blueprintReport = report
+    smartBlueprint = true
+    void runPreview()
+  }
+
+  blueprintWorkspace = mountBlueprintWorkspace($('.blueprintWorkspace'), {
+    lang: () => lang,
+    describe: (description) => {
+      if (description === null || lang === 'en') return description
+      return zhMap.get(description) ?? (zhFailMsg === '' ? '正在生成中文说明…' : '中文说明暂不可用；请通过顶部翻译提示配置模型。')
+    },
+    registerDescriptions: (descriptions) => {
+      let added = false
+      for (const description of descriptions) {
+        if (!blueprintZhTexts.has(description)) { blueprintZhTexts.add(description); added = true }
+      }
+      if (added && lang === 'zh') ensureZhChecked()
+    },
+    notify: toast,
+    onSwitch: queueBlueprint,
+    onChanged: () => { void fetchBlueprints(); void refreshCompose() },
+    onCreated: () => window.dispatchEvent(new CustomEvent('schematic:blueprint-created')),
+  })
 
   /**
    * Re-enable an unmounted entry from outside the graph — timeline topo rows,
    * the disabled list, unresolved-key popovers all funnel here. Every gate
    * addOp would fail silently on gets its own toast instead: the mode is never
-   * flipped for the user (✎ stays the only door into editing).
+   * flipped for the user (these recovery affordances stay behind ✎; the
+   * header's blueprint chip is the one mode-independent door).
    */
   const queueEnable = (id: string): void => {
     if (!editOn) { toast(t('eEditFirst')); return }
@@ -2274,7 +2869,7 @@ export function mountSchematic(container: HTMLElement): () => void {
     const vacShow = vacated !== undefined && vacLabel !== '∅' && vacLabel !== 'host'
       && !(compose !== null && entryById.get(vacated.entry)?.disabled === false)
     // curated seam alternatives are the reliable offer — but they only exist
-    // with the compose model loaded, i.e. while edit mode is on (by design)
+    // with the compose model loaded (fetched at boot for the blueprint door)
     const seam = compose === null ? undefined : (compose.seams ?? []).find((s: any): boolean => s.key === key)
     const alts = (seam?.alternatives ?? []).filter((a: any): boolean => a.state === 'in-tree' && a.disabled)
     pop.innerHTML = `
@@ -2301,6 +2896,9 @@ export function mountSchematic(container: HTMLElement): () => void {
     draftPreview = null
     configEditFor = null
     confirmText = ''
+    pendingBlueprint = null
+    blueprintReport = null
+    smartBlueprint = false
     renderDrawer()
     render()
   }
@@ -2308,7 +2906,12 @@ export function mountSchematic(container: HTMLElement): () => void {
   const runPreview = async (): Promise<void> => {
     if (compose === null) return
     const r = await postCompose('preview', { baseHash: compose.patch.hash, operations: draftOps })
-    if (r.status === 200) { draftPreview = r.json; renderDrawer(); render(); return }
+    if (r.status === 200) {
+      draftPreview = r.json
+      const needsReview = (draftPreview.warnings ?? []).some((warning: any) => warning.level === 'warn' || warning.level === 'danger')
+      if (smartBlueprint && !needsReview) { await applyDraft(); return }
+      renderDrawer(); render(); return
+    }
     if (r.status === 409) { toast(t('eStale')); resetDraft(); void refreshCompose(); return }
     toast(t('ePreviewFail', { m: r.json?.error ?? r.status }))
     draftOps = draftOps.slice(0, -1)
@@ -2318,15 +2921,72 @@ export function mountSchematic(container: HTMLElement): () => void {
   const applyDraft = async (): Promise<void> => {
     if (compose === null || draftPreview === null) return
     const confirmIds = confirmText.split(/[\s,，]+/).filter(Boolean)
+    // A successful self-disable removes the very endpoint that would normally
+    // mark the blueprint current after HMR verification. Once the user has
+    // passed the danger confirmation, prepare that pointer immediately before
+    // the atomic patch write; an immediate refusal restores the old pointer.
+    const selfDisable = pendingBlueprint !== null
+      && draftOps.some((op: any) => op.kind === 'disable' && op.id === 'schematic')
+    const previousBlueprintId: string | null = compose.blueprint?.id ?? null
+    if (selfDisable && pendingBlueprint !== null) {
+      if (pendingBlueprint.adopted.length > 0) {
+        const adoption = await postBlueprints('adopt', { id: pendingBlueprint.id, entryIds: pendingBlueprint.adopted })
+        if (adoption.status !== 200) { toast(adoption.json?.error ?? String(adoption.status)); return }
+        pendingBlueprint.adopted = []
+      }
+      const prepared = await postBlueprints('current', { id: pendingBlueprint.id })
+      if (prepared.status !== 200) { toast(prepared.json?.error ?? String(prepared.status)); return }
+    }
     const r = await postCompose('apply', { baseHash: compose.patch.hash, operations: draftOps, confirmIds })
     if (r.status === 200) {
-      toast(t('eApplied'))
+      toast(t(selfDisable ? 'eSchematicOffline' : 'eApplied'))
+      let switchedBlueprint: { id: string, name: string, adopted: string[] } | null = null
+      // The applied batch was a pure blueprint switch: the tree is now that
+      // blueprint's. Attribution waits for the HMR watch below; a write that
+      // the harness rejects must never become the current blueprint.
+      if (pendingBlueprint !== null) {
+        if (!selfDisable) switchedBlueprint = pendingBlueprint
+        pendingBlueprint = null
+        blueprintReport = null
+      }
       draftOps = []; draftPreview = null; confirmText = ''
-      void load()
-      window.setTimeout(() => { void load(); void refreshCompose() }, 2500)
+      if (!selfDisable) void load()
+      // the write hot-reloads the tree (~1–2 s); a self-edit also remounts us,
+      // so translation re-checks against the remounted status once, then rides
+      // the cooldown — a queued translate override starts working here.
+      if (!selfDisable) window.setTimeout(() => { void load(); void refreshCompose(); if (lang === 'zh') ensureZhChecked() }, 2500)
+      window.setTimeout(() => { void (async () => {
+        const latest = await fetch('/schematic/compose.json', { cache: 'no-store' }).then((response) => response.json()).catch(() => null)
+        if (latest === null) {
+          // Losing this endpoint is the success condition of an explicitly
+          // confirmed self-disable, not a rollback-verification failure.
+          if (selfDisable) return
+          toast(t('eRollbackVerifyFail')); return
+        }
+        if (latest.lastError === null || latest.lastError === undefined) {
+          if (switchedBlueprint !== null) {
+            if (switchedBlueprint.adopted.length > 0) {
+              const adoption = await postBlueprints('adopt', { id: switchedBlueprint.id, entryIds: switchedBlueprint.adopted })
+              if (adoption.status !== 200) { toast(adoption.json?.error ?? String(adoption.status)); return }
+            }
+            await postBlueprints('current', { id: switchedBlueprint.id })
+          }
+          void refreshCompose(); void blueprintWorkspace?.refresh()
+          return
+        }
+        const rolled = await postCompose('rollback', {})
+        await new Promise((resolve) => window.setTimeout(resolve, 1400))
+        const verified = rolled.status === 200
+          ? await fetch('/schematic/compose.json', { cache: 'no-store' }).then((response) => response.json()).catch(() => null)
+          : null
+        if (selfDisable) await postBlueprints('current', { id: previousBlueprintId })
+        toast(verified?.editable === true && verified?.lastError === null ? t('eAutoRolledBack') : t('eRollbackVerifyFail'))
+        void load(); void refreshCompose(); void blueprintWorkspace?.refresh()
+      })() }, 3200)
       renderDrawer()
       return
     }
+    if (selfDisable) await postBlueprints('current', { id: previousBlueprintId })
     if (r.status === 409) { toast(t('eStale')); resetDraft(); void refreshCompose(); return }
     toast(t('eApplyFail', { m: r.json?.error ?? r.status }))
     renderDrawer()
@@ -2444,10 +3104,12 @@ export function mountSchematic(container: HTMLElement): () => void {
       top: oldSource.scrollTop,
       left: oldSource.scrollLeft,
     }
-    const open = editOn && (configEditFor !== null || draftPreview !== null || disabledList)
+    // The blueprint panel and a pending preview are mode-independent (the header
+    // chip is the door); the config editor and the disabled list stay behind ✎.
+    const open = blueprintList || draftPreview !== null || (editOn && (configEditFor !== null || disabledList))
     drawer.classList.toggle('on', open)
     scrim.classList.toggle('on', open)
-    if (!open) { drawer.innerHTML = ''; cfgDrafts.clear(); cfgAskBack = false; disabledList = false; return }
+    if (!open) { drawer.innerHTML = ''; cfgDrafts.clear(); cfgAskBack = false; disabledList = false; blueprintList = false; blueprintImport = false; return }
 
     if (configEditFor !== null) {
       const edId = configEditFor
@@ -2571,6 +3233,111 @@ export function mountSchematic(container: HTMLElement): () => void {
       return
     }
 
+    // The blueprint panel — save/switch/overwrite/delete/import/export. 切换
+    // queues the materialized batch, which sets draftPreview and flips the
+    // drawer to the preview branch below; discarding the preview lands back
+    // here while blueprintList stays true.
+    if (draftPreview === null && blueprintList) {
+      const ps = compose?.blueprint ?? null
+      const rows = (blueprints ?? []).map((p: any): string => {
+        const cur = ps !== null && ps.id === p.id
+        const div = cur && ps.diverged
+        const blocked = cur && ps.blocked !== null && ps.blocked !== undefined
+        return `
+        <li class="dRow blueprint">
+          <div class="pMain">
+            <b>${esc(p.name)}</b>
+            <span class="pMeta">${p.memberCount} ${t('pMembers')} · ${esc(String(p.savedAt).slice(0, 10))}</span>
+            ${cur ? `<span class="badge cur">${t('pCurrent')}</span>` : ''}
+            ${div ? `<span class="badge div">${t('pDiverged', { n: ps.pendingOps })}</span>` : ''}
+            ${blocked ? `<span class="badge div">${t('pBlocked')}</span>` : ''}
+          </div>
+          <div class="pBtns">
+            <button class="pSwitch" data-id="${esc(p.id)}" data-name="${esc(p.name)}">${div ? t('pRealign') : t('pSwitch')}</button>
+            <button class="pOverwrite" data-id="${esc(p.id)}" title="${t('pOverwriteTip')}">⟳</button>
+            <button class="pExport" data-id="${esc(p.id)}" data-name="${esc(p.name)}" title="${t('eCopy')}">⇩</button>
+            <button class="pDelete" data-id="${esc(p.id)}" title="${t('pDeleted')}">🗑</button>
+          </div>
+        </li>`
+      }).join('')
+      drawer.innerHTML = `
+      <button class="dClose" title="${t('eClose')}" aria-label="${t('eClose')}">✕</button>
+      <h3>${t('pListTitle', { n: blueprints === null ? '·' : blueprints.length })}</h3>
+      <p class="hint">${t('pHint')}</p>
+      ${ps !== null && ps.blocked != null ? `<p class="hint">${esc(ps.blocked)}</p>` : ''}
+      <div class="pSaveRow">
+        <input class="pNameIn" placeholder="${t('pNamePh')}" maxlength="80">
+        <button class="dPrimary pSave">${t('pSaveAs')}</button>
+      </div>
+      <ul class="dRows">${rows === '' ? `<li class="dRow"><span>${t('pEmpty')}</span></li>` : rows}</ul>
+      <div class="pImportRow">
+        <button class="dGhost pImportBtn">${t('pImport')}</button>
+      </div>
+      <div class="pImport ${blueprintImport ? 'on' : ''}">
+        <textarea class="pImportTa" placeholder="${t('pImportPh')}" spellcheck="false"></textarea>
+        <div class="dbtns"><button class="dPrimary pImportGo">${t('pImportGo')}</button></div>
+      </div>`
+      ;(drawer.querySelector('.dClose') as HTMLElement).onclick = () => { blueprintList = false; blueprintImport = false; renderDrawer() }
+      ;(drawer.querySelector('.pImportBtn') as HTMLElement).onclick = () => { blueprintImport = !blueprintImport; renderDrawer() }
+      const refresh = (): void => { void fetchBlueprints(); void refreshCompose() }
+      ;(drawer.querySelector('.pSave') as HTMLElement).onclick = async () => {
+        const name = (drawer.querySelector('.pNameIn') as HTMLInputElement).value.trim()
+        if (name === '') { toast(t('pNamePh')); return }
+        const r = await postBlueprints('save', { name })
+        if (r.status === 200) { toast(t('pSaved', { n: r.json.blueprint.memberCount })); refresh() }
+        else toast(r.json?.error ?? t('eApplyFail', { m: r.status }))
+      }
+      drawer.querySelectorAll<HTMLButtonElement>('.pSwitch').forEach((btn) => {
+        btn.onclick = async () => {
+          const r = await postBlueprints('materialize', { id: btn.dataset.id })
+          if (r.status !== 200) { toast(r.json?.error ?? t('eApplyFail', { m: r.status })); return }
+          if (r.json.ops.length === 0) { toast(t('pOnBlueprint')); return }
+          queueBlueprint(r.json.id, r.json.name, r.json.ops, r.json.report)
+        }
+      })
+      drawer.querySelectorAll<HTMLButtonElement>('.pOverwrite').forEach((btn) => {
+        btn.onclick = async () => {
+          const r = await postBlueprints('update', { id: btn.dataset.id })
+          if (r.status === 200) { toast(t('pOverwritten', { n: r.json.blueprint.memberCount })); refresh() }
+          else toast(r.json?.error ?? t('eApplyFail', { m: r.status }))
+        }
+      })
+      drawer.querySelectorAll<HTMLButtonElement>('.pExport').forEach((btn) => {
+        btn.onclick = async () => {
+          try {
+            const r = await fetch('/schematic/blueprints/export?id=' + encodeURIComponent(btn.dataset.id ?? ''), { cache: 'no-store' })
+            const text = await r.text()
+            if (!r.ok) { toast(t('eApplyFail', { m: r.status })); return }
+            void navigator.clipboard?.writeText(text).then(
+              () => toast(t('eCopied') + ' · ' + (btn.dataset.name ?? '')),
+              () => toast(t('eApplyFail', { m: 'clipboard' })),
+            )
+          } catch { toast(t('eApplyFail', { m: 'fetch' })) }
+        }
+      })
+      drawer.querySelectorAll<HTMLButtonElement>('.pDelete').forEach((btn) => {
+        btn.onclick = async () => {
+          if (!btn.classList.contains('arm')) {
+            btn.classList.add('arm')
+            btn.textContent = t('pDeleteConfirm')
+            window.setTimeout(() => { if (btn.isConnected) { btn.classList.remove('arm'); btn.textContent = '🗑' } }, 2500)
+            return
+          }
+          const r = await postBlueprints('delete', { id: btn.dataset.id })
+          if (r.status === 200) { toast(t('pDeleted')); refresh() }
+          else toast(r.json?.error ?? t('eApplyFail', { m: r.status }))
+        }
+      })
+      ;(drawer.querySelector('.pImportGo') as HTMLElement).onclick = async () => {
+        const ta = drawer.querySelector('.pImportTa') as HTMLTextAreaElement
+        if (ta.value.trim() === '') { toast(t('pImportPh')); return }
+        const r = await postBlueprints('import', { yaml: ta.value })
+        if (r.status === 200) { toast(t('pImported', { n: r.json.blueprint.memberCount })); ta.value = ''; blueprintImport = false; refresh() }
+        else toast(r.json?.error ?? t('eApplyFail', { m: r.status }))
+      }
+      return
+    }
+
     // Standing disabled-entries list — the durable recovery surface (timeline
     // rows age out of the action ring). Queueing an op sets draftPreview and
     // flips the drawer to the preview branch below; cancel lands back here
@@ -2608,6 +3375,12 @@ export function mountSchematic(container: HTMLElement): () => void {
     const diff = lineDiff(p.blockYamlBefore ?? '', p.blockYamlAfter ?? '')
     drawer.innerHTML = `
     <h3>${t('eDrawerTitle', { n: draftOps.length })}</h3>
+    ${blueprintReport !== null && (blueprintReport.newEntries?.length > 0 || blueprintReport.renamed?.length > 0) ? `
+    <div class="pReport">
+      <h4>${t('pReportLbl')}</h4>
+      ${blueprintReport.newEntries?.length > 0 ? `<p class="hint">${t('pReportNew', { n: blueprintReport.newEntries.length, ids: blueprintReport.newEntries.map((e: any) => e.id).join(', ') })}</p>` : ''}
+      ${blueprintReport.renamed?.length > 0 ? `<p class="hint">${t('pReportRenamed', { ids: blueprintReport.renamed.map((r: any) => `${r.id} (${r.was} → ${r.now})`).join(', ') })}</p>` : ''}
+    </div>` : ''}
     ${p.entries.length > 0
       ? `<ul class="dRows">${p.entries.map(kindRow).join('')}</ul>`
       : `<p class="hint">${t('eNoChanges')}</p>`}
@@ -2622,8 +3395,8 @@ export function mountSchematic(container: HTMLElement): () => void {
       <button class="dPrimary dApply" ${confirmed ? '' : 'disabled'}>${t('eApply')}</button>
       <button class="dGhost dCancel">${t('eCancel')}</button>
       <span class="spacer" style="flex:1"></span>
-      ${compose?.backups?.length > 0 ? `<button class="dGhost dRollback">${t('eRollback')} (${compose.backups.length})</button>` : ''}
-      <button class="dGhost dClear">${t('eClear')}</button>
+      ${editOn && compose?.backups?.length > 0 ? `<button class="dGhost dRollback">${t('eRollback')} (${compose.backups.length})</button>` : ''}
+      ${editOn ? `<button class="dGhost dClear">${t('eClear')}</button>` : ''}
     </div>`
     ;(drawer.querySelector('.dCancel') as HTMLElement).onclick = () => resetDraft()
     ;(drawer.querySelector('.dApply') as HTMLElement).onclick = () => { void applyDraft() }
@@ -2646,7 +3419,7 @@ export function mountSchematic(container: HTMLElement): () => void {
   const paintEditOverlay = (): void => {
     world.querySelectorAll('g.editGhosts').forEach((g) => g.remove())
     world.querySelectorAll('.node.ghostRem').forEach((g) => g.classList.remove('ghostRem'))
-    if (!editOn || draftPreview === null || state.tab === 'journey') return
+    if (draftPreview === null || state.tab === 'journey') return
     for (const e of draftPreview.entries) {
       if (e.liveNodeId === null) continue
       const going = e.kind === 'removed' || (e.kind === 'changed' && e.changes.includes('disabled') && e.disabledAfter)
@@ -2671,7 +3444,9 @@ export function mountSchematic(container: HTMLElement): () => void {
   editBtn.addEventListener('click', () => {
     editOn = !editOn
     try { sessionStorage.setItem('sch-edit', editOn ? '1' : '0') } catch { /* session storage unavailable */ }
-    if (!editOn) { compose = null; entryById = new Map(); disabledList = false; resetDraft() }
+    // compose/blueprints stay loaded either way — the header blueprint chip and a
+    // pending switch do not belong to the ✎ mode; only the edit chrome drops
+    if (!editOn) { disabledList = false; resetDraft() }
     else void refreshCompose()
     renderEditChrome()
     if (GRAPH !== null) renderChips()
@@ -2679,8 +3454,9 @@ export function mountSchematic(container: HTMLElement): () => void {
     refreshDetail()
   })
   ;(() => { // restore the remembered mode, but never silently enable affordances
-    try { editOn = sessionStorage.getItem('sch-edit') === '1' } catch { /* keep off */ }
-    if (editOn) { editBtn.setAttribute('aria-pressed', 'true'); void refreshCompose() }
+    editOn = window.matchMedia('(min-width: 768px)').matches
+    editBtn.setAttribute('aria-pressed', String(editOn))
+    void refreshCompose() // the blueprint door needs the compose model even with ✎ off
   })()
 
   /** Fetch a snapshot; first load paints it, later loads diff against the shown one. */
@@ -2741,8 +3517,12 @@ export function mountSchematic(container: HTMLElement): () => void {
     /** set once the first SSE snapshot lands; absence knowledge needs it. */
     seenSnapshot: false,
     includeSub: false,
-    /** service-read rows visible in the timeline (toggle on the activity bar). */
-    showSvc: true,
+    /**
+     * Low-level service reads are an opt-in diagnostic layer. Keeping them
+     * off by default lets the activity feed answer "what happened" instead
+     * of showing every normal provide/inject lookup.
+     */
+    showSvc: false,
     /** replay toggle: history pages of the shown session render below the live rows. */
     replay: false,
     /** one page at a time; older pages append (rows are newest-first). */
@@ -2755,6 +3535,12 @@ export function mountSchematic(container: HTMLElement): () => void {
     lastLlm: new Map<string, string | null>(),
     /** host-scope action ring (RPC mutations + live registry changes). */
     actions: [] as any[],
+    /**
+     * Service reads live outside the action ring: one accumulating row per
+     * reader/key pair. Otherwise a healthy 750ms traffic stream can evict
+     * real actions even while the diagnostic layer is hidden.
+     */
+    serviceRows: new Map<string, any>(),
   }
   const AK: Record<string, string> = {
     user: 'akUser', llm: 'akLlm', tool: 'akTool', 'tool-end': 'akToolEnd', turn: 'akTurn',
@@ -2899,7 +3685,7 @@ export function mountSchematic(container: HTMLElement): () => void {
       case 'tool': return e.name ?? ''
       case 'tool-end': return (e.name ?? '') + (e.durationMs !== undefined ? ` · ${e.durationMs}ms` : '') + (e.isError ? ' ✕' : '')
       case 'turn': return '#' + (e.name ?? '')
-      case 'action': return (e.name ?? '') + (e.durationMs !== undefined ? ` · ${e.durationMs}ms` : '') + (e.isError ? ' ✕' : '')
+      case 'action': return (e.name ?? '') + ((e.count ?? 1) > 1 ? ` ×${e.count}` : '') + (e.durationMs !== undefined ? ` · ${e.durationMs}ms` : '') + (e.isError ? ' ✕' : '')
       case 'job': return (e.name ?? '') + (e.snippet !== undefined ? ` · ${e.snippet}` : '') + (e.durationMs !== undefined ? ` · ${e.durationMs}ms` : '') + (e.isError ? ' ✕' : '')
       case 'workflow': return [e.name, e.snippet].filter(Boolean).join(' · ') + (e.durationMs !== undefined ? ` · ${e.durationMs}ms` : '') + (e.isError ? ' ✕' : '')
       case 'workflow-end': return (e.snippet ?? '') + (e.durationMs !== undefined ? ` · ${e.durationMs}ms` : '') + (e.isError ? ' ✕' : '')
@@ -2907,22 +3693,37 @@ export function mountSchematic(container: HTMLElement): () => void {
       case 'topo': {
         // snippet is '+'/'-' for mount/unmount rows, else 'from → to · reason'
         const d = e.snippet ?? ''
-        if (d === '+' || d === '-') return `${e.name ?? ''} ${d === '+' ? t('topoOn') : t('topoOff')}`
+        if (d === '+' || d === '-') return `${e.name ?? ''} ${d === '+' ? t('topoOn') : t('topoOff')}${(e.count ?? 1) > 1 ? ` ×${e.count}` : ''}`
         return [e.name, d].filter(Boolean).join(' · ') + (e.isError ? ' ✕' : '')
       }
       default: return e.name ?? ''
     }
   }
-  const fmtTime = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour12: false })
+  // The timeline re-renders whole on every activity burst, and rows only show
+  // HH:MM:SS — so one shared formatter plus one cached string per distinct
+  // second. Constructing an Intl formatter per row per redraw used to be the
+  // single hottest function on an otherwise idle page (~20% CPU).
+  const timeFmt = new Intl.DateTimeFormat([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  const timeCache = new Map<number, string>()
+  const fmtTime = (ms: number): string => {
+    const sec = Math.floor(ms / 1000)
+    let text = timeCache.get(sec)
+    if (text === undefined) {
+      text = timeFmt.format(new Date(sec * 1000))
+      if (timeCache.size > 4096) timeCache.clear() // long uptimes: drop the cold tail
+      timeCache.set(sec, text)
+    }
+    return text
+  }
 
   /** Full redraw of the timeline list from the shown sessions' rings + host actions. */
   function renderActList(): void {
     if (act.stats) { renderStatsTable(); return }
     const rows: any[] = [...act.actions]
     for (const id of shownSessions()) rows.push(...(act.timelines.get(id) ?? []))
-    const visible = act.showSvc ? rows : rows.filter((e) => e.kind !== 'svc')
-    visible.sort((a, b) => b.time - a.time)
-    const shown = visible.slice(0, 60)
+    if (act.showSvc) rows.push(...act.serviceRows.values())
+    rows.sort((a, b) => b.time - a.time)
+    const shown = rows.slice(0, 60)
     const rowHtml = (e: any): string => {
       const badge = e.module !== null
         ? `<span class="md"${moduleColorCss(e.module) ? ` style="--mc: ${moduleColorCss(e.module)}"` : ''}>${esc(moduleShort(e.module))}</span>`
@@ -3278,26 +4079,55 @@ export function mountSchematic(container: HTMLElement): () => void {
     if (frame.type === 'action') {
       // Host-scope actions are process-level, not per-chat: always recorded
       // and always lit, regardless of which session the timeline follows.
-      act.actions.push(frame.entry)
-      if (act.actions.length > 200) act.actions.splice(0, act.actions.length - 200)
+      // A counting row (count > 1) is a burst folded server-side into its own
+      // ring row — update that row (matched by seq) instead of duplicating it.
+      if ((frame.entry.count ?? 1) > 1 && frame.entry.seq !== undefined) {
+        let at = -1
+        for (let j = act.actions.length - 1; j >= 0 && j >= act.actions.length - 20; j--) {
+          if (act.actions[j].seq === frame.entry.seq) { at = j; break }
+        }
+        if (at >= 0) act.actions[at] = frame.entry
+        else {
+          act.actions.push(frame.entry)
+          if (act.actions.length > 200) act.actions.splice(0, act.actions.length - 200)
+        }
+      } else {
+        act.actions.push(frame.entry)
+        if (act.actions.length > 200) act.actions.splice(0, act.actions.length - 200)
+      }
       if (frame.entry.module !== null) touchModule(frame.entry.module, false)
       renderActList()
       return
     }
     if (frame.type === 'traffic') {
       // The pure-wiring signal: a package actually read an injected ctx key.
-      // Both ends light — the reader and the key's provider(s) — which is the
-      // only live highlight packages with no broadcast listeners ever get.
+      // Fold it into one cumulative row per reader/key pair. These rows live
+      // outside the real-action ring and are opt-in, so ordinary dependency
+      // lookups cannot flood the feed or evict meaningful activity.
       const time = Date.now()
       for (const r of frame.rows as any[]) {
-        act.actions.push({ time, kind: 'svc', module: r.module ?? null, name: `ctx.${r.key} ×${r.n}` })
-        if (act.actions.length > 200) act.actions.splice(0, act.actions.length - 200)
-        if (typeof r.module === 'string') touchModule(r.module, false)
-        for (const owner of keyOwners.get(r.key) ?? []) {
-          if (typeof owner.module === 'string') touchModule(owner.module, false)
+        const key = `${r.module ?? ''}\u0000${r.key}`
+        const prev = act.serviceRows.get(key)
+        const count = (prev?.count ?? 0) + Math.max(0, Number(r.n) || 0)
+        act.serviceRows.set(key, {
+          time, kind: 'svc', module: r.module ?? null,
+          key: r.key, count, name: `ctx.${r.key} ×${count}`,
+        })
+        if (act.showSvc) {
+          if (typeof r.module === 'string') touchModule(r.module, false)
+          for (const owner of keyOwners.get(r.key) ?? []) {
+            if (typeof owner.module === 'string') touchModule(owner.module, false)
+          }
         }
       }
-      renderActList()
+      // Bound diagnostic cardinality without coupling it to the action ring.
+      if (act.serviceRows.size > 120) {
+        const oldest = [...act.serviceRows.entries()]
+          .sort((a, b) => a[1].time - b[1].time)
+          .slice(0, act.serviceRows.size - 120)
+        for (const [key] of oldest) act.serviceRows.delete(key)
+      }
+      if (act.showSvc) renderActList()
     }
   }
 
@@ -3331,7 +4161,7 @@ export function mountSchematic(container: HTMLElement): () => void {
 
   // ------- events -------
   $('.search').addEventListener('input', (e) => { state.q = (e.target as HTMLInputElement).value.trim().toLowerCase(); render() })
-  $('.crumb').addEventListener('click', exitScope)
+  container.querySelector('.crumb')?.addEventListener('click', exitScope)
   // Popover dismissal: pointerdown (capture) so clicking another unresolved
   // pill closes-then-reopens cleanly.
   document.addEventListener('pointerdown', (e) => {
@@ -3368,12 +4198,98 @@ export function mountSchematic(container: HTMLElement): () => void {
         return
       }
       if (draftPreview !== null) resetDraft()
-      else { disabledList = false; renderDrawer() }
+      else { disabledList = false; blueprintList = false; blueprintImport = false; renderDrawer() }
       return
     }
     if (state.scope) exitScope()
     else { state.sel = null; render() }
   }, { ...sig, capture: true })
+  let systemTab: 'domains' | 'table' = bootTab === 'table' ? 'table' : 'domains'
+  const switchSpace = (space: 'system' | 'blueprints' | 'activity'): void => {
+    container.dataset.space = space
+    container.querySelectorAll<HTMLButtonElement>('.spaceBtn').forEach((button) => {
+      if (button.dataset.space === space) button.setAttribute('aria-current', 'page')
+      else button.removeAttribute('aria-current')
+    })
+    if (space === 'system') state.tab = systemTab
+    else if (space === 'activity') state.tab = 'journey'
+    else void blueprintWorkspace?.refresh()
+    container.dataset.tab = state.tab
+    container.querySelectorAll<HTMLButtonElement>('.systemView').forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.view === systemTab)))
+    if (GRAPH !== null) render(state.tab === 'domains')
+  }
+  container.querySelectorAll<HTMLButtonElement>('.spaceBtn').forEach((button) => {
+    button.addEventListener('click', () => switchSpace(button.dataset.space as 'system' | 'blueprints' | 'activity'))
+  })
+  container.querySelectorAll<HTMLButtonElement>('.systemView').forEach((button) => {
+    button.addEventListener('click', () => { systemTab = button.dataset.view as 'domains' | 'table'; switchSpace('system') })
+  })
+  const tour = $('.tourLayer')
+  const tourSpot = tour.querySelector<HTMLElement>('.tourSpot')!
+  const tourCard = tour.querySelector<HTMLElement>('.tourCard')!
+  let tourStep = 0
+  let tourTarget: HTMLElement | null = null
+  let tourAdvance: (() => void) | null = null
+  const tourSteps = (): { selector: string, title: string, body: string, hint: string, clickAdvances: boolean }[] => [
+    { selector: '.systemView[data-view="domains"]', title: lang === 'zh' ? '先认识实时拓扑' : 'Start with the live topology', body: lang === 'zh' ? '这里展示正在运行的系统，而不是一张静态配置图。节点状态与活动路径会随进程变化。' : 'This is the running system, not a static config diagram. Node state and activity paths change with the process.', hint: lang === 'zh' ? '点击「拓扑」继续' : 'Click “Topology” to continue', clickAdvances: true },
+    { selector: '.spaceBtn[data-space="blueprints"]', title: lang === 'zh' ? '运行状态与期望配置分开' : 'Separate reality from intent', body: lang === 'zh' ? '系统回答“现在是什么”，蓝图定义“应该成为什么”，活动解释“正在发生什么”。' : 'System answers what is running. Blueprints define what it should become. Activity explains what is happening.', hint: lang === 'zh' ? '点击顶部「蓝图」' : 'Click “Blueprints” in the navigation', clickAdvances: true },
+    { selector: '.bpNew', title: lang === 'zh' ? '建立第一张蓝图' : 'Create your first blueprint', body: lang === 'zh' ? '蓝图不会偷偷同步运行系统。先明确创建，再决定是否保存与切换。' : 'Blueprints never silently sync with the running system. Creation, saving, and switching stay explicit.', hint: lang === 'zh' ? '点击＋新建蓝图' : 'Click ＋ to create a blueprint', clickAdvances: true },
+    { selector: '.bpCreateOverlay > section', title: lang === 'zh' ? '命名并选择起点' : 'Name it and choose a starting point', body: lang === 'zh' ? '输入名称，然后点击「复制当前系统」。创建完成后引导会自动结束。' : 'Enter a name, then click “Copy running system”. The guide closes after creation succeeds.', hint: lang === 'zh' ? '名称 → 复制当前系统' : 'Name → Copy running system', clickAdvances: false },
+  ]
+  const clearTourTarget = (): void => {
+    if (tourTarget !== null && tourAdvance !== null) tourTarget.removeEventListener('click', tourAdvance)
+    tourTarget = null; tourAdvance = null
+  }
+  const finishTour = (): void => {
+    clearTourTarget(); tour.hidden = true
+    try { localStorage.setItem('sch.welcome.v3', '1') } catch { /* this visit is still complete */ }
+  }
+  const placeTour = (): void => {
+    if (tourTarget === null || tour.hidden) return
+    const r = tourTarget.getBoundingClientRect(); const pad = 6
+    tourSpot.style.width = `${r.width + pad * 2}px`; tourSpot.style.height = `${r.height + pad * 2}px`
+    tourSpot.style.transform = `translate3d(${Math.round(r.left - pad)}px,${Math.round(r.top - pad)}px,0)`
+    const cardW = Math.min(320, window.innerWidth - 28); const cardH = tourCard.offsetHeight || 190; const gap = 16
+    let x = Math.max(14, Math.min(window.innerWidth - cardW - 14, r.left))
+    let y = r.bottom + gap
+    if (r.width > 420) {
+      if (r.left >= cardW + gap + 14) { x = r.left - cardW - gap; y = Math.max(14, r.top) }
+      else if (window.innerWidth - r.right >= cardW + gap + 14) { x = r.right + gap; y = Math.max(14, r.top) }
+    }
+    if (y + cardH > window.innerHeight - 14) y = Math.max(14, r.top - cardH - gap)
+    tourCard.style.setProperty('--tour-x', `${Math.round(x)}px`); tourCard.style.setProperty('--tour-y', `${Math.round(y)}px`)
+    tourCard.style.transform = `translate3d(${Math.round(x)}px,${Math.round(y)}px,0)`
+  }
+  const showTour = (attempt = 0): void => {
+    clearTourTarget()
+    if (tourStep === 0) switchSpace('system')
+    const step = tourSteps()[tourStep]
+    if (step === undefined) return finishTour()
+    const targets = [...container.querySelectorAll<HTMLElement>(step.selector)]
+    const target = targets.find((element) => element.getBoundingClientRect().width > 0)
+    if (target === undefined) {
+      if (attempt < 30) window.setTimeout(() => showTour(attempt + 1), 80)
+      else finishTour()
+      return
+    }
+    tourTarget = target; tour.hidden = false
+    ;(tourCard.querySelector('.tourStep') as HTMLElement).textContent = `${String(tourStep + 1).padStart(2, '0')} / 04`
+    ;(tourCard.querySelector('h2') as HTMLElement).textContent = step.title
+    ;(tourCard.querySelector('p') as HTMLElement).textContent = step.body
+    ;(tourCard.querySelector('.tourHint') as HTMLElement).textContent = `↳ ${step.hint}`
+    ;(tourCard.querySelector('.tourSkip') as HTMLButtonElement).textContent = lang === 'zh' ? '跳过引导' : 'Skip guide'
+    ;(tourCard.querySelector('.tourSkip') as HTMLButtonElement).onclick = finishTour
+    placeTour()
+    if (step.clickAdvances) {
+      tourAdvance = () => { clearTourTarget(); tourStep++; window.setTimeout(() => showTour(), 100) }
+      target.addEventListener('click', tourAdvance, { once: true })
+    }
+  }
+  window.addEventListener('resize', placeTour, sig)
+  window.addEventListener('schematic:blueprint-created', finishTour, sig)
+  $('.helpBtn').addEventListener('click', () => { tourStep = 0; showTour() })
+  try { if (localStorage.getItem('sch.welcome.v3') !== '1') window.setTimeout(showTour, 250) } catch { window.setTimeout(showTour, 250) }
+  switchSpace(bootTab === 'journey' ? 'activity' : 'system')
   container.querySelectorAll<HTMLButtonElement>('.tabBtn').forEach((btn) => {
     btn.addEventListener('click', () => {
       state.tab = (btn.dataset.tab ?? 'journey') as typeof state.tab
@@ -3417,7 +4333,9 @@ export function mountSchematic(container: HTMLElement): () => void {
   $('.themeToggle').addEventListener('click', () => {
     const cur = document.documentElement.dataset.theme ??
       (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-    document.documentElement.dataset.theme = cur === 'dark' ? 'light' : 'dark'
+    const next = cur === 'dark' ? 'light' : 'dark'
+    document.documentElement.dataset.theme = next
+    try { localStorage.setItem('sch.theme', next) } catch { /* this visit still keeps the override */ }
   })
   const langToggle = $('.langToggle')
   const updateLangButton = (): void => {
@@ -3453,25 +4371,38 @@ export function mountSchematic(container: HTMLElement): () => void {
     $('.refresh').title = t('refreshTitle')
     // stats is render-owned; only the pre-load "loading…" state needs help
     if (GRAPH === null) $('.stats').textContent = t('loading')
+    container.querySelectorAll<HTMLButtonElement>('.spaceBtn').forEach((button) => {
+      button.textContent = t(button.dataset.space === 'system' ? 'navSystem' : button.dataset.space === 'blueprints' ? 'navBlueprints' : 'navActivity')
+    })
+    blueprintWorkspace?.relocalize()
   }
   langToggle.addEventListener('click', () => {
     lang = lang === 'zh' ? 'en' : 'zh'
     try { localStorage.setItem('sch.lang', lang) } catch { /* storage unavailable: choice lasts for this page only */ }
+    try { localStorage.removeItem(zhFaultKey) } catch { /* storage unavailable */ } // an explicit toggle is a human asking to retry now
+    zhFailMsg = ''
     updateLangButton()
     relocalizeShell()
+    renderBlueprintChip()
     setMeta()
     closePop() // re-opened on the next click, in the new language
     renderChips()
     render()
     refreshDetail()
     renderEditChrome()
-    ensureZh()
+    ensureZhChecked() // the precheck names a broken provider instantly on the switch
     renderSessSel()
     renderActHead()
     paintRecv()
     renderActList()
   })
   updateLangButton()
+  // the unavailable notice is the door into translation settings
+  ;($('.trans') as HTMLElement).addEventListener('click', () => {
+    if (lang !== 'zh' || zhFailMsg === '') return
+    const r = ($('.trans') as HTMLElement).getBoundingClientRect()
+    openTransPop(r.left, r.bottom)
+  })
   $('.refresh').addEventListener('click', () => { void load() })
   $('.zoomIn').addEventListener('click', () => {
     if (state.tab === 'journey') { journeyZoom = Math.min(4, journeyZoom * 1.25); fitJourney(); return }
